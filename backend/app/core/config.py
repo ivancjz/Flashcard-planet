@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     discord_guild_id: str = ""
     backend_base_url: str = "http://localhost:8000"
     scheduler_poll_seconds: int = 300
+    pokemon_tcg_api_base_url: str = "https://api.pokemontcg.io/v2"
+    pokemon_tcg_api_key: str = ""
+    pokemon_tcg_card_ids: str = "base1-44,base1-58,base1-63"
+    pokemon_tcg_schedule_enabled: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",
