@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -8,7 +10,9 @@ from backend.app.core.price_sources import get_active_price_source_filter, get_p
 from backend.app.core.tracked_pools import (
     BASE_SET_POOL_KEY,
     HIGH_ACTIVITY_TRIAL_POOL_KEY,
+    HIGH_ACTIVITY_V2_POOL_KEY,
     TRIAL_POOL_KEY,
+    get_tracked_pokemon_pools,
 )
 from backend.app.db.session import SessionLocal
 from backend.app.models.asset import Asset
@@ -22,6 +26,7 @@ from backend.app.services.asset_tagging import (
     TAG_DIMENSION_ORDER,
     get_tag_value_sort_key,
 )
+from backend.app.services.diagnostics_summary_service import build_standardized_diagnostics_summary
 from backend.app.services.data_health_service import (
     PoolHealthSnapshot,
     ProviderHealthSnapshot,
@@ -507,12 +512,334 @@ def _build_operator_decision_summary(
     return [pool_line, tag_line, recommendation_line]
 
 
+@dataclass(frozen=True)
+class CardCoverageAuditSnapshot:
+    card_id: str
+    name: str
+    external_id: str | None
+    latest_price: Decimal | None
+    real_history_points: int
+    changed_rows_last_24h: int
+    changed_rows_last_7d: int
+    distinct_real_prices: int
+    asset_match_count: int
+    first_captured_at: datetime | None
+    latest_captured_at: datetime | None
+    fetch_consistent: bool
+    history_depth_increasing: bool
+    prices_ever_changed: bool
+    weak_coverage_candidate: bool
+    assessment: str
+    note: str
+
+
+def _coerce_datetime_to_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _get_tracked_pool(pool_key: str):
+    return next((pool for pool in get_tracked_pokemon_pools() if pool.key == pool_key), None)
+
+
+def _build_card_external_id_pattern(card_id: str) -> str:
+    return f"pokemontcg:{card_id}:%"
+
+
+def _load_card_coverage_audit(
+    session,
+    *,
+    card_ids: list[str],
+    source: str,
+) -> list[CardCoverageAuditSnapshot]:
+    raw_snapshots: list[dict[str, object]] = []
+
+    for card_id in card_ids:
+        asset_pattern = _build_card_external_id_pattern(card_id)
+        matched_assets = session.execute(
+            select(Asset)
+            .where(Asset.external_id.like(asset_pattern))
+            .order_by(Asset.external_id.asc())
+        ).scalars().all()
+        selected_asset = matched_assets[0] if matched_assets else None
+
+        history_rows = []
+        if selected_asset is not None:
+            history_rows = session.execute(
+                select(
+                    PriceHistory.price,
+                    PriceHistory.captured_at,
+                )
+                .where(
+                    PriceHistory.asset_id == selected_asset.id,
+                    PriceHistory.source == source,
+                )
+                .order_by(PriceHistory.captured_at.asc())
+            ).all()
+
+        changed_rows_last_24h = 0
+        changed_rows_last_7d = 0
+        distinct_real_prices = len({str(price) for price, _captured_at in history_rows})
+        latest_price = history_rows[-1][0] if history_rows else None
+        first_captured_at = _coerce_datetime_to_utc(history_rows[0][1]) if history_rows else None
+        latest_captured_at = _coerce_datetime_to_utc(history_rows[-1][1]) if history_rows else None
+        cutoff_24h = datetime.now(UTC) - timedelta(hours=24)
+        cutoff_7d = datetime.now(UTC) - timedelta(days=7)
+        previous_price = None
+
+        for price, captured_at in history_rows:
+            captured_at = _coerce_datetime_to_utc(captured_at)
+            if previous_price is not None and captured_at is not None and price != previous_price:
+                if captured_at >= cutoff_24h:
+                    changed_rows_last_24h += 1
+                if captured_at >= cutoff_7d:
+                    changed_rows_last_7d += 1
+            previous_price = price
+
+        raw_snapshots.append(
+            {
+                "card_id": card_id,
+                "name": selected_asset.name if selected_asset is not None else card_id,
+                "external_id": selected_asset.external_id if selected_asset is not None else None,
+                "latest_price": latest_price,
+                "real_history_points": len(history_rows),
+                "changed_rows_last_24h": changed_rows_last_24h,
+                "changed_rows_last_7d": changed_rows_last_7d,
+                "distinct_real_prices": distinct_real_prices,
+                "asset_match_count": len(matched_assets),
+                "first_captured_at": first_captured_at,
+                "latest_captured_at": latest_captured_at,
+            }
+        )
+
+    latest_timestamps = [
+        snapshot["latest_captured_at"]
+        for snapshot in raw_snapshots
+        if snapshot["latest_captured_at"] is not None
+    ]
+    cohort_latest = max(latest_timestamps) if latest_timestamps else None
+    max_history_points = max(
+        (int(snapshot["real_history_points"]) for snapshot in raw_snapshots),
+        default=0,
+    )
+
+    audits: list[CardCoverageAuditSnapshot] = []
+    for snapshot in raw_snapshots:
+        real_history_points = int(snapshot["real_history_points"])
+        latest_captured_at = snapshot["latest_captured_at"]
+        asset_match_count = int(snapshot["asset_match_count"])
+        fetch_consistent = (
+            asset_match_count == 1
+            and real_history_points > 0
+            and latest_captured_at is not None
+            and cohort_latest is not None
+            and (cohort_latest - latest_captured_at) <= timedelta(hours=2)
+            and real_history_points >= max(max_history_points - 2, 1)
+        )
+        history_depth_increasing = (
+            fetch_consistent
+            and real_history_points >= 8
+            and snapshot["first_captured_at"] is not None
+            and latest_captured_at is not None
+            and latest_captured_at > snapshot["first_captured_at"]
+        )
+        prices_ever_changed = int(snapshot["distinct_real_prices"]) > 1
+        weak_coverage_candidate = (
+            asset_match_count != 1
+            or real_history_points == 0
+            or not fetch_consistent
+            or not history_depth_increasing
+        )
+
+        if asset_match_count == 0:
+            assessment = "Coverage watch"
+            note = "No asset has been created for this card id yet."
+        elif asset_match_count > 1:
+            assessment = "Coverage watch"
+            note = "Multiple assets match this card id, so canonical identity is not clean."
+        elif weak_coverage_candidate:
+            assessment = "Coverage watch"
+            note = "History is present but still too stale or too shallow to trust coverage."
+        elif prices_ever_changed:
+            assessment = "Healthy / movement observed"
+            note = (
+                f"Observed changes: 24h={snapshot['changed_rows_last_24h']}, "
+                f"7d={snapshot['changed_rows_last_7d']}, "
+                f"distinct_prices={snapshot['distinct_real_prices']}."
+            )
+        else:
+            assessment = "Healthy / no movement yet"
+            note = "Fetch and depth look healthy; this card has simply stayed flat so far."
+
+        audits.append(
+            CardCoverageAuditSnapshot(
+                card_id=str(snapshot["card_id"]),
+                name=str(snapshot["name"]),
+                external_id=snapshot["external_id"],
+                latest_price=snapshot["latest_price"],
+                real_history_points=real_history_points,
+                changed_rows_last_24h=int(snapshot["changed_rows_last_24h"]),
+                changed_rows_last_7d=int(snapshot["changed_rows_last_7d"]),
+                distinct_real_prices=int(snapshot["distinct_real_prices"]),
+                asset_match_count=asset_match_count,
+                first_captured_at=snapshot["first_captured_at"],
+                latest_captured_at=latest_captured_at,
+                fetch_consistent=fetch_consistent,
+                history_depth_increasing=history_depth_increasing,
+                prices_ever_changed=prices_ever_changed,
+                weak_coverage_candidate=weak_coverage_candidate,
+                assessment=assessment,
+                note=note,
+            )
+        )
+
+    return audits
+
+
+def _build_high_activity_definition_review_lines() -> list[str]:
+    high_activity_pool = _get_tracked_pool(HIGH_ACTIVITY_TRIAL_POOL_KEY)
+    high_activity_v2_pool = _get_tracked_pool(HIGH_ACTIVITY_V2_POOL_KEY)
+    if high_activity_pool is None or high_activity_v2_pool is None:
+        return []
+
+    return [
+        (
+            f"Current High-Activity Trial: {len(high_activity_pool.card_ids)} explicit cards "
+            "from the contiguous sv8pt5-148..180 premium slice."
+        ),
+        (
+            "Current High-Activity Candidate tag: cards inside High-Activity Trial plus any "
+            "modern Chase / Collectible card."
+        ),
+        (
+            f"Proposed High-Activity v2: {len(high_activity_v2_pool.card_ids)} explicit sv8pt5 "
+            "single-card raws focused on the most market-relevant names."
+        ),
+    ]
+
+
+def _build_high_activity_v2_card_lines(
+    coverage_audits: list[CardCoverageAuditSnapshot],
+) -> list[str]:
+    return [
+        (
+            f"{audit.card_id} - {audit.name} "
+            f"(latest={audit.latest_price} USD, "
+            f"rows={audit.real_history_points}, "
+            f"changed_7d={audit.changed_rows_last_7d})"
+        )
+        for audit in coverage_audits
+    ]
+
+
+def _build_provider_coverage_audit_summary_lines(
+    coverage_audits: list[CardCoverageAuditSnapshot],
+) -> list[str]:
+    total_cards = len(coverage_audits)
+    consistent_fetch = sum(1 for audit in coverage_audits if audit.fetch_consistent)
+    increasing_depth = sum(1 for audit in coverage_audits if audit.history_depth_increasing)
+    prices_changed = sum(1 for audit in coverage_audits if audit.prices_ever_changed)
+    changed_last_24h = sum(1 for audit in coverage_audits if audit.changed_rows_last_24h > 0)
+    weak_coverage = sum(1 for audit in coverage_audits if audit.weak_coverage_candidate)
+    flat_but_healthy = sum(
+        1
+        for audit in coverage_audits
+        if (not audit.weak_coverage_candidate and not audit.prices_ever_changed)
+    )
+    return [
+        f"Consistent provider fetches: {consistent_fetch} of {total_cards}",
+        f"History depth still increasing: {increasing_depth} of {total_cards}",
+        f"Cards with any observed real price change: {prices_changed} of {total_cards}",
+        f"Cards with a real price change in the last 24h: {changed_last_24h} of {total_cards}",
+        f"Weak coverage candidates: {weak_coverage} of {total_cards}",
+        f"No market movement observed despite healthy coverage: {flat_but_healthy} of {total_cards}",
+    ]
+
+
+def _build_provider_coverage_audit_table(
+    coverage_audits: list[CardCoverageAuditSnapshot],
+) -> list[str]:
+    headers = ["Card", "Rows", "Fetch", "Depth", "Price changes", "Assessment"]
+    rows = [
+        [
+            f"{audit.name} [{audit.card_id}]",
+            str(audit.real_history_points),
+            "Yes" if audit.fetch_consistent else "No",
+            "Growing" if audit.history_depth_increasing else "Thin/Stale",
+            (
+                f"24h {audit.changed_rows_last_24h} / "
+                f"7d {audit.changed_rows_last_7d} / "
+                f"distinct {audit.distinct_real_prices}"
+            ),
+            audit.assessment,
+        ]
+        for audit in coverage_audits
+    ]
+    return _render_table(headers, rows)
+
+
+def _build_current_provider_decision_note(
+    pool_reports: list[PoolHealthSnapshot],
+    coverage_audits: list[CardCoverageAuditSnapshot],
+) -> list[str]:
+    high_activity_pool = _get_pool_by_key(pool_reports, HIGH_ACTIVITY_TRIAL_POOL_KEY)
+    high_activity_v2_pool = _get_pool_by_key(pool_reports, HIGH_ACTIVITY_V2_POOL_KEY)
+    total_cards = len(coverage_audits)
+    weak_coverage = sum(1 for audit in coverage_audits if audit.weak_coverage_candidate)
+    prices_changed = sum(1 for audit in coverage_audits if audit.prices_ever_changed)
+
+    note_lines = [
+        (
+            "Current-provider diagnosis: pool design looks weaker than provider coverage; "
+            f"{prices_changed} of {total_cards} High-Activity v2 cards already show real price "
+            f"changes, and {weak_coverage} of {total_cards} look weak on coverage."
+        )
+    ]
+
+    if high_activity_pool is not None and high_activity_v2_pool is not None:
+        note_lines.append(
+            (
+                "High-Activity v2 vs current slice: "
+                f"no-movement cards {high_activity_v2_pool.assets_with_no_price_movement_full_history}"
+                f"/{high_activity_v2_pool.assets_with_real_history} vs "
+                f"{high_activity_pool.assets_with_no_price_movement_full_history}"
+                f"/{high_activity_pool.assets_with_real_history}; "
+                f"changed-in-7d {high_activity_v2_pool.assets_with_price_change_last_7d}"
+                f"/{high_activity_v2_pool.assets_with_real_history} vs "
+                f"{high_activity_pool.assets_with_price_change_last_7d}"
+                f"/{high_activity_pool.assets_with_real_history}; "
+                f"row-change rate 7d {high_activity_v2_pool.percent_recent_rows_changed_last_7d}% "
+                f"vs {high_activity_pool.percent_recent_rows_changed_last_7d}%."
+            )
+        )
+
+    note_lines.append(
+        "Recommendation: replace the current High-Activity Trial with High-Activity v2 and keep observing before any provider #2 decision."
+    )
+    return note_lines
+
+
 def print_price_history_summary(limit: int = 30) -> None:
     with SessionLocal() as session:
+        primary_source = get_primary_price_source()
         report = get_data_health_report(session)
+        diagnostics_summary = build_standardized_diagnostics_summary(session)
         source_filter = get_active_price_source_filter(session)
+        high_activity_v2_pool = _get_tracked_pool(HIGH_ACTIVITY_V2_POOL_KEY)
+        high_activity_v2_audits = (
+            _load_card_coverage_audit(
+                session,
+                card_ids=high_activity_v2_pool.card_ids,
+                source=primary_source,
+            )
+            if high_activity_v2_pool is not None
+            else []
+        )
         print("Tracked Pokemon data health:")
-        print(f"- Active price source: {get_primary_price_source()}")
+        print(f"- Active price source: {primary_source}")
         print(f"- Total assets: {report.total_assets}")
         print(f"- Assets with real non-sample history: {report.assets_with_real_history}")
         print(f"- Assets without real history: {report.assets_without_real_history}")
@@ -551,7 +878,39 @@ def print_price_history_summary(limit: int = 30) -> None:
                     print(f"  {line}")
         if report.pool_reports or report.tag_reports:
             print("- Decision summary:")
-            for line in _build_operator_decision_summary(report.pool_reports, report.tag_reports):
+            smart_pool = diagnostics_summary["smart_pool"]
+            observation_stage = diagnostics_summary["observation_stage"]
+            print(f"  - {smart_pool['headline']}")
+            print(f"  - {smart_pool['summary']}")
+            for line in smart_pool["comparison_lines"]:
+                print(f"  - {line}")
+            print(f"  - {smart_pool['recommendation']}")
+            print(
+                "  - Observation stage: "
+                f"logged={observation_stage['observations_logged']}, "
+                f"matched={observation_stage['observations_matched']}, "
+                f"unmatched={observation_stage['observations_unmatched']}, "
+                f"requires_review={observation_stage['observations_require_review']}"
+            )
+        definition_review_lines = _build_high_activity_definition_review_lines()
+        if definition_review_lines:
+            print("- High-activity definition review:")
+            for line in definition_review_lines:
+                print(f"  - {line}")
+        if high_activity_v2_audits:
+            print("- Proposed High-Activity v2 cards:")
+            for line in _build_high_activity_v2_card_lines(high_activity_v2_audits):
+                print(f"  - {line}")
+            print("- Provider coverage audit [High-Activity v2]:")
+            for line in _build_provider_coverage_audit_summary_lines(high_activity_v2_audits):
+                print(f"  - {line}")
+            for line in _build_provider_coverage_audit_table(high_activity_v2_audits):
+                print(f"  {line}")
+            print("- Current-provider decision note:")
+            for line in _build_current_provider_decision_note(
+                report.pool_reports,
+                high_activity_v2_audits,
+            ):
                 print(f"  - {line}")
         if len(report.provider_reports) > 1:
             print("- Provider comparison:")

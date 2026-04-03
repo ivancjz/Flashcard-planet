@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 
-from backend.app.core.tracked_pools import HIGH_ACTIVITY_TRIAL_POOL_KEY, get_tracked_pokemon_pools
+from backend.app.core.tracked_pools import get_primary_smart_observation_pool
 from backend.app.models.asset import Asset
 
 MODERN_RELEASE_YEAR_THRESHOLD = 2020
@@ -177,11 +177,11 @@ def _extract_provider_card_id(asset: Asset) -> str | None:
 
 
 @lru_cache
-def _high_activity_trial_card_ids() -> frozenset[str]:
-    for pool in get_tracked_pokemon_pools():
-        if pool.key == HIGH_ACTIVITY_TRIAL_POOL_KEY:
-            return frozenset(pool.card_ids)
-    return frozenset()
+def _primary_smart_pool_card_ids() -> frozenset[str]:
+    pool = get_primary_smart_observation_pool()
+    if pool is None:
+        return frozenset()
+    return frozenset(pool.card_ids)
 
 
 def classify_asset_tags(asset: Asset) -> AssetTagProfile:
@@ -194,12 +194,12 @@ def classify_asset_tags(asset: Asset) -> AssetTagProfile:
         era == OLDER_ERA_LABEL and any(keyword in variant_lower for keyword in COLLECTIBLE_VARIANT_KEYWORDS)
     )
     provider_card_id = _extract_provider_card_id(asset)
-    in_high_activity_trial = (
-        provider_card_id in _high_activity_trial_card_ids()
+    in_primary_smart_pool = (
+        provider_card_id in _primary_smart_pool_card_ids()
         if provider_card_id is not None
         else False
     )
-    high_activity_candidate = in_high_activity_trial or (
+    high_activity_candidate = in_primary_smart_pool or (
         collectible_chase and era == MODERN_ERA_LABEL
     )
     return AssetTagProfile(

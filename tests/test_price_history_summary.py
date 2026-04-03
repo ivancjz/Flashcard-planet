@@ -14,6 +14,8 @@ from backend.app.services.data_health_service import (
     TagHealthSnapshot,
 )
 from scripts.price_history_summary import (
+    CardCoverageAuditSnapshot,
+    _build_current_provider_decision_note,
     _build_high_activity_trial_pool_summary,
     _build_operator_decision_summary,
     _build_pool_comparison_table,
@@ -45,7 +47,7 @@ def make_pool(
     return PoolHealthSnapshot(
         key=key,
         label=label,
-        asset_prefix_like=f"{key}-%",
+        asset_external_id_patterns=(f"{key}-%",),
         total_assets=total_assets,
         assets_with_real_history=assets_with_real_history,
         assets_without_real_history=max(total_assets - assets_with_real_history, 0),
@@ -165,6 +167,38 @@ def make_tag_report(
         percent_recent_rows_changed_last_7d=Decimal(changed_pct_7d),
         assets_with_no_price_movement_full_history=no_movement_assets,
         assets_with_unchanged_latest_price=unchanged_latest_assets,
+    )
+
+
+def make_card_audit(
+    *,
+    card_id: str,
+    name: str,
+    rows: int,
+    changed_rows_24h: int,
+    changed_rows_7d: int,
+    distinct_prices: int,
+    weak_coverage_candidate: bool,
+    assessment: str,
+) -> CardCoverageAuditSnapshot:
+    return CardCoverageAuditSnapshot(
+        card_id=card_id,
+        name=name,
+        external_id=f"pokemontcg:{card_id}:holofoil",
+        latest_price=Decimal("100.00"),
+        real_history_points=rows,
+        changed_rows_last_24h=changed_rows_24h,
+        changed_rows_last_7d=changed_rows_7d,
+        distinct_real_prices=distinct_prices,
+        asset_match_count=1,
+        first_captured_at=None,
+        latest_captured_at=None,
+        fetch_consistent=not weak_coverage_candidate,
+        history_depth_increasing=not weak_coverage_candidate,
+        prices_ever_changed=(distinct_prices > 1),
+        weak_coverage_candidate=weak_coverage_candidate,
+        assessment=assessment,
+        note=assessment,
     )
 
 
@@ -1000,4 +1034,74 @@ class PriceHistorySummaryTests(TestCase):
                 "Tags vs rest: Collectible / Chase and High-Activity Candidate are not showing stronger movement than the rest.",
                 "Recommendation: prepare provider #2.",
             ],
+        )
+
+    def test_current_provider_decision_note_prefers_v2_when_coverage_is_healthy(self):
+        pool_reports = [
+            make_pool(
+                key=HIGH_ACTIVITY_TRIAL_POOL_KEY,
+                label="High-Activity Trial",
+                total_assets=33,
+                assets_with_real_history=33,
+                average_depth="60.58",
+                changed_assets_24h=28,
+                changed_assets_7d=32,
+                comparable_rows_24h=1547,
+                changed_rows_24h=28,
+                comparable_rows_7d=1966,
+                changed_rows_7d=53,
+                changed_pct_24h="1.81",
+                changed_pct_7d="2.70",
+                no_movement_assets=1,
+                unchanged_latest_assets=33,
+            ),
+            make_pool(
+                key="high_activity_v2_pool",
+                label="High-Activity v2",
+                total_assets=13,
+                assets_with_real_history=13,
+                average_depth="61.31",
+                changed_assets_24h=11,
+                changed_assets_7d=13,
+                comparable_rows_24h=619,
+                changed_rows_24h=11,
+                comparable_rows_7d=784,
+                changed_rows_7d=19,
+                changed_pct_24h="1.78",
+                changed_pct_7d="2.42",
+                no_movement_assets=0,
+                unchanged_latest_assets=13,
+            ),
+        ]
+        audits = [
+            make_card_audit(
+                card_id="sv8pt5-161",
+                name="Umbreon ex",
+                rows=62,
+                changed_rows_24h=1,
+                changed_rows_7d=1,
+                distinct_prices=2,
+                weak_coverage_candidate=False,
+                assessment="Healthy / movement observed",
+            ),
+            make_card_audit(
+                card_id="sv8pt5-156",
+                name="Sylveon ex",
+                rows=62,
+                changed_rows_24h=0,
+                changed_rows_7d=1,
+                distinct_prices=2,
+                weak_coverage_candidate=False,
+                assessment="Healthy / movement observed",
+            ),
+        ]
+
+        lines = _build_current_provider_decision_note(pool_reports, audits)
+
+        self.assertIn("pool design looks weaker than provider coverage", lines[0])
+        self.assertIn("0 of 2 look weak on coverage", lines[0])
+        self.assertIn("0/13 vs 1/33", lines[1])
+        self.assertEqual(
+            lines[2],
+            "Recommendation: replace the current High-Activity Trial with High-Activity v2 and keep observing before any provider #2 decision.",
         )

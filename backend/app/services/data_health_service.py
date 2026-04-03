@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from backend.app.core.price_sources import get_active_price_source_filter, get_configured_price_providers
@@ -50,7 +50,7 @@ class AssetMovementSnapshot:
 class PoolHealthSnapshot:
     key: str
     label: str
-    asset_prefix_like: str
+    asset_external_id_patterns: tuple[str, ...]
     total_assets: int
     assets_with_real_history: int
     assets_without_real_history: int
@@ -193,6 +193,7 @@ class DataHealthReport:
 
 
 def _real_history_counts_subquery(source_filter, asset_like_prefix: str = PROVIDER_EXTERNAL_ID_PREFIX):
+    asset_scope_clause = _build_asset_scope_clause(asset_like_prefix)
     return (
         select(
             PriceHistory.asset_id.label("asset_id"),
@@ -201,13 +202,14 @@ def _real_history_counts_subquery(source_filter, asset_like_prefix: str = PROVID
         )
         .join(Asset, Asset.id == PriceHistory.asset_id)
         .where(source_filter)
-        .where(Asset.external_id.like(asset_like_prefix))
+        .where(asset_scope_clause)
         .group_by(PriceHistory.asset_id)
         .subquery()
     )
 
 
 def _latest_two_ranked_subquery(source_filter, asset_like_prefix: str = PROVIDER_EXTERNAL_ID_PREFIX):
+    asset_scope_clause = _build_asset_scope_clause(asset_like_prefix)
     return (
         select(
             PriceHistory.asset_id,
@@ -219,12 +221,13 @@ def _latest_two_ranked_subquery(source_filter, asset_like_prefix: str = PROVIDER
         )
         .join(Asset, Asset.id == PriceHistory.asset_id)
         .where(source_filter)
-        .where(Asset.external_id.like(asset_like_prefix))
+        .where(asset_scope_clause)
         .subquery()
     )
 
 
 def _tracked_real_rows_with_lag_subquery(source_filter, asset_like_prefix: str = PROVIDER_EXTERNAL_ID_PREFIX):
+    asset_scope_clause = _build_asset_scope_clause(asset_like_prefix)
     return (
         select(
             PriceHistory.asset_id,
@@ -238,21 +241,34 @@ def _tracked_real_rows_with_lag_subquery(source_filter, asset_like_prefix: str =
         )
         .join(Asset, Asset.id == PriceHistory.asset_id)
         .where(source_filter)
-        .where(Asset.external_id.like(asset_like_prefix))
+        .where(asset_scope_clause)
         .subquery()
     )
+
+
+def _build_asset_scope_clause(
+    asset_external_id_patterns: str | tuple[str, ...] = PROVIDER_EXTERNAL_ID_PREFIX,
+):
+    if isinstance(asset_external_id_patterns, str):
+        return Asset.external_id.like(asset_external_id_patterns)
+
+    if not asset_external_id_patterns:
+        return Asset.external_id.like(PROVIDER_EXTERNAL_ID_PREFIX)
+
+    return or_(*(Asset.external_id.like(pattern) for pattern in asset_external_id_patterns))
 
 
 def _build_health_snapshot_payload(
     db: Session,
     *,
     source_filter,
-    asset_like_prefix: str = PROVIDER_EXTERNAL_ID_PREFIX,
+    asset_like_prefix: str | tuple[str, ...] = PROVIDER_EXTERNAL_ID_PREFIX,
     low_coverage_limit: int = 10,
 ) -> dict[str, object]:
+    asset_scope_clause = _build_asset_scope_clause(asset_like_prefix)
     per_asset_counts = _real_history_counts_subquery(source_filter, asset_like_prefix)
     rows_with_lag = _tracked_real_rows_with_lag_subquery(source_filter, asset_like_prefix)
-    tracked_assets = select(Asset.id).where(Asset.external_id.like(asset_like_prefix)).subquery()
+    tracked_assets = select(Asset.id).where(asset_scope_clause).subquery()
     total_assets = int(db.scalar(select(func.count()).select_from(tracked_assets)) or 0)
     assets_with_real_history = int(
         db.scalar(select(func.count()).select_from(per_asset_counts)) or 0
@@ -305,7 +321,7 @@ def _build_health_snapshot_payload(
             select(func.count(PriceHistory.id))
             .join(Asset, Asset.id == PriceHistory.asset_id)
             .where(
-                Asset.external_id.like(asset_like_prefix),
+                asset_scope_clause,
                 source_filter,
                 PriceHistory.captured_at >= cutoff_24h,
             )
@@ -317,7 +333,7 @@ def _build_health_snapshot_payload(
             select(func.count(PriceHistory.id))
             .join(Asset, Asset.id == PriceHistory.asset_id)
             .where(
-                Asset.external_id.like(asset_like_prefix),
+                asset_scope_clause,
                 source_filter,
                 PriceHistory.captured_at >= cutoff_7d,
             )
@@ -472,7 +488,7 @@ def _build_health_snapshot_payload(
             per_asset_counts.c.latest_captured_at,
         )
         .outerjoin(per_asset_counts, per_asset_counts.c.asset_id == Asset.id)
-        .where(Asset.external_id.like(asset_like_prefix))
+        .where(asset_scope_clause)
         .where(func.coalesce(per_asset_counts.c.real_history_points, 0) < 8)
         .order_by(
             func.coalesce(per_asset_counts.c.real_history_points, 0).asc(),
@@ -658,20 +674,20 @@ def _build_pool_health_snapshot(
     *,
     key: str,
     label: str,
-    asset_prefix_like: str,
+    asset_external_id_patterns: tuple[str, ...],
     source_filter,
     low_coverage_limit: int = 10,
 ) -> PoolHealthSnapshot:
     payload = _build_health_snapshot_payload(
         db,
         source_filter=source_filter,
-        asset_like_prefix=asset_prefix_like,
+        asset_like_prefix=asset_external_id_patterns,
         low_coverage_limit=low_coverage_limit,
     )
     return PoolHealthSnapshot(
         key=key,
         label=label,
-        asset_prefix_like=asset_prefix_like,
+        asset_external_id_patterns=asset_external_id_patterns,
         **payload,
     )
 
@@ -696,7 +712,7 @@ def _build_provider_health_snapshot(
             db,
             key=pool.key,
             label=pool.label,
-            asset_prefix_like=pool.external_id_like,
+            asset_external_id_patterns=pool.external_id_patterns,
             source_filter=source_filter,
             low_coverage_limit=low_coverage_limit,
         )
@@ -721,11 +737,12 @@ def _collect_asset_tag_metric_records(
     db: Session,
     *,
     source_filter,
-    asset_like_prefix: str = PROVIDER_EXTERNAL_ID_PREFIX,
+    asset_like_prefix: str | tuple[str, ...] = PROVIDER_EXTERNAL_ID_PREFIX,
 ) -> list[_AssetTagMetricRecord]:
+    asset_scope_clause = _build_asset_scope_clause(asset_like_prefix)
     tracked_assets = db.execute(
         select(Asset)
-        .where(Asset.external_id.like(asset_like_prefix))
+        .where(asset_scope_clause)
         .order_by(Asset.name.asc(), Asset.external_id.asc())
     ).scalars().all()
     if not tracked_assets:
@@ -740,7 +757,7 @@ def _collect_asset_tag_metric_records(
         .join(Asset, Asset.id == PriceHistory.asset_id)
         .where(
             source_filter,
-            Asset.external_id.like(asset_like_prefix),
+            asset_scope_clause,
         )
         .order_by(PriceHistory.asset_id.asc(), PriceHistory.captured_at.asc())
     ).all()
@@ -878,7 +895,7 @@ def _build_tag_health_snapshots(
     db: Session,
     *,
     source_filter,
-    asset_like_prefix: str = PROVIDER_EXTERNAL_ID_PREFIX,
+    asset_like_prefix: str | tuple[str, ...] = PROVIDER_EXTERNAL_ID_PREFIX,
     low_coverage_limit: int = 10,
 ) -> list[TagHealthSnapshot]:
     del low_coverage_limit
@@ -934,7 +951,7 @@ def get_data_health_report(db: Session, *, low_coverage_limit: int = 10) -> Data
             db,
             key=pool.key,
             label=pool.label,
-            asset_prefix_like=pool.external_id_like,
+            asset_external_id_patterns=pool.external_id_patterns,
             source_filter=source_filter,
             low_coverage_limit=low_coverage_limit,
         )

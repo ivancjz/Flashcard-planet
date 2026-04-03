@@ -1,0 +1,313 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from backend.app.core.price_sources import get_configured_price_providers, get_primary_price_source
+from backend.app.core.tracked_pools import (
+    BASE_SET_POOL_KEY,
+    HIGH_ACTIVITY_TRIAL_POOL_KEY,
+    PRIMARY_SMART_OBSERVATION_POOL_KEY,
+    TRIAL_POOL_KEY,
+)
+from backend.app.ingestion.pokemon_tcg import IngestionResult
+from backend.app.models.alert import Alert
+from backend.app.models.observation_match_log import ObservationMatchLog
+from backend.app.models.watchlist import Watchlist
+from backend.app.services.data_health_service import PoolHealthSnapshot, get_data_health_report
+
+
+def _to_iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC).isoformat()
+    return value.astimezone(UTC).isoformat()
+
+
+def _format_decimal(value: Decimal | None, *, suffix: str = "") -> str:
+    if value is None:
+        return "N/A"
+    return f"{value}{suffix}"
+
+
+def _serialize_pool(pool: PoolHealthSnapshot) -> dict[str, object]:
+    return {
+        "key": pool.key,
+        "label": pool.label,
+        "total_assets": pool.total_assets,
+        "assets_with_real_history": pool.assets_with_real_history,
+        "assets_without_real_history": pool.assets_without_real_history,
+        "average_history_depth": _format_decimal(pool.average_real_history_points_per_asset),
+        "assets_with_price_change_last_24h": pool.assets_with_price_change_last_24h,
+        "assets_with_price_change_last_7d": pool.assets_with_price_change_last_7d,
+        "row_change_pct_last_24h": _format_decimal(pool.percent_recent_rows_changed_last_24h, suffix="%"),
+        "row_change_pct_last_7d": _format_decimal(pool.percent_recent_rows_changed_last_7d, suffix="%"),
+        "assets_with_no_price_movement_full_history": pool.assets_with_no_price_movement_full_history,
+        "assets_with_unchanged_latest_price": pool.assets_with_unchanged_latest_price,
+    }
+
+
+def _get_pool_by_key(pool_reports: list[PoolHealthSnapshot], key: str) -> PoolHealthSnapshot | None:
+    return next((pool for pool in pool_reports if pool.key == key), None)
+
+
+def _build_smart_pool_reference(pool_reports: list[PoolHealthSnapshot]) -> dict[str, object]:
+    focus_pool = _get_pool_by_key(pool_reports, PRIMARY_SMART_OBSERVATION_POOL_KEY)
+    base_pool = _get_pool_by_key(pool_reports, BASE_SET_POOL_KEY)
+    trial_pool = _get_pool_by_key(pool_reports, TRIAL_POOL_KEY)
+    legacy_high_activity_pool = _get_pool_by_key(pool_reports, HIGH_ACTIVITY_TRIAL_POOL_KEY)
+
+    if focus_pool is None:
+        return {
+            "key": PRIMARY_SMART_OBSERVATION_POOL_KEY,
+            "label": "High-Activity v2",
+            "status": "missing",
+            "headline": "High-Activity v2 is not configured.",
+            "summary": "Diagnostics cannot center the smart observation pool until High-Activity v2 is configured.",
+            "comparison_lines": [],
+            "recommendation": "Configure High-Activity v2 before the next provider-evaluation run.",
+        }
+
+    comparison_lines = [
+        (
+            f"Primary smart observation pool: {focus_pool.label}. "
+            f"History coverage {focus_pool.assets_with_real_history}/{focus_pool.total_assets}, "
+            f"7d changed assets {focus_pool.assets_with_price_change_last_7d}/{focus_pool.assets_with_real_history}, "
+            f"7d row change {focus_pool.percent_recent_rows_changed_last_7d}%."
+        )
+    ]
+    if base_pool is not None:
+        comparison_lines.append(
+            (
+                f"Against {base_pool.label}: "
+                f"v2 no-movement assets {focus_pool.assets_with_no_price_movement_full_history} "
+                f"vs {base_pool.assets_with_no_price_movement_full_history}, "
+                f"7d row change {focus_pool.percent_recent_rows_changed_last_7d}% "
+                f"vs {base_pool.percent_recent_rows_changed_last_7d}%."
+            )
+        )
+    if trial_pool is not None:
+        comparison_lines.append(
+            (
+                f"Against {trial_pool.label}: "
+                f"v2 no-movement assets {focus_pool.assets_with_no_price_movement_full_history} "
+                f"vs {trial_pool.assets_with_no_price_movement_full_history}, "
+                f"7d changed assets {focus_pool.assets_with_price_change_last_7d}/{focus_pool.assets_with_real_history} "
+                f"vs {trial_pool.assets_with_price_change_last_7d}/{trial_pool.assets_with_real_history}."
+            )
+        )
+    if legacy_high_activity_pool is not None:
+        comparison_lines.append(
+            (
+                f"Against {legacy_high_activity_pool.label}: "
+                f"v2 no-movement assets {focus_pool.assets_with_no_price_movement_full_history} "
+                f"vs {legacy_high_activity_pool.assets_with_no_price_movement_full_history}, "
+                f"7d row change {focus_pool.percent_recent_rows_changed_last_7d}% "
+                f"vs {legacy_high_activity_pool.percent_recent_rows_changed_last_7d}%."
+            )
+        )
+
+    return {
+        "key": focus_pool.key,
+        "label": focus_pool.label,
+        "status": "active",
+        "headline": "High-Activity v2 is the main smart observation reference.",
+        "summary": (
+            "Old pools remain available for comparison, but the current-provider evaluation should center "
+            "on High-Activity v2 when deciding whether weak smart-pool results come from selection or coverage."
+        ),
+        "comparison_lines": comparison_lines,
+        "recommendation": (
+            "Keep the current provider, keep High-Activity v2 as the smart observation pool, "
+            "and use the legacy pools only as comparison baselines."
+        ),
+    }
+
+
+def _build_recent_observation_stage(
+    db: Session,
+    *,
+    provider: str,
+    recent_observation_limit: int,
+) -> dict[str, object]:
+    cutoff = datetime.now(UTC) - timedelta(hours=24)
+    grouped_rows = db.execute(
+        select(
+            ObservationMatchLog.match_status,
+            func.count(ObservationMatchLog.id),
+        )
+        .where(
+            ObservationMatchLog.provider == provider,
+            ObservationMatchLog.created_at >= cutoff,
+        )
+        .group_by(ObservationMatchLog.match_status)
+    ).all()
+    match_status_counts = {
+        match_status: int(count)
+        for match_status, count in grouped_rows
+    }
+    recent_logs = db.execute(
+        select(ObservationMatchLog)
+        .where(ObservationMatchLog.provider == provider)
+        .where(ObservationMatchLog.created_at >= cutoff)
+        .order_by(ObservationMatchLog.created_at.desc())
+        .limit(recent_observation_limit)
+    ).scalars().all()
+    review_logs = db.execute(
+        select(ObservationMatchLog)
+        .where(
+            ObservationMatchLog.provider == provider,
+            ObservationMatchLog.created_at >= cutoff,
+            ObservationMatchLog.requires_review.is_(True),
+        )
+        .order_by(ObservationMatchLog.created_at.desc())
+        .limit(recent_observation_limit)
+    ).scalars().all()
+    logged = sum(match_status_counts.values())
+    matched = sum(
+        count
+        for status, count in match_status_counts.items()
+        if status.startswith("matched_")
+    )
+    unmatched = logged - matched
+    requires_review = int(
+        db.scalar(
+            select(func.count(ObservationMatchLog.id)).where(
+                ObservationMatchLog.provider == provider,
+                ObservationMatchLog.created_at >= cutoff,
+                ObservationMatchLog.requires_review.is_(True),
+            )
+        )
+        or 0
+    )
+    return {
+        "window": "24h",
+        "observations_logged": logged,
+        "observations_matched": matched,
+        "observations_unmatched": unmatched,
+        "observations_require_review": requires_review,
+        "match_status_counts": match_status_counts,
+        "recent_review_items": [
+            {
+                "provider": item.provider,
+                "external_item_id": item.external_item_id,
+                "raw_title": item.raw_title,
+                "match_status": item.match_status,
+                "confidence": _format_decimal(item.confidence),
+                "reason": item.reason,
+                "created_at": _to_iso(item.created_at),
+            }
+            for item in review_logs
+        ],
+    }
+
+
+def _serialize_ingestion_result(ingestion_result: IngestionResult | None) -> dict[str, object] | None:
+    if ingestion_result is None:
+        return None
+
+    return {
+        "cards_requested": ingestion_result.cards_requested,
+        "cards_processed": ingestion_result.cards_processed,
+        "cards_failed": ingestion_result.cards_failed,
+        "cards_skipped_no_price": ingestion_result.cards_skipped_no_price,
+        "assets_created": ingestion_result.assets_created,
+        "assets_updated": ingestion_result.assets_updated,
+        "price_points_inserted": ingestion_result.price_points_inserted,
+        "price_points_changed": ingestion_result.price_points_changed,
+        "price_points_unchanged": ingestion_result.price_points_unchanged,
+        "price_points_skipped_existing_timestamp": ingestion_result.price_points_skipped_existing_timestamp,
+        "sample_rows_deleted": ingestion_result.sample_rows_deleted,
+        "observations_logged": ingestion_result.observations_logged,
+        "observations_matched": ingestion_result.observations_matched,
+        "observations_unmatched": ingestion_result.observations_unmatched,
+        "observations_require_review": ingestion_result.observations_require_review,
+        "observation_match_status_counts": dict(ingestion_result.observation_match_status_counts),
+        "latest_captured_at": _to_iso(ingestion_result.latest_captured_at),
+        "inserted_assets": list(ingestion_result.inserted_asset_names),
+    }
+
+
+def build_standardized_diagnostics_summary(
+    db: Session,
+    *,
+    ingestion_result: IngestionResult | None = None,
+    recent_observation_limit: int = 5,
+    scope_key: str | None = None,
+    scope_label: str | None = None,
+) -> dict[str, object]:
+    report = get_data_health_report(db, low_coverage_limit=recent_observation_limit)
+    providers = get_configured_price_providers()
+    primary_source = get_primary_price_source()
+    primary_provider = next(
+        (provider for provider in providers if provider.is_primary),
+        providers[0] if providers else None,
+    )
+
+    observation_stage = _build_recent_observation_stage(
+        db,
+        provider=primary_source,
+        recent_observation_limit=recent_observation_limit,
+    )
+    if ingestion_result is not None:
+        observation_stage = {
+            **observation_stage,
+            "observations_logged": ingestion_result.observations_logged,
+            "observations_matched": ingestion_result.observations_matched,
+            "observations_unmatched": ingestion_result.observations_unmatched,
+            "observations_require_review": ingestion_result.observations_require_review,
+            "match_status_counts": dict(ingestion_result.observation_match_status_counts),
+        }
+
+    watchlist_count = int(db.scalar(select(func.count(Watchlist.id))) or 0)
+    active_alert_count = int(
+        db.scalar(select(func.count(Alert.id)).where(Alert.is_active.is_(True))) or 0
+    )
+
+    return {
+        "generated_at": _to_iso(datetime.now(UTC)),
+        "active_price_source": primary_source,
+        "scope": {
+            "key": scope_key,
+            "label": scope_label,
+        },
+        "provider": {
+            "source": primary_provider.source if primary_provider is not None else primary_source,
+            "label": primary_provider.label if primary_provider is not None else "Unconfigured",
+            "configured_provider_count": len(providers),
+        },
+        "smart_pool": _build_smart_pool_reference(report.pool_reports),
+        "ingestion": _serialize_ingestion_result(ingestion_result),
+        "observation_stage": observation_stage,
+        "health": {
+            "total_assets": report.total_assets,
+            "assets_with_real_history": report.assets_with_real_history,
+            "assets_without_real_history": report.assets_without_real_history,
+            "average_real_history_points_per_asset": _format_decimal(
+                report.average_real_history_points_per_asset
+            ),
+            "recent_real_price_rows_last_24h": report.recent_real_price_rows_last_24h,
+            "recent_real_price_rows_last_7d": report.recent_real_price_rows_last_7d,
+            "assets_with_price_change_last_24h": report.assets_with_price_change_last_24h,
+            "assets_with_price_change_last_7d": report.assets_with_price_change_last_7d,
+            "row_change_pct_last_24h": _format_decimal(
+                report.percent_recent_rows_changed_last_24h,
+                suffix="%",
+            ),
+            "row_change_pct_last_7d": _format_decimal(
+                report.percent_recent_rows_changed_last_7d,
+                suffix="%",
+            ),
+            "assets_with_no_price_movement_full_history": report.assets_with_no_price_movement_full_history,
+            "assets_with_unchanged_latest_price": report.assets_with_unchanged_latest_price,
+        },
+        "signal_layer": {
+            "watchlists": watchlist_count,
+            "active_alerts": active_alert_count,
+        },
+        "pools": [_serialize_pool(pool) for pool in report.pool_reports],
+    }

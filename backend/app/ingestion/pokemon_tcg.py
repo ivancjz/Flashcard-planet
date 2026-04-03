@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session
 
 from backend.app.core.config import get_settings
 from backend.app.core.price_sources import POKEMON_TCG_PRICE_SOURCE, SAMPLE_PRICE_SOURCE
-from backend.app.models.asset import Asset
 from backend.app.models.price_history import PriceHistory
+from backend.app.services.observation_match_service import stage_observation_match
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,11 @@ class IngestionResult:
     price_points_unchanged: int = 0
     price_points_skipped_existing_timestamp: int = 0
     sample_rows_deleted: int = 0
+    observations_logged: int = 0
+    observations_matched: int = 0
+    observations_unmatched: int = 0
+    observations_require_review: int = 0
+    observation_match_status_counts: dict[str, int] = field(default_factory=dict)
     inserted_asset_names: list[str] = field(default_factory=list)
     latest_captured_at: datetime | None = None
 
@@ -144,17 +149,11 @@ def build_asset_payload(card: dict[str, Any], price_type: str, price_field: str)
     }
 
 
-def get_or_create_asset(session: Session, asset_payload: dict[str, Any]) -> tuple[Asset, bool]:
-    existing = session.scalar(select(Asset).where(Asset.external_id == asset_payload["external_id"]))
-    if existing:
-        for key, value in asset_payload.items():
-            setattr(existing, key, value)
-        return existing, False
-
-    asset = Asset(**asset_payload)
-    session.add(asset)
-    session.flush()
-    return asset, True
+def extract_raw_language(card: dict[str, Any]) -> str:
+    raw_language = card.get("language") or card.get("lang")
+    if raw_language is None:
+        return "EN"
+    return str(raw_language).strip() or "EN"
 
 
 def add_price_point(
@@ -200,6 +199,26 @@ def add_price_point(
         previous_price=previous_price,
         price_changed=(previous_price != price) if previous_price is not None else None,
     )
+
+
+def _record_observation_result(
+    result: IngestionResult,
+    *,
+    match_status: str,
+    matched: bool,
+    requires_review: bool,
+) -> None:
+    result.observations_logged += 1
+    if matched:
+        result.observations_matched += 1
+    else:
+        result.observations_unmatched += 1
+    if requires_review:
+        result.observations_require_review += 1
+    result.observation_match_status_counts[match_status] = (
+        result.observation_match_status_counts.get(match_status, 0) + 1
+    )
+
 
 def fetch_card(client: httpx.Client, card_id: str) -> dict[str, Any]:
     settings = get_settings()
@@ -288,14 +307,55 @@ def ingest_pokemon_tcg_cards(
                 card = fetch_card(client, card_id)
                 chosen_price = choose_price_snapshot(card)
                 if chosen_price is None:
+                    observation_result = stage_observation_match(
+                        session,
+                        provider=POKEMON_TCG_PRICE_SOURCE,
+                        external_item_id=card["id"],
+                        raw_title=card.get("name"),
+                        raw_set_name=card.get("set", {}).get("name"),
+                        raw_card_number=card.get("number"),
+                        raw_language=extract_raw_language(card),
+                        asset_payload=None,
+                        unmatched_reason="No usable tcgplayer price snapshot was returned for this provider observation.",
+                    )
+                    _record_observation_result(
+                        result,
+                        match_status=observation_result.observation_log.match_status,
+                        matched=observation_result.can_write_price_history,
+                        requires_review=observation_result.observation_log.requires_review,
+                    )
                     logger.warning("Skipping card %s because no usable tcgplayer price was returned.", card_id)
                     result.cards_skipped_no_price += 1
                     continue
 
                 price_type, price_field, price = chosen_price
                 asset_payload = build_asset_payload(card, price_type, price_field)
-                asset, created = get_or_create_asset(session, asset_payload)
-                if created:
+                observation_result = stage_observation_match(
+                    session,
+                    provider=POKEMON_TCG_PRICE_SOURCE,
+                    external_item_id=card["id"],
+                    raw_title=card.get("name"),
+                    raw_set_name=card.get("set", {}).get("name"),
+                    raw_card_number=card.get("number"),
+                    raw_language=extract_raw_language(card),
+                    asset_payload=asset_payload,
+                )
+                _record_observation_result(
+                    result,
+                    match_status=observation_result.observation_log.match_status,
+                    matched=observation_result.can_write_price_history,
+                    requires_review=observation_result.observation_log.requires_review,
+                )
+                if not observation_result.can_write_price_history or observation_result.matched_asset is None:
+                    logger.warning(
+                        "Skipping card %s because the observation could not be matched canonically: %s",
+                        card_id,
+                        observation_result.observation_log.reason,
+                    )
+                    continue
+
+                asset = observation_result.matched_asset
+                if observation_result.asset_created:
                     result.assets_created += 1
                 else:
                     result.assets_updated += 1
@@ -334,7 +394,7 @@ def ingest_pokemon_tcg_cards(
 
     session.commit()
     logger.info(
-        "Pokemon TCG ingest summary: cards_requested=%s cards_processed=%s cards_failed=%s cards_skipped_no_price=%s assets_created=%s assets_updated=%s price_points_inserted=%s price_points_changed=%s price_points_unchanged=%s price_points_skipped_existing_timestamp=%s sample_rows_deleted=%s inserted_assets=%s latest_captured_at=%s",
+        "Pokemon TCG ingest summary: cards_requested=%s cards_processed=%s cards_failed=%s cards_skipped_no_price=%s assets_created=%s assets_updated=%s price_points_inserted=%s price_points_changed=%s price_points_unchanged=%s price_points_skipped_existing_timestamp=%s sample_rows_deleted=%s observations_logged=%s observations_matched=%s observations_unmatched=%s observations_require_review=%s observation_match_status_counts=%s inserted_assets=%s latest_captured_at=%s",
         result.cards_requested,
         result.cards_processed,
         result.cards_failed,
@@ -346,6 +406,11 @@ def ingest_pokemon_tcg_cards(
         result.price_points_unchanged,
         result.price_points_skipped_existing_timestamp,
         result.sample_rows_deleted,
+        result.observations_logged,
+        result.observations_matched,
+        result.observations_unmatched,
+        result.observations_require_review,
+        result.observation_match_status_counts,
         ", ".join(result.inserted_asset_names) if result.inserted_asset_names else "<none>",
         result.latest_captured_at.isoformat() if result.latest_captured_at else "<none>",
     )

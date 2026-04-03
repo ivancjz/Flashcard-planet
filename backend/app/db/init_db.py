@@ -4,7 +4,7 @@ from sqlalchemy import inspect, text
 
 from backend.app.db.base import Base
 from backend.app.db.session import engine
-from backend.app.models import Alert, Asset, PriceHistory, User, Watchlist
+from backend.app.models import Alert, Asset, ObservationMatchLog, PriceHistory, User, Watchlist
 
 logger = logging.getLogger(__name__)
 

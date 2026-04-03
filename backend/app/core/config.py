@@ -20,6 +20,26 @@ DEFAULT_POKEMON_TCG_TRIAL_CARD_IDS = ",".join(
 DEFAULT_POKEMON_TCG_HIGH_ACTIVITY_TRIAL_CARD_IDS = ",".join(
     f"sv8pt5-{number}" for number in range(148, 181)
 )
+# High-activity v2 diagnostic pool from Prismatic Evolutions.
+# This tighter list keeps the experiment inside the existing explicit-card-id model while
+# focusing on the most market-relevant single raw cards currently tracked in sv8pt5.
+DEFAULT_POKEMON_TCG_HIGH_ACTIVITY_V2_CARD_IDS = ",".join(
+    (
+        "sv8pt5-149",
+        "sv8pt5-150",
+        "sv8pt5-153",
+        "sv8pt5-155",
+        "sv8pt5-156",
+        "sv8pt5-157",
+        "sv8pt5-161",
+        "sv8pt5-162",
+        "sv8pt5-165",
+        "sv8pt5-166",
+        "sv8pt5-167",
+        "sv8pt5-168",
+        "sv8pt5-179",
+    )
+)
 
 
 class Settings(BaseSettings):
@@ -43,6 +63,8 @@ class Settings(BaseSettings):
     pokemon_tcg_trial_card_ids: str = DEFAULT_POKEMON_TCG_TRIAL_CARD_IDS
     pokemon_tcg_high_activity_pool_label: str = "High-Activity Trial"
     pokemon_tcg_high_activity_card_ids: str = DEFAULT_POKEMON_TCG_HIGH_ACTIVITY_TRIAL_CARD_IDS
+    pokemon_tcg_high_activity_v2_pool_label: str = "High-Activity v2"
+    pokemon_tcg_high_activity_v2_card_ids: str = DEFAULT_POKEMON_TCG_HIGH_ACTIVITY_V2_CARD_IDS
     provider_1_source: str = "pokemon_tcg_api"
     provider_2_source: str = ""
     primary_price_source: str = "pokemon_tcg_api"
