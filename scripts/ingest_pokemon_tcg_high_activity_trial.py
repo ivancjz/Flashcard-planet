@@ -1,19 +1,24 @@
+from backend.app.core.tracked_pools import HIGH_ACTIVITY_TRIAL_POOL_KEY, get_tracked_pokemon_pools
 from backend.app.db.init_db import init_db
 from backend.app.db.session import SessionLocal
-from backend.app.core.price_sources import get_primary_price_source
 from backend.app.ingestion.pokemon_tcg import ingest_pokemon_tcg_cards
 from backend.app.services.data_health_service import get_data_health_report
 
 
 def ingest() -> None:
     init_db()
+    pools = {pool.key: pool for pool in get_tracked_pokemon_pools()}
+    high_activity_pool = pools.get(HIGH_ACTIVITY_TRIAL_POOL_KEY)
+    if high_activity_pool is None:
+        raise RuntimeError("No high-activity pool is configured in POKEMON_TCG_HIGH_ACTIVITY_CARD_IDS.")
+
     with SessionLocal() as session:
-        result = ingest_pokemon_tcg_cards(session)
+        result = ingest_pokemon_tcg_cards(session, card_ids=high_activity_pool.card_ids)
         report = get_data_health_report(session)
 
     print(
-        "Pokemon TCG ingestion complete: "
-        f"active_price_source={get_primary_price_source()}, "
+        "Pokemon TCG high-activity trial ingestion complete: "
+        f"pool={high_activity_pool.label}, "
         f"cards_requested={result.cards_requested}, "
         f"cards_processed={result.cards_processed}, "
         f"cards_failed={result.cards_failed}, "
@@ -44,19 +49,6 @@ def ingest() -> None:
         f"full_history_no_movement_assets={report.assets_with_no_price_movement_full_history}, "
         f"unchanged_latest_assets={report.assets_with_unchanged_latest_price}"
     )
-    for pool in report.pool_reports:
-        print(
-            f"Tracked pool snapshot [{pool.label}]: "
-            f"assets={pool.total_assets}, "
-            f"real_assets={pool.assets_with_real_history}, "
-            f"avg_depth={pool.average_real_history_points_per_asset}, "
-            f"assets_changed_24h={pool.assets_with_price_change_last_24h}, "
-            f"assets_changed_7d={pool.assets_with_price_change_last_7d}, "
-            f"pct_changed_24h={pool.percent_recent_rows_changed_last_24h}, "
-            f"pct_changed_7d={pool.percent_recent_rows_changed_last_7d}, "
-            f"no_movement_assets={pool.assets_with_no_price_movement_full_history}, "
-            f"unchanged_latest_assets={pool.assets_with_unchanged_latest_price}"
-        )
 
 
 if __name__ == "__main__":

@@ -27,6 +27,8 @@ class Alert(Base):
     threshold_percent: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
     target_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_armed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_observed_signal: Mapped[str | None] = mapped_column(String(32))
     last_triggered_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 

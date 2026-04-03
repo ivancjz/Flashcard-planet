@@ -18,7 +18,7 @@ def create_watchlist_item(
     db: Session = Depends(get_database),
 ) -> MessageResponse:
     try:
-        watchlist = add_watchlist_item(db, payload)
+        result = add_watchlist_item(db, payload)
         db.commit()
     except ValueError as exc:
         db.rollback()
@@ -27,7 +27,21 @@ def create_watchlist_item(
         db.rollback()
         raise
 
-    return MessageResponse(message=f"Watching '{watchlist.asset.name}'.")
+    if result.created_watchlist:
+        prefix = f"Created a new watch for '{result.watchlist.asset.name}'."
+    else:
+        prefix = f"Reused your existing watch for '{result.watchlist.asset.name}'."
+
+    if result.added_rule_labels:
+        detail = " Added alert rules: " + ", ".join(result.added_rule_labels) + "."
+    else:
+        detail = " No new alert rules were added."
+
+    return MessageResponse(
+        message=prefix + detail,
+        created_watchlist=result.created_watchlist,
+        added_rule_labels=result.added_rule_labels,
+    )
 
 
 @router.get("/{discord_user_id}", response_model=list[WatchlistItemResponse])

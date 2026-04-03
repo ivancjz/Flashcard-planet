@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -11,6 +12,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import get_settings
+from backend.app.core.price_sources import POKEMON_TCG_PRICE_SOURCE, SAMPLE_PRICE_SOURCE
 from backend.app.models.asset import Asset
 from backend.app.models.price_history import PriceHistory
 
@@ -26,15 +28,36 @@ PRICE_TYPE_PRIORITY = (
     "unlimitedNormal",
 )
 PRICE_VALUE_PRIORITY = ("market", "mid", "low")
+RETRYABLE_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
+MAX_FETCH_ATTEMPTS = 3
+
+
+class ProviderUnavailableError(RuntimeError):
+    """Raised when the upstream Pokemon TCG API is unavailable after retries."""
+
+
+@dataclass
+class PricePointInsertResult:
+    inserted: bool
+    previous_price: Decimal | None = None
+    price_changed: bool | None = None
 
 
 @dataclass
 class IngestionResult:
+    cards_requested: int = 0
     cards_processed: int = 0
+    cards_failed: int = 0
+    cards_skipped_no_price: int = 0
     assets_created: int = 0
     assets_updated: int = 0
     price_points_inserted: int = 0
+    price_points_changed: int = 0
+    price_points_unchanged: int = 0
+    price_points_skipped_existing_timestamp: int = 0
     sample_rows_deleted: int = 0
+    inserted_asset_names: list[str] = field(default_factory=list)
+    latest_captured_at: datetime | None = None
 
 
 def parse_card_ids(raw_card_ids: str) -> list[str]:
@@ -57,16 +80,19 @@ def parse_release_year(card: dict[str, Any]) -> int | None:
     release_date = card.get("set", {}).get("releaseDate")
     if not release_date:
         return None
-    return datetime.fromisoformat(release_date).year
 
+    for date_format in ("%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(release_date, date_format).year
+        except ValueError:
+            continue
 
-def parse_provider_updated_at(card: dict[str, Any], fallback: datetime) -> datetime:
-    updated_at = card.get("tcgplayer", {}).get("updatedAt")
-    if not updated_at:
-        return fallback
-
-    parsed = datetime.strptime(updated_at, "%Y/%m/%d").replace(tzinfo=UTC)
-    return parsed
+    logger.warning(
+        "Could not parse Pokemon TCG release date %r for card %s.",
+        release_date,
+        card.get("id"),
+    )
+    return None
 
 
 def choose_price_snapshot(card: dict[str, Any]) -> tuple[str, str, Decimal] | None:
@@ -102,7 +128,7 @@ def build_asset_payload(card: dict[str, Any], price_type: str, price_field: str)
         "grade_score": None,
         "external_id": f"pokemontcg:{card_id}:{price_type}",
         "metadata_json": {
-            "provider": "pokemon_tcg_api",
+            "provider": POKEMON_TCG_PRICE_SOURCE,
             "provider_card_id": card_id,
             "provider_price_type": price_type,
             "provider_price_field": price_field,
@@ -138,15 +164,27 @@ def add_price_point(
     currency: str,
     price: Decimal,
     captured_at: datetime,
-) -> bool:
+) -> PricePointInsertResult:
     already_exists = session.scalar(
         select(PriceHistory).where(
             PriceHistory.asset_id == asset_id,
+            PriceHistory.source == source,
             PriceHistory.captured_at == captured_at,
         )
     )
     if already_exists:
-        return False
+        return PricePointInsertResult(inserted=False)
+
+    previous_row = session.execute(
+        select(PriceHistory.price)
+        .where(
+            PriceHistory.asset_id == asset_id,
+            PriceHistory.source == source,
+        )
+        .order_by(PriceHistory.captured_at.desc())
+        .limit(1)
+    ).first()
+    previous_price = Decimal(previous_row.price) if previous_row is not None else None
 
     session.add(
         PriceHistory(
@@ -157,16 +195,71 @@ def add_price_point(
             captured_at=captured_at,
         )
     )
-    return True
+    return PricePointInsertResult(
+        inserted=True,
+        previous_price=previous_price,
+        price_changed=(previous_price != price) if previous_price is not None else None,
+    )
 
-
-def fetch_card(card_id: str) -> dict[str, Any]:
+def fetch_card(client: httpx.Client, card_id: str) -> dict[str, Any]:
     settings = get_settings()
-    with httpx.Client(timeout=20.0, headers=build_headers()) as client:
-        response = client.get(f"{settings.pokemon_tcg_api_base_url.rstrip('/')}/cards/{card_id}")
-        response.raise_for_status()
-        payload = response.json()
-    return payload["data"]
+    last_exception: Exception | None = None
+    url = f"{settings.pokemon_tcg_api_base_url.rstrip('/')}/cards/{card_id}"
+
+    for attempt in range(1, MAX_FETCH_ATTEMPTS + 1):
+        try:
+            response = client.get(url)
+            if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_FETCH_ATTEMPTS:
+                delay_seconds = min(2 ** (attempt - 1), 8)
+                logger.warning(
+                    "Retrying Pokemon TCG card %s after HTTP %s on attempt %s/%s.",
+                    card_id,
+                    response.status_code,
+                    attempt,
+                    MAX_FETCH_ATTEMPTS,
+                )
+                time.sleep(delay_seconds)
+                continue
+            response.raise_for_status()
+            payload = response.json()
+            return payload["data"]
+        except httpx.HTTPStatusError as exc:
+            last_exception = exc
+            status_code = exc.response.status_code
+            if status_code in RETRYABLE_STATUS_CODES and attempt < MAX_FETCH_ATTEMPTS:
+                delay_seconds = min(2 ** (attempt - 1), 8)
+                logger.warning(
+                    "Retrying Pokemon TCG card %s after HTTP %s on attempt %s/%s.",
+                    card_id,
+                    status_code,
+                    attempt,
+                    MAX_FETCH_ATTEMPTS,
+                )
+                time.sleep(delay_seconds)
+                continue
+            if status_code in RETRYABLE_STATUS_CODES:
+                raise ProviderUnavailableError(
+                    f"Pokemon TCG API returned HTTP {status_code} for card {card_id} after retries."
+                ) from exc
+            raise
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.ProtocolError) as exc:
+            last_exception = exc
+            if attempt < MAX_FETCH_ATTEMPTS:
+                delay_seconds = min(2 ** (attempt - 1), 8)
+                logger.warning(
+                    "Retrying Pokemon TCG card %s after network error on attempt %s/%s: %s",
+                    card_id,
+                    attempt,
+                    MAX_FETCH_ATTEMPTS,
+                    exc,
+                )
+                time.sleep(delay_seconds)
+                continue
+            raise ProviderUnavailableError(
+                f"Pokemon TCG API is unreachable for card {card_id} after retries."
+            ) from exc
+
+    raise RuntimeError(f"Failed to fetch card {card_id}") from last_exception
 
 
 def ingest_pokemon_tcg_cards(
@@ -180,51 +273,80 @@ def ingest_pokemon_tcg_cards(
     if not configured_card_ids:
         raise ValueError("POKEMON_TCG_CARD_IDS must contain at least one card id.")
 
-    result = IngestionResult()
+    result = IngestionResult(cards_requested=len(configured_card_ids))
 
     if clear_sample_seed:
-        delete_result = session.execute(delete(PriceHistory).where(PriceHistory.source == "sample_seed"))
+        delete_result = session.execute(delete(PriceHistory).where(PriceHistory.source == SAMPLE_PRICE_SOURCE))
         result.sample_rows_deleted = int(delete_result.rowcount or 0)
 
     ingested_at = datetime.now(UTC).replace(microsecond=0)
+    result.latest_captured_at = ingested_at
 
-    for card_id in configured_card_ids:
-        card = fetch_card(card_id)
-        chosen_price = choose_price_snapshot(card)
-        if chosen_price is None:
-            logger.warning("Skipping card %s because no usable tcgplayer price was returned.", card_id)
-            continue
+    with httpx.Client(timeout=20.0, headers=build_headers()) as client:
+        for card_id in configured_card_ids:
+            try:
+                card = fetch_card(client, card_id)
+                chosen_price = choose_price_snapshot(card)
+                if chosen_price is None:
+                    logger.warning("Skipping card %s because no usable tcgplayer price was returned.", card_id)
+                    result.cards_skipped_no_price += 1
+                    continue
 
-        price_type, price_field, price = chosen_price
-        asset_payload = build_asset_payload(card, price_type, price_field)
-        asset, created = get_or_create_asset(session, asset_payload)
-        if created:
-            result.assets_created += 1
-        else:
-            result.assets_updated += 1
+                price_type, price_field, price = chosen_price
+                asset_payload = build_asset_payload(card, price_type, price_field)
+                asset, created = get_or_create_asset(session, asset_payload)
+                if created:
+                    result.assets_created += 1
+                else:
+                    result.assets_updated += 1
 
-        provider_updated_at = parse_provider_updated_at(card, ingested_at)
-        if add_price_point(
-            session,
-            asset.id,
-            source="pokemon_tcg_api",
-            currency="USD",
-            price=price,
-            captured_at=provider_updated_at,
-        ):
-            result.price_points_inserted += 1
+                insert_result = add_price_point(
+                    session,
+                    asset.id,
+                    source=POKEMON_TCG_PRICE_SOURCE,
+                    currency="USD",
+                    price=price,
+                    captured_at=ingested_at,
+                )
+                if insert_result.inserted:
+                    result.price_points_inserted += 1
+                    if insert_result.price_changed is True:
+                        result.price_points_changed += 1
+                    elif insert_result.price_changed is False:
+                        result.price_points_unchanged += 1
+                    if asset.name not in result.inserted_asset_names:
+                        result.inserted_asset_names.append(asset.name)
+                else:
+                    result.price_points_skipped_existing_timestamp += 1
 
-        if add_price_point(
-            session,
-            asset.id,
-            source="pokemon_tcg_api",
-            currency="USD",
-            price=price,
-            captured_at=ingested_at,
-        ):
-            result.price_points_inserted += 1
-
-        result.cards_processed += 1
+                result.cards_processed += 1
+            except ProviderUnavailableError as exc:
+                result.cards_failed += 1
+                logger.error(
+                    "Stopping Pokemon TCG ingestion early because the provider is unavailable while fetching card %s: %s",
+                    card_id,
+                    exc,
+                )
+                break
+            except Exception:
+                result.cards_failed += 1
+                logger.exception("Failed to ingest Pokemon TCG card %s. Continuing with the remaining cards.", card_id)
 
     session.commit()
+    logger.info(
+        "Pokemon TCG ingest summary: cards_requested=%s cards_processed=%s cards_failed=%s cards_skipped_no_price=%s assets_created=%s assets_updated=%s price_points_inserted=%s price_points_changed=%s price_points_unchanged=%s price_points_skipped_existing_timestamp=%s sample_rows_deleted=%s inserted_assets=%s latest_captured_at=%s",
+        result.cards_requested,
+        result.cards_processed,
+        result.cards_failed,
+        result.cards_skipped_no_price,
+        result.assets_created,
+        result.assets_updated,
+        result.price_points_inserted,
+        result.price_points_changed,
+        result.price_points_unchanged,
+        result.price_points_skipped_existing_timestamp,
+        result.sample_rows_deleted,
+        ", ".join(result.inserted_asset_names) if result.inserted_asset_names else "<none>",
+        result.latest_captured_at.isoformat() if result.latest_captured_at else "<none>",
+    )
     return result

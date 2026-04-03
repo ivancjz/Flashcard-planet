@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from backend.app.api.router import api_router
 from backend.app.core.config import get_settings
+from backend.app.db.init_db import init_db
 from backend.app.scheduler import build_scheduler
 
 logging.basicConfig(level=logging.INFO)
@@ -17,6 +18,7 @@ scheduler = build_scheduler()
 
 @app.on_event("startup")
 def on_startup() -> None:
+    init_db()
     if not scheduler.running:
         scheduler.start()
 
