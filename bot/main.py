@@ -148,6 +148,39 @@ def format_signed_price_change(value: Decimal, currency: str | None = None) -> s
     return f"{sign}{format_price(abs(value), currency)}"
 
 
+def format_liquidity_summary(item: dict) -> str:
+    if item.get("liquidity_score") is None and not item.get("liquidity_label"):
+        return "Not set"
+    label = item.get("liquidity_label") or "Liquidity"
+    score = item.get("liquidity_score")
+    if score is None:
+        return str(label)
+    return f"{label} ({format_number(score)}/100)"
+
+
+def format_activity_summary(item: dict) -> str:
+    parts = []
+    if item.get("sales_count_7d") is not None:
+        parts.append(f"7d rows {format_number(item['sales_count_7d'])}")
+    if item.get("sales_count_30d") is not None:
+        parts.append(f"30d rows {format_number(item['sales_count_30d'])}")
+    if item.get("days_since_last_sale") is not None:
+        parts.append(f"Last real {format_number(item['days_since_last_sale'])}d ago")
+    if item.get("source_count") is not None:
+        parts.append(f"Sources {format_number(item['source_count'])}")
+    return " | ".join(parts) if parts else "Not set"
+
+
+def format_alert_confidence_summary(item: dict) -> str:
+    if item.get("alert_confidence") is None and not item.get("alert_confidence_label"):
+        return "Not set"
+    label = item.get("alert_confidence_label") or "Confidence"
+    score = item.get("alert_confidence")
+    if score is None:
+        return str(label)
+    return f"{label} ({format_number(score)}/100)"
+
+
 def build_history_movement_summary(history_rows: list[dict], default_currency: str | None = None) -> str:
     if not history_rows:
         return "No returned points yet."
@@ -178,6 +211,20 @@ def build_price_embed(item: dict, match_count: int) -> discord.Embed:
         color=EMBED_COLOR_INFO,
     )
     add_embed_field(embed, "Latest price", format_price(item.get("latest_price"), item.get("currency")))
+    if item.get("percent_change") is not None:
+        add_embed_field(
+            embed,
+            "Recent move",
+            (
+                f"{format_signed_price_change(Decimal(str(item.get('absolute_change') or '0')) , item.get('currency'))} | "
+                f"{format_percent(item.get('percent_change'))}"
+            ),
+            inline=False,
+        )
+    add_embed_field(embed, "Liquidity", format_liquidity_summary(item), inline=False)
+    add_embed_field(embed, "Activity", format_activity_summary(item), inline=False)
+    if item.get("alert_confidence") is not None:
+        add_embed_field(embed, "Alert confidence", format_alert_confidence_summary(item), inline=False)
     add_embed_field(embed, "Source", item.get("source"))
     add_embed_field(embed, "Captured at", format_history_timestamp(item.get("captured_at")), inline=False)
     if match_count > 1:
@@ -186,18 +233,24 @@ def build_price_embed(item: dict, match_count: int) -> discord.Embed:
 
 
 def build_topmovers_embed(movers: list[dict], limit: int) -> discord.Embed:
-    lines = []
+    blocks = []
     for index, item in enumerate(movers, start=1):
         percent = Decimal(str(item["percent_change"]))
         sign = "+" if percent >= 0 else ""
-        lines.append(
-            f"`{index}.` **{item['name']}**\n"
-            f"{format_price(item['latest_price'])} | {sign}{format_number(percent)}%"
+        blocks.append(
+            "\n".join(
+                [
+                    f"`{index}.` **{item['name']}**",
+                    f"{format_price(item['latest_price'])} | {sign}{format_number(percent)}%",
+                    f"Liquidity: {format_liquidity_summary(item)} | Confidence: {format_alert_confidence_summary(item)}",
+                    format_activity_summary(item),
+                ]
+            )
         )
 
     embed = discord.Embed(
         title="Top Movers",
-        description="\n".join(lines),
+        description=join_blocks(blocks),
         color=EMBED_COLOR_INFO,
     )
     embed.set_footer(text=f"Showing {len(movers)} of {limit} requested mover(s).")
@@ -283,9 +336,11 @@ def build_history_embed(item: dict, limit: int, *, now: datetime | None = None) 
     lines = []
     number_width = len(str(len(history_rows))) if history_rows else 1
     for index, row in enumerate(history_rows, start=1):
+        point_type = row.get("event_type") or row.get("point_type") or "unknown"
+        real_data_label = "real" if row.get("is_real_data", True) else "sample"
         lines.append(
             f"`{index:>{number_width}}.` {format_history_timestamp(row.get('captured_at'), now=now)} | "
-            f"{format_price(row.get('price'), row.get('currency'))}"
+            f"{format_price(row.get('price'), row.get('currency'))} | {point_type} | {real_data_label}"
         )
 
     embed = discord.Embed(
@@ -302,6 +357,8 @@ def build_history_embed(item: dict, limit: int, *, now: datetime | None = None) 
         build_history_movement_summary(history_rows, item.get("currency")),
         inline=False,
     )
+    add_embed_field(embed, "Liquidity", format_liquidity_summary(item), inline=False)
+    add_embed_field(embed, "Activity", format_activity_summary(item), inline=False)
     add_embed_field(embed, "Current price", format_price(item.get("current_price"), item.get("currency")))
     add_embed_field(embed, "Points returned", item.get("points_returned"))
     embed.set_footer(text=f"Showing {item.get('points_returned', 0)} of {limit} requested history point(s).")

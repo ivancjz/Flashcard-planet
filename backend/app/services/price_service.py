@@ -5,7 +5,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.app.core.price_sources import get_active_price_source_filter
+from backend.app.core.price_sources import SAMPLE_PRICE_SOURCE, get_active_price_source_filter
 from backend.app.models.asset import Asset
 from backend.app.models.price_history import PriceHistory
 from backend.app.schemas.price import (
@@ -16,9 +16,14 @@ from backend.app.schemas.price import (
     TopMoverResponse,
     TopValueResponse,
 )
+from backend.app.services.liquidity_service import (
+    get_asset_signal_snapshots,
+    is_top_mover_eligible,
+)
 
 PREDICTION_POINT_LIMIT = 8
 PREDICTION_MIN_POINTS = 3
+HISTORY_POINT_TYPE_DERIVED = "derived"
 
 
 @dataclass
@@ -35,58 +40,13 @@ def aliased_subquery(subquery, alias_name: str, rank: int):
     return select(subquery).where(subquery.c.price_rank == rank).subquery(alias_name)
 
 
-def get_asset_prices_by_name(db: Session, asset_name: str) -> list[AssetPriceResponse]:
-    source_filter = get_active_price_source_filter(db)
-    latest_subquery = (
-        select(
-            PriceHistory.asset_id,
-            func.max(PriceHistory.captured_at).label("max_captured_at"),
-        )
-        .where(source_filter)
-        .group_by(PriceHistory.asset_id)
-        .subquery()
-    )
-
-    stmt = (
-        select(Asset, PriceHistory)
-        .join(PriceHistory, Asset.id == PriceHistory.asset_id)
-        .join(
-            latest_subquery,
-            (latest_subquery.c.asset_id == PriceHistory.asset_id)
-            & (latest_subquery.c.max_captured_at == PriceHistory.captured_at),
-        )
-        .where(Asset.name.ilike(f"%{asset_name}%"))
-        .order_by(Asset.name.asc(), PriceHistory.captured_at.desc())
-    )
-
-    rows = db.execute(stmt).all()
-    return [
-        AssetPriceResponse(
-            asset_id=asset.id,
-            asset_class=asset.asset_class,
-            category=asset.category,
-            name=asset.name,
-            set_name=asset.set_name,
-            card_number=asset.card_number,
-            year=asset.year,
-            variant=asset.variant,
-            grade_company=asset.grade_company,
-            grade_score=asset.grade_score,
-            latest_price=price.price,
-            currency=price.currency,
-            source=price.source,
-            captured_at=price.captured_at,
-        )
-        for asset, price in rows
-    ]
-
-
-def get_top_movers(db: Session, limit: int = 10) -> list[TopMoverResponse]:
-    source_filter = get_active_price_source_filter(db)
-    ranked = (
+def _build_ranked_price_subquery(source_filter):
+    return (
         select(
             PriceHistory.asset_id,
             PriceHistory.price,
+            PriceHistory.currency,
+            PriceHistory.source,
             PriceHistory.captured_at,
             func.row_number()
             .over(partition_by=PriceHistory.asset_id, order_by=PriceHistory.captured_at.desc())
@@ -95,6 +55,105 @@ def get_top_movers(db: Session, limit: int = 10) -> list[TopMoverResponse]:
         .where(source_filter)
         .subquery()
     )
+
+
+def _quantize_change(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"))
+
+
+def get_asset_prices_by_name(db: Session, asset_name: str) -> list[AssetPriceResponse]:
+    source_filter = get_active_price_source_filter(db)
+    ranked = _build_ranked_price_subquery(source_filter)
+    current = aliased_subquery(ranked, "current_price", 1)
+    previous = aliased_subquery(ranked, "previous_price", 2)
+
+    stmt = (
+        select(
+            Asset,
+            current.c.price.label("latest_price"),
+            current.c.currency,
+            current.c.source,
+            current.c.captured_at,
+            previous.c.price.label("previous_price"),
+        )
+        .join(current, current.c.asset_id == Asset.id)
+        .outerjoin(previous, previous.c.asset_id == Asset.id)
+        .where(Asset.name.ilike(f"%{asset_name}%"))
+        .order_by(Asset.name.asc(), current.c.captured_at.desc())
+    )
+
+    rows = db.execute(stmt).all()
+    percent_changes_by_asset: dict = {}
+    for asset, latest_price, _currency, _source, _captured_at, previous_price in rows:
+        if previous_price is None or Decimal(previous_price) == 0:
+            continue
+        absolute_change = Decimal(latest_price) - Decimal(previous_price)
+        percent_changes_by_asset[asset.id] = (absolute_change / Decimal(previous_price)) * Decimal("100")
+
+    signal_snapshots = get_asset_signal_snapshots(
+        db,
+        [asset.id for asset, *_rest in rows],
+        percent_changes_by_asset=percent_changes_by_asset,
+    )
+
+    responses: list[AssetPriceResponse] = []
+    for asset, latest_price, currency, source, captured_at, previous_price in rows:
+        latest_price_decimal = Decimal(latest_price)
+        previous_price_decimal = Decimal(previous_price) if previous_price is not None else None
+        absolute_change = None
+        percent_change = None
+        if previous_price_decimal is not None and previous_price_decimal != 0:
+            absolute_change = _quantize_change(latest_price_decimal - previous_price_decimal)
+            percent_change = _quantize_change(
+                ((latest_price_decimal - previous_price_decimal) / previous_price_decimal) * Decimal("100")
+            )
+
+        signal_snapshot = signal_snapshots.get(asset.id)
+        responses.append(
+            AssetPriceResponse(
+                asset_id=asset.id,
+                asset_class=asset.asset_class,
+                category=asset.category,
+                name=asset.name,
+                set_name=asset.set_name,
+                card_number=asset.card_number,
+                year=asset.year,
+                variant=asset.variant,
+                grade_company=asset.grade_company,
+                grade_score=asset.grade_score,
+                latest_price=latest_price_decimal,
+                currency=currency,
+                source=source,
+                captured_at=captured_at,
+                previous_price=previous_price_decimal,
+                absolute_change=absolute_change,
+                percent_change=percent_change,
+                liquidity_score=signal_snapshot.liquidity_score if signal_snapshot is not None else None,
+                liquidity_label=signal_snapshot.liquidity_label if signal_snapshot is not None else None,
+                last_real_sale_at=signal_snapshot.last_real_sale_at if signal_snapshot is not None else None,
+                days_since_last_sale=signal_snapshot.days_since_last_sale if signal_snapshot is not None else None,
+                sales_count_7d=signal_snapshot.sales_count_7d if signal_snapshot is not None else None,
+                sales_count_30d=signal_snapshot.sales_count_30d if signal_snapshot is not None else None,
+                history_depth=signal_snapshot.history_depth if signal_snapshot is not None else None,
+                source_count=signal_snapshot.source_count if signal_snapshot is not None else None,
+                alert_confidence=(
+                    signal_snapshot.alert_confidence
+                    if signal_snapshot is not None and percent_change is not None and percent_change != 0
+                    else None
+                ),
+                alert_confidence_label=(
+                    signal_snapshot.alert_confidence_label
+                    if signal_snapshot is not None and percent_change is not None and percent_change != 0
+                    else None
+                ),
+            )
+        )
+    return responses
+
+
+def get_top_movers(db: Session, limit: int = 10) -> list[TopMoverResponse]:
+    source_filter = get_active_price_source_filter(db)
+    ranked = _build_ranked_price_subquery(source_filter)
 
     current = aliased_subquery(ranked, "current", 1)
     previous = aliased_subquery(ranked, "previous", 2)
@@ -112,6 +171,23 @@ def get_top_movers(db: Session, limit: int = 10) -> list[TopMoverResponse]:
     )
 
     rows = db.execute(stmt).all()
+    percent_changes_by_asset: dict = {}
+    for row in rows:
+        previous_price = Decimal(row.previous_price)
+        if previous_price == 0:
+            continue
+        latest_price = Decimal(row.latest_price)
+        absolute_change = latest_price - previous_price
+        if absolute_change == 0:
+            continue
+        percent_changes_by_asset[row.id] = (absolute_change / previous_price) * Decimal("100")
+
+    signal_snapshots = get_asset_signal_snapshots(
+        db,
+        [row.id for row in rows],
+        percent_changes_by_asset=percent_changes_by_asset,
+    )
+
     movers: list[TopMoverResponse] = []
     for row in rows:
         previous_price = Decimal(row.previous_price)
@@ -122,6 +198,9 @@ def get_top_movers(db: Session, limit: int = 10) -> list[TopMoverResponse]:
         if absolute_change == 0:
             continue
         percent_change = (absolute_change / previous_price) * Decimal("100")
+        signal_snapshot = signal_snapshots.get(row.id)
+        if signal_snapshot is None or not is_top_mover_eligible(signal_snapshot):
+            continue
         movers.append(
             TopMoverResponse(
                 asset_id=row.id,
@@ -129,8 +208,18 @@ def get_top_movers(db: Session, limit: int = 10) -> list[TopMoverResponse]:
                 category=row.category,
                 latest_price=latest_price,
                 previous_price=previous_price,
-                absolute_change=absolute_change.quantize(Decimal("0.01")),
-                percent_change=percent_change.quantize(Decimal("0.01")),
+                absolute_change=_quantize_change(absolute_change),
+                percent_change=_quantize_change(percent_change),
+                liquidity_score=signal_snapshot.liquidity_score,
+                liquidity_label=signal_snapshot.liquidity_label,
+                last_real_sale_at=signal_snapshot.last_real_sale_at,
+                days_since_last_sale=signal_snapshot.days_since_last_sale,
+                sales_count_7d=signal_snapshot.sales_count_7d,
+                sales_count_30d=signal_snapshot.sales_count_30d,
+                history_depth=signal_snapshot.history_depth,
+                source_count=signal_snapshot.source_count,
+                alert_confidence=signal_snapshot.alert_confidence,
+                alert_confidence_label=signal_snapshot.alert_confidence_label,
             )
         )
 
@@ -223,12 +312,18 @@ def get_asset_history_by_name(db: Session, asset_name: str, limit: int = 5) -> A
         .limit(limit)
     ).all()
 
+    # The current schema stores provider snapshot points, so history rows are exposed as
+    # derived observations until sold-vs-listing event types exist in the data model.
     history = [
         PriceHistoryPointResponse(
+            timestamp=row.captured_at,
             captured_at=row.captured_at,
             price=Decimal(row.price),
             currency=row.currency,
             source=row.source,
+            point_type=HISTORY_POINT_TYPE_DERIVED,
+            event_type=HISTORY_POINT_TYPE_DERIVED,
+            is_real_data=(row.source != SAMPLE_PRICE_SOURCE),
         )
         for row in rows
     ]
@@ -241,6 +336,16 @@ def get_asset_history_by_name(db: Session, asset_name: str, limit: int = 5) -> A
         current_price=Decimal(match.latest_price),
         currency=match.currency,
         points_returned=len(history),
+        liquidity_score=match.liquidity_score,
+        liquidity_label=match.liquidity_label,
+        last_real_sale_at=match.last_real_sale_at,
+        days_since_last_sale=match.days_since_last_sale,
+        sales_count_7d=match.sales_count_7d,
+        sales_count_30d=match.sales_count_30d,
+        history_depth=match.history_depth,
+        source_count=match.source_count,
+        alert_confidence=match.alert_confidence,
+        alert_confidence_label=match.alert_confidence_label,
         history=history,
     )
 

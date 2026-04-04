@@ -112,6 +112,13 @@ def build_dashboard_snapshot(db: Session) -> dict[str, object]:
                 "latest_price": _format_currency(item.latest_price),
                 "absolute_change": _format_currency(item.absolute_change),
                 "percent_change": _format_decimal(item.percent_change, suffix="%"),
+                "liquidity_score": item.liquidity_score,
+                "liquidity_label": item.liquidity_label,
+                "alert_confidence": item.alert_confidence,
+                "alert_confidence_label": item.alert_confidence_label,
+                "sales_count_7d": item.sales_count_7d,
+                "sales_count_30d": item.sales_count_30d,
+                "days_since_last_sale": item.days_since_last_sale,
             }
             for item in top_movers
         ],

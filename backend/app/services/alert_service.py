@@ -17,6 +17,7 @@ from backend.app.models.enums import AlertDirection, AlertType
 from backend.app.models.price_history import PriceHistory
 from backend.app.models.user import User
 from backend.app.schemas.alert import AlertItemResponse
+from backend.app.services.liquidity_service import AssetSignalSnapshot, get_asset_signal_snapshots
 from backend.app.services.price_service import PredictionComputation, get_prediction_state_for_asset
 
 logger = logging.getLogger(__name__)
@@ -232,6 +233,7 @@ def build_alert_notification_content(
     previous_price: PricePoint | None = None,
     prediction_state: PredictionComputation | None = None,
     previous_signal: str | None = None,
+    signal_snapshot: AssetSignalSnapshot | None = None,
 ) -> str:
     asset_name = alert.asset.name
     current_price_text = f"{current_price.price:.2f} {current_price.currency}"
@@ -263,7 +265,7 @@ def build_alert_notification_content(
 
         percent_change = ((current_price.price - movement_reference.price) / movement_reference.price) * Decimal("100")
         direction_label = "price_up_percent" if alert.alert_type == AlertType.PRICE_UP_THRESHOLD.value else "price_down_percent"
-        return (
+        message = (
             "Flashcard Planet push alert\n"
             f"Card: {asset_name}\n"
             f"Trigger: {direction_label}\n"
@@ -273,6 +275,17 @@ def build_alert_notification_content(
             f"Threshold: {alert.threshold_percent:.2f}%\n"
             f"Timestamp: {captured_at_text}"
         )
+        if signal_snapshot is not None:
+            confidence_text = (
+                f"{signal_snapshot.alert_confidence_label} ({signal_snapshot.alert_confidence}/100)"
+                if signal_snapshot.alert_confidence is not None
+                else "Not set"
+            )
+            message += (
+                f"\nLiquidity: {signal_snapshot.liquidity_label} ({signal_snapshot.liquidity_score}/100)\n"
+                f"Alert confidence: {confidence_text}"
+            )
+        return message
 
     if alert.alert_type == AlertType.PREDICT_SIGNAL_CHANGE.value and prediction_state is not None:
         return (
@@ -443,6 +456,7 @@ def evaluate_active_alerts(db: Session) -> AlertEvaluationResult:
 
         triggered = False
         previous_signal: str | None = None
+        signal_snapshot: AssetSignalSnapshot | None = None
         if alert.alert_type == AlertType.TARGET_PRICE_HIT.value and alert.target_price is not None:
             triggered = is_target_crossed(
                 alert.target_price,
@@ -470,6 +484,19 @@ def evaluate_active_alerts(db: Session) -> AlertEvaluationResult:
                 if not alert.is_armed:
                     result.alerts_rearmed += 1
                 alert.is_armed = True
+            if (
+                triggered
+                and previous_row is not None
+                and previous_row.price != 0
+            ):
+                percent_change = (
+                    (current_row.price - previous_row.price) / previous_row.price
+                ) * Decimal("100")
+                signal_snapshot = get_asset_signal_snapshots(
+                    db,
+                    [alert.asset_id],
+                    percent_changes_by_asset={alert.asset_id: percent_change},
+                ).get(alert.asset_id)
         elif (
             alert.alert_type == AlertType.PREDICT_SIGNAL_CHANGE.value
             and prediction_state is not None
@@ -511,6 +538,7 @@ def evaluate_active_alerts(db: Session) -> AlertEvaluationResult:
                     previous_price=previous_row,
                     prediction_state=prediction_state,
                     previous_signal=previous_signal,
+                    signal_snapshot=signal_snapshot,
                 ),
                 previous_is_active=previous_is_active,
                 previous_is_armed=previous_is_armed,

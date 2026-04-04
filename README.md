@@ -109,6 +109,8 @@ If `DISCORD_GUILD_ID` is set, slash commands sync to that guild for faster itera
 
 For alert behavior, rearm rules, manual demo commands, cleanup commands, and test commands, see [docs/DEV_NOTES.md](C:\Flashcard-planet\docs\DEV_NOTES.md).
 
+Flashcard Planet monitors not only price changes, but the credibility of those changes under real market activity.
+
 ## First working API routes
 
 - `GET /health`

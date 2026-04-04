@@ -17,6 +17,7 @@ from backend.app.services.alert_service import (
     evaluate_active_alerts,
     process_alert_notifications,
 )
+from backend.app.services.liquidity_service import AssetSignalSnapshot
 from backend.app.services.price_service import PredictionComputation
 
 
@@ -144,6 +145,25 @@ class AlertServiceTests(TestCase):
                 "backend.app.services.alert_service.get_reference_price_row",
                 return_value=make_price_point("95.00"),
             ),
+            patch(
+                "backend.app.services.alert_service.get_asset_signal_snapshots",
+                return_value={
+                    alert.asset_id: AssetSignalSnapshot(
+                        asset_id=alert.asset_id,
+                        sales_count_7d=4,
+                        sales_count_30d=8,
+                        days_since_last_sale=0,
+                        last_real_sale_at=NOW,
+                        history_depth=12,
+                        source_count=1,
+                        liquidity_score=82,
+                        liquidity_label="High Liquidity",
+                        price_move_magnitude=Decimal("10.00"),
+                        alert_confidence=78,
+                        alert_confidence_label="High Confidence",
+                    )
+                },
+            ),
         ):
             result = evaluate_active_alerts(session)
 
@@ -153,6 +173,7 @@ class AlertServiceTests(TestCase):
         self.assertIsNotNone(alert.last_triggered_at)
         self.assertTrue(session.flush_called)
         self.assertIn("Trigger: price_up_percent", result.notifications[0].content)
+        self.assertIn("Liquidity: High Liquidity (82/100)", result.notifications[0].content)
 
     def test_price_threshold_rearms_after_returning_inside_range(self):
         alert = make_alert(

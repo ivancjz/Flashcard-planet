@@ -9,6 +9,7 @@ from bot.main import (
     build_history_embed,
     build_prediction_embed,
     build_price_embed,
+    build_topmovers_embed,
     build_topvalue_embed,
     format_history_timestamp,
 )
@@ -45,10 +46,34 @@ class BotHistoryEmbedTests(TestCase):
             "currency": "USD",
             "points_returned": 3,
             "set_name": "Scarlet & Violet 151",
+            "liquidity_score": 72,
+            "liquidity_label": "Medium Liquidity",
+            "sales_count_7d": 3,
+            "sales_count_30d": 5,
+            "days_since_last_sale": 0,
+            "source_count": 1,
             "history": [
-                {"captured_at": "2026-04-02T14:31:00+00:00", "price": "0.18", "currency": "USD"},
-                {"captured_at": "2026-04-02T14:26:00+00:00", "price": "0.18", "currency": "USD"},
-                {"captured_at": "2026-04-02T14:21:00+00:00", "price": "0.18", "currency": "USD"},
+                {
+                    "captured_at": "2026-04-02T14:31:00+00:00",
+                    "price": "0.18",
+                    "currency": "USD",
+                    "event_type": "derived",
+                    "is_real_data": True,
+                },
+                {
+                    "captured_at": "2026-04-02T14:26:00+00:00",
+                    "price": "0.18",
+                    "currency": "USD",
+                    "event_type": "derived",
+                    "is_real_data": True,
+                },
+                {
+                    "captured_at": "2026-04-02T14:21:00+00:00",
+                    "price": "0.18",
+                    "currency": "USD",
+                    "event_type": "derived",
+                    "is_real_data": True,
+                },
             ],
         }
 
@@ -60,6 +85,8 @@ class BotHistoryEmbedTests(TestCase):
                 ("Asset", "Bulbasaur"),
                 ("Set", "Scarlet & Violet 151"),
                 ("Recent movement", "No change across returned points."),
+                ("Liquidity", "Medium Liquidity (72/100)"),
+                ("Activity", "7d rows 3 | 30d rows 5 | Last real 0d ago | Sources 1"),
                 ("Current price", "0.18 USD"),
                 ("Points returned", "3"),
             ],
@@ -68,9 +95,9 @@ class BotHistoryEmbedTests(TestCase):
             embed.description,
             "\n".join(
                 [
-                    "`1.` 2026-04-02 14:31 (5m ago) | 0.18 USD",
-                    "`2.` 2026-04-02 14:26 (10m ago) | 0.18 USD",
-                    "`3.` 2026-04-02 14:21 (15m ago) | 0.18 USD",
+                    "`1.` 2026-04-02 14:31 (5m ago) | 0.18 USD | derived | real",
+                    "`2.` 2026-04-02 14:26 (10m ago) | 0.18 USD | derived | real",
+                    "`3.` 2026-04-02 14:21 (15m ago) | 0.18 USD | derived | real",
                 ]
             ),
         )
@@ -84,12 +111,18 @@ class BotHistoryEmbedTests(TestCase):
             "currency": "USD",
             "points_returned": 5,
             "set_name": "Scarlet & Violet 151",
+            "liquidity_score": 84,
+            "liquidity_label": "High Liquidity",
+            "sales_count_7d": 5,
+            "sales_count_30d": 8,
+            "days_since_last_sale": 0,
+            "source_count": 1,
             "history": [
-                {"captured_at": "2026-04-02T14:31:00+00:00", "price": "0.20", "currency": "USD"},
-                {"captured_at": "2026-04-02T14:26:00+00:00", "price": "0.18", "currency": "USD"},
-                {"captured_at": "2026-04-02T14:21:00+00:00", "price": "0.18", "currency": "USD"},
-                {"captured_at": "2026-04-02T14:16:00+00:00", "price": "0.19", "currency": "USD"},
-                {"captured_at": "2026-04-02T14:11:00+00:00", "price": "0.19", "currency": "USD"},
+                {"captured_at": "2026-04-02T14:31:00+00:00", "price": "0.20", "currency": "USD", "event_type": "derived", "is_real_data": True},
+                {"captured_at": "2026-04-02T14:26:00+00:00", "price": "0.18", "currency": "USD", "event_type": "derived", "is_real_data": True},
+                {"captured_at": "2026-04-02T14:21:00+00:00", "price": "0.18", "currency": "USD", "event_type": "derived", "is_real_data": True},
+                {"captured_at": "2026-04-02T14:16:00+00:00", "price": "0.19", "currency": "USD", "event_type": "derived", "is_real_data": True},
+                {"captured_at": "2026-04-02T14:11:00+00:00", "price": "0.19", "currency": "USD", "event_type": "derived", "is_real_data": True},
             ],
         }
 
@@ -108,6 +141,17 @@ class BotHistoryEmbedTests(TestCase):
                 "category": "Pokemon",
                 "set_name": "Scarlet & Violet 151",
                 "latest_price": "0.18",
+                "previous_price": "0.17",
+                "absolute_change": "0.01",
+                "percent_change": "5.88",
+                "liquidity_score": 76,
+                "liquidity_label": "Medium Liquidity",
+                "sales_count_7d": 4,
+                "sales_count_30d": 6,
+                "days_since_last_sale": 1,
+                "source_count": 1,
+                "alert_confidence": 68,
+                "alert_confidence_label": "Medium Confidence",
                 "currency": "USD",
                 "source": "pokemon_tcg_api",
                 "captured_at": "2026-04-02T14:31:00+00:00",
@@ -123,12 +167,41 @@ class BotHistoryEmbedTests(TestCase):
             [(field.name, field.value) for field in embed.fields[:2]],
             [
                 ("Latest price", "0.18 USD"),
-                ("Source", "pokemon_tcg_api"),
+                ("Recent move", "+0.01 USD | 5.88%"),
             ],
         )
+        liquidity_field = next(field for field in embed.fields if field.name == "Liquidity")
+        self.assertEqual(liquidity_field.value, "Medium Liquidity (76/100)")
+        activity_field = next(field for field in embed.fields if field.name == "Activity")
+        self.assertEqual(activity_field.value, "7d rows 4 | 30d rows 6 | Last real 1d ago | Sources 1")
+        confidence_field = next(field for field in embed.fields if field.name == "Alert confidence")
+        self.assertEqual(confidence_field.value, "Medium Confidence (68/100)")
         captured_at_field = next(field for field in embed.fields if field.name == "Captured at")
         self.assertIn("2026-04-02 14:31", captured_at_field.value)
         self.assertNotIn("<t:", captured_at_field.value)
+
+    def test_build_topmovers_embed_surfaces_liquidity_and_confidence(self):
+        embed = build_topmovers_embed(
+            [
+                {
+                    "name": "Bulbasaur",
+                    "latest_price": "0.18",
+                    "percent_change": "12.50",
+                    "liquidity_score": 82,
+                    "liquidity_label": "High Liquidity",
+                    "alert_confidence": 77,
+                    "alert_confidence_label": "High Confidence",
+                    "sales_count_7d": 4,
+                    "sales_count_30d": 9,
+                    "days_since_last_sale": 1,
+                    "source_count": 1,
+                }
+            ],
+            limit=1,
+        )
+
+        self.assertIn("Liquidity: High Liquidity (82/100) | Confidence: High Confidence (77/100)", embed.description)
+        self.assertIn("7d rows 4 | 30d rows 9 | Last real 1d ago | Sources 1", embed.description)
 
     def test_build_prediction_embed_uses_plain_text_captured_at(self):
         embed = build_prediction_embed(
