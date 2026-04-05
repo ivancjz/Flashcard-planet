@@ -47,6 +47,7 @@ class TopMoverResponse(LiquiditySummaryResponse, AlertConfidenceResponse):
     asset_id: UUID
     name: str
     category: str
+    set_name: str | None = None
     latest_price: Decimal
     previous_price: Decimal
     absolute_change: Decimal

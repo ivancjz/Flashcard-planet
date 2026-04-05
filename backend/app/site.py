@@ -109,6 +109,7 @@ def build_dashboard_snapshot(db: Session) -> dict[str, object]:
         "top_movers": [
             {
                 "name": item.name,
+                "set_name": item.set_name,
                 "latest_price": _format_currency(item.latest_price),
                 "absolute_change": _format_currency(item.absolute_change),
                 "percent_change": _format_decimal(item.percent_change, suffix="%"),

@@ -27,6 +27,7 @@ class PriceServiceTests(TestCase):
                 id=asset_a,
                 name="Umbreon ex",
                 category="Pokemon",
+                set_name="Prismatic Evolutions",
                 latest_price=Decimal("120.00"),
                 previous_price=Decimal("100.00"),
             ),
@@ -34,6 +35,7 @@ class PriceServiceTests(TestCase):
                 id=asset_b,
                 name="Thin Card",
                 category="Pokemon",
+                set_name="Thin Set",
                 latest_price=Decimal("24.00"),
                 previous_price=Decimal("20.00"),
             ),
@@ -74,6 +76,7 @@ class PriceServiceTests(TestCase):
 
         self.assertEqual(len(movers), 1)
         self.assertEqual(movers[0].name, "Umbreon ex")
+        self.assertEqual(movers[0].set_name, "Prismatic Evolutions")
         self.assertEqual(movers[0].liquidity_score, 80)
         self.assertEqual(movers[0].alert_confidence, 76)
         self.assertEqual(movers[0].sales_count_30d, 8)

@@ -163,6 +163,7 @@ def get_top_movers(db: Session, limit: int = 10) -> list[TopMoverResponse]:
             Asset.id,
             Asset.name,
             Asset.category,
+            Asset.set_name,
             current.c.price.label("latest_price"),
             previous.c.price.label("previous_price"),
         )
@@ -206,6 +207,7 @@ def get_top_movers(db: Session, limit: int = 10) -> list[TopMoverResponse]:
                 asset_id=row.id,
                 name=row.name,
                 category=row.category,
+                set_name=row.set_name,
                 latest_price=latest_price,
                 previous_price=previous_price,
                 absolute_change=_quantize_change(absolute_change),
