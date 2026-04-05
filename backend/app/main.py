@@ -8,6 +8,7 @@ from backend.app.api.router import api_router
 from backend.app.core.config import get_settings
 from backend.app.db.init_db import init_db
 from backend.app.scheduler import build_scheduler
+from backend.app.backstage.scheduler import prepare_scheduler_for_startup
 from backend.app.site import router as site_router
 
 logging.basicConfig(level=logging.INFO)
@@ -34,6 +35,7 @@ def healthz() -> dict[str, str]:
 def on_startup() -> None:
     init_db()
     if not scheduler.running:
+        prepare_scheduler_for_startup(scheduler)
         scheduler.start()
 
 

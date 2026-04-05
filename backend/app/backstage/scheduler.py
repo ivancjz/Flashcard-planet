@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -21,6 +21,7 @@ from backend.app.ingestion.provider_registry import (
 from backend.app.services.alert_service import process_alert_notifications
 
 logger = logging.getLogger(__name__)
+INITIAL_INGEST_DELAY_SECONDS = 10
 
 
 @dataclass
@@ -212,7 +213,7 @@ def build_scheduler() -> BackgroundScheduler:
             replace_existing=True,
             max_instances=1,
             coalesce=True,
-            next_run_time=datetime.now(UTC),
+            next_run_time=None,
         )
         return scheduler
 
@@ -228,3 +229,17 @@ def build_scheduler() -> BackgroundScheduler:
         replace_existing=True,
     )
     return scheduler
+
+
+def prepare_scheduler_for_startup(scheduler: BackgroundScheduler) -> None:
+    job = scheduler.get_job("scheduled-ingestion")
+    if job is None:
+        return
+
+    first_run_at = datetime.now(UTC) + timedelta(seconds=INITIAL_INGEST_DELAY_SECONDS)
+    scheduler.modify_job("scheduled-ingestion", next_run_time=first_run_at)
+    logger.info(
+        "Initial scheduled ingestion delayed until %s (%s seconds after startup).",
+        first_run_at.isoformat(),
+        INITIAL_INGEST_DELAY_SECONDS,
+    )
