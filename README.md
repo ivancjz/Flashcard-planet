@@ -259,40 +259,58 @@ python -m scripts.cleanup_legacy_pokemon_assets --apply
 
 `POKEMON_TCG_API_KEY` is optional. Without it, the Pokemon TCG API still works with lower public rate limits. If you have a key, place it in `.env`.
 
-### Later scheduling
+### Backstage automation
 
-The backend scheduler now runs the same ingestion job automatically when the backend starts. By default it runs immediately on startup and then every hour.
+The backend now includes a backstage scheduler that starts with the FastAPI app, runs the existing Pokemon TCG ingestion automatically, and then generates a gap report after each scheduled run.
 
-You can configure it with:
+Default behaviour:
+
+- the ingestion job runs immediately on backend startup
+- it repeats every 24 hours by default
+- each run logs `start_time`, `end_time`, `records_written`, and any ingestion or gap-detection errors
+- the gap detector reports cards with zero history, cards with thin history, and under-covered sets
+
+Configure it with:
 
 ```env
-POKEMON_TCG_SCHEDULE_ENABLED=true
-POKEMON_TCG_SCHEDULE_SECONDS=3600
+INGEST_SCHEDULE_ENABLED=true
+INGEST_INTERVAL_HOURS=24
+GAP_HISTORY_THRESHOLD=7
+GAP_SET_COVERAGE_THRESHOLD=0.5
 ```
 
 To disable automatic background ingestion:
 
 ```env
-POKEMON_TCG_SCHEDULE_ENABLED=false
+INGEST_SCHEDULE_ENABLED=false
 ```
+
+The internal read-only gap report is available at:
+
+```text
+GET /admin/gaps
+```
+
+It returns the current prioritised queue for backlog review only. Gap detection does not silently write, update, or delete data.
 
 ### Fast local scheduler testing
 
-For quick local verification, temporarily use:
+For quick local verification, temporarily use a shorter interval such as:
 
 ```env
-POKEMON_TCG_SCHEDULE_ENABLED=true
-POKEMON_TCG_SCHEDULE_SECONDS=300
+INGEST_SCHEDULE_ENABLED=true
+INGEST_INTERVAL_HOURS=0.1
 ```
 
 Then:
 
 1. Restart the backend
 2. Watch logs for the immediate startup run and the next repeated run
-3. Run `python -m scripts.price_history_summary`
-4. Test `/price` and `/topmovers` in Discord
+3. Call `GET /admin/gaps`
+4. Run `python -m scripts.price_history_summary`
+5. Test `/price` and `/topmovers` in Discord
 
-When you are done, set `POKEMON_TCG_SCHEDULE_SECONDS=3600` again for the normal hourly interval.
+When you are done, set `INGEST_INTERVAL_HOURS=24` again for the normal daily interval.
 
 ### Comparing tracked pools
 

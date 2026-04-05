@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     provider_1_source: str = "pokemon_tcg_api"
     provider_2_source: str = ""
     primary_price_source: str = "pokemon_tcg_api"
+    admin_api_key: str = ""
+    ingest_schedule_enabled: bool = True
+    ingest_interval_hours: float = Field(default=24.0, gt=0)
+    gap_history_threshold: int = Field(default=7, ge=1)
+    gap_set_coverage_threshold: float = Field(default=0.5, gt=0, le=1)
     pokemon_tcg_schedule_enabled: bool = True
     pokemon_tcg_schedule_seconds: int = 3600
 
@@ -77,6 +82,26 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @property
+    def resolved_ingest_schedule_enabled(self) -> bool:
+        if "ingest_schedule_enabled" in self.model_fields_set:
+            return self.ingest_schedule_enabled
+        if "pokemon_tcg_schedule_enabled" in self.model_fields_set:
+            return self.pokemon_tcg_schedule_enabled
+        return self.ingest_schedule_enabled
+
+    @property
+    def resolved_ingest_interval_hours(self) -> float:
+        if "ingest_interval_hours" in self.model_fields_set:
+            return self.ingest_interval_hours
+        if "pokemon_tcg_schedule_seconds" in self.model_fields_set:
+            return max(self.pokemon_tcg_schedule_seconds / 3600, 1 / 3600)
+        return self.ingest_interval_hours
+
+    @property
+    def resolved_ingest_interval_seconds(self) -> int:
+        return max(int(round(self.resolved_ingest_interval_hours * 3600)), 1)
 
 
 @lru_cache
