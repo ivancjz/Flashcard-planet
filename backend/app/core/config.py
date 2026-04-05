@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 
 from pydantic import Field
@@ -46,7 +47,7 @@ class Settings(BaseSettings):
     project_name: str = "Flashcard Planet"
     environment: str = "development"
     api_host: str = "0.0.0.0"
-    api_port: int = 8000
+    api_port: int = int(os.environ.get("PORT", 8000))
     api_prefix: str = "/api/v1"
     database_url: str = Field(
         default="postgresql+psycopg://flashcard:flashcard@localhost:5432/flashcard_planet"
@@ -54,7 +55,7 @@ class Settings(BaseSettings):
     bot_token: str = ""
     discord_application_id: str = ""
     discord_guild_id: str = ""
-    backend_base_url: str = "http://localhost:8000"
+    backend_base_url: str = f"http://localhost:{os.environ.get('PORT', 8000)}"
     scheduler_poll_seconds: int = 300
     pokemon_tcg_api_base_url: str = "https://api.pokemontcg.io/v2"
     pokemon_tcg_api_key: str = ""
