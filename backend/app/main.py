@@ -1,8 +1,10 @@
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+import uvicorn
 
 from backend.app.api.router import api_router
 from backend.app.core.config import get_settings
@@ -43,3 +45,11 @@ def on_startup() -> None:
 def on_shutdown() -> None:
     if scheduler.running:
         scheduler.shutdown(wait=False)
+
+
+if __name__ == "__main__":
+    uvicorn.run(
+        app,
+        host=settings.api_host,
+        port=int(os.getenv("PORT", str(settings.api_port))),
+    )
