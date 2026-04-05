@@ -25,6 +25,11 @@ app.include_router(api_router)
 scheduler = build_scheduler()
 
 
+@app.get("/healthz")
+def healthz() -> dict[str, str]:
+    return {"status": "ok", "project": settings.project_name}
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
