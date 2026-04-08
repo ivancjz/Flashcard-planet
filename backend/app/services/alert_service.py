@@ -13,10 +13,11 @@ from sqlalchemy.orm import Session, selectinload
 from backend.app.core.config import get_settings
 from backend.app.core.price_sources import get_active_price_source_filter
 from backend.app.models.alert import Alert
+from backend.app.models.alert_history import AlertHistory
 from backend.app.models.enums import AlertDirection, AlertType
 from backend.app.models.price_history import PriceHistory
 from backend.app.models.user import User
-from backend.app.schemas.alert import AlertItemResponse
+from backend.app.schemas.alert import AlertHistoryItemResponse, AlertItemResponse
 from backend.app.services.liquidity_service import AssetSignalSnapshot, get_asset_signal_snapshots
 from backend.app.services.price_service import PredictionComputation, get_prediction_state_for_asset
 
@@ -51,6 +52,16 @@ class TriggeredAlertNotification:
     previous_is_armed: bool
     previous_last_observed_signal: str | None
     previous_last_triggered_at: datetime | None
+    user_id: Any | None = None
+    asset_id: Any | None = None
+    asset_name: str = ""
+    alert_type: str = ""
+    triggered_at: datetime | None = None
+    price_at_trigger: Decimal | None = None
+    reference_price: Decimal | None = None
+    percent_change: Decimal | None = None
+    currency: str | None = None
+    embed: dict | None = None
 
 
 @dataclass
@@ -225,6 +236,41 @@ def list_active_alerts(db: Session, discord_user_id: str) -> list[AlertItemRespo
     return items
 
 
+def list_alert_history(
+    db: Session,
+    discord_user_id: str,
+    *,
+    limit: int = 20,
+    asset_name: str | None = None,
+) -> list[AlertHistoryItemResponse]:
+    stmt = (
+        select(AlertHistory)
+        .join(User, User.id == AlertHistory.user_id)
+        .where(User.discord_user_id == discord_user_id)
+    )
+    if asset_name:
+        stmt = stmt.where(AlertHistory.asset_name.ilike(f"%{asset_name}%"))
+    stmt = stmt.order_by(AlertHistory.triggered_at.desc()).limit(limit)
+    rows = db.scalars(stmt).all()
+    return [
+        AlertHistoryItemResponse(
+            history_id=row.id,
+            alert_id=row.alert_id,
+            asset_id=row.asset_id,
+            asset_name=row.asset_name,
+            alert_type=row.alert_type,
+            triggered_at=row.triggered_at,
+            price_at_trigger=row.price_at_trigger,
+            reference_price=row.reference_price,
+            percent_change=row.percent_change,
+            currency=row.currency,
+            delivery_status=row.delivery_status,
+            notification_content=row.notification_content,
+        )
+        for row in rows
+    ]
+
+
 def build_alert_notification_content(
     alert: Alert,
     current_price: PricePoint,
@@ -328,6 +374,162 @@ def build_alert_notification_content(
         f"Current price: {current_price_text}\n"
         f"Timestamp: {captured_at_text}"
     )
+
+
+_EMBED_COLOR_GREEN = 0x57F287   # price up / predict up
+_EMBED_COLOR_RED = 0xED4245     # price down / predict down
+_EMBED_COLOR_GOLD = 0xFEE75C    # target hit
+_EMBED_COLOR_BLURPLE = 0x5865F2 # signal change / default
+
+
+def _embed_field(name: str, value: str, *, inline: bool = True) -> dict:
+    return {"name": name, "value": value or "—", "inline": inline}
+
+
+def build_alert_notification_embed(
+    alert: Alert,
+    current_price: PricePoint,
+    reference_price: PricePoint | None,
+    *,
+    previous_price: PricePoint | None = None,
+    prediction_state: PredictionComputation | None = None,
+    previous_signal: str | None = None,
+    signal_snapshot: AssetSignalSnapshot | None = None,
+) -> dict:
+    """Return a Discord embed dict (matches the Discord API embeds array element)."""
+    asset_name = alert.asset.name
+    set_name = getattr(alert.asset, "set_name", None)
+    currency = current_price.currency
+    ts = current_price.captured_at.isoformat()
+
+    def price_str(p: Decimal) -> str:
+        return f"{p:.2f} {currency}"
+
+    if alert.alert_type == AlertType.TARGET_PRICE_HIT.value and alert.target_price is not None:
+        fields = [
+            _embed_field("Card", asset_name),
+        ]
+        if set_name:
+            fields.append(_embed_field("Set", set_name))
+        fields += [
+            _embed_field("Target", f"{alert.target_price:.2f} {currency}"),
+            _embed_field("Current price", price_str(current_price.price)),
+        ]
+        return {
+            "title": "🎯 Target Price Reached",
+            "color": _EMBED_COLOR_GOLD,
+            "fields": fields,
+            "footer": {"text": "Flashcard Planet · one-shot alert — now deactivated"},
+            "timestamp": ts,
+        }
+
+    if alert.alert_type in (AlertType.PRICE_UP_THRESHOLD.value, AlertType.PRICE_DOWN_THRESHOLD.value):
+        is_up = alert.alert_type == AlertType.PRICE_UP_THRESHOLD.value
+        movement_reference = previous_price or reference_price
+        fields = [
+            _embed_field("Card", asset_name),
+        ]
+        if set_name:
+            fields.append(_embed_field("Set", set_name))
+        fields.append(_embed_field("Current price", price_str(current_price.price)))
+        if movement_reference is not None and movement_reference.price != 0:
+            pct = ((current_price.price - movement_reference.price) / movement_reference.price) * Decimal("100")
+            sign = "+" if pct >= 0 else ""
+            fields += [
+                _embed_field("Reference price", price_str(movement_reference.price)),
+                _embed_field("Move", f"{sign}{pct:.2f}%"),
+            ]
+        if alert.threshold_percent is not None:
+            fields.append(_embed_field("Threshold", f"{alert.threshold_percent:.2f}%"))
+        if signal_snapshot is not None:
+            if signal_snapshot.liquidity_label:
+                liq = f"{signal_snapshot.liquidity_label} ({signal_snapshot.liquidity_score}/100)"
+                fields.append(_embed_field("Liquidity", liq, inline=False))
+            if signal_snapshot.alert_confidence is not None:
+                conf = f"{signal_snapshot.alert_confidence_label} ({signal_snapshot.alert_confidence}/100)"
+                fields.append(_embed_field("Confidence", conf, inline=False))
+        return {
+            "title": "📈 Price Up Alert" if is_up else "📉 Price Down Alert",
+            "color": _EMBED_COLOR_GREEN if is_up else _EMBED_COLOR_RED,
+            "fields": fields,
+            "footer": {"text": "Flashcard Planet · alert will rearm after move reverses"},
+            "timestamp": ts,
+        }
+
+    if alert.alert_type == AlertType.PREDICT_SIGNAL_CHANGE.value and prediction_state is not None:
+        fields = [
+            _embed_field("Card", asset_name),
+        ]
+        if set_name:
+            fields.append(_embed_field("Set", set_name))
+        fields += [
+            _embed_field("Signal", f"{previous_signal or '—'} → {prediction_state.prediction}", inline=False),
+            _embed_field("Current price", price_str(current_price.price)),
+        ]
+        if prediction_state.up_probability is not None:
+            fields.append(
+                _embed_field(
+                    "Probabilities",
+                    f"Up {prediction_state.up_probability}% · Down {prediction_state.down_probability}% · Flat {prediction_state.flat_probability}%",
+                    inline=False,
+                )
+            )
+        return {
+            "title": "🔮 Prediction Signal Changed",
+            "color": _EMBED_COLOR_BLURPLE,
+            "fields": fields,
+            "footer": {"text": "Flashcard Planet · prediction alert"},
+            "timestamp": ts,
+        }
+
+    if alert.alert_type in (
+        AlertType.PREDICT_UP_PROBABILITY_ABOVE.value,
+        AlertType.PREDICT_DOWN_PROBABILITY_ABOVE.value,
+    ) and prediction_state is not None:
+        is_up_prob = alert.alert_type == AlertType.PREDICT_UP_PROBABILITY_ABOVE.value
+        probability_value = get_probability_value(alert, prediction_state)
+        fields = [
+            _embed_field("Card", asset_name),
+        ]
+        if set_name:
+            fields.append(_embed_field("Set", set_name))
+        fields += [
+            _embed_field("Current price", price_str(current_price.price)),
+            _embed_field("Prediction", prediction_state.prediction),
+        ]
+        if probability_value is not None:
+            label = "Up probability" if is_up_prob else "Down probability"
+            fields.append(_embed_field(label, f"{probability_value:.2f}%"))
+        if alert.threshold_percent is not None:
+            fields.append(_embed_field("Threshold", f"{alert.threshold_percent:.2f}%"))
+        if prediction_state.up_probability is not None:
+            fields.append(
+                _embed_field(
+                    "All probabilities",
+                    f"Up {prediction_state.up_probability}% · Down {prediction_state.down_probability}% · Flat {prediction_state.flat_probability}%",
+                    inline=False,
+                )
+            )
+        return {
+            "title": "📊 Prediction Probability Alert",
+            "color": _EMBED_COLOR_GREEN if is_up_prob else _EMBED_COLOR_RED,
+            "fields": fields,
+            "footer": {"text": "Flashcard Planet · alert will rearm after probability drops"},
+            "timestamp": ts,
+        }
+
+    # Fallback for unknown alert types
+    return {
+        "title": "🔔 Flashcard Planet Alert",
+        "color": _EMBED_COLOR_BLURPLE,
+        "fields": [
+            _embed_field("Card", asset_name),
+            _embed_field("Type", alert.alert_type),
+            _embed_field("Current price", price_str(current_price.price)),
+        ],
+        "footer": {"text": "Flashcard Planet"},
+        "timestamp": ts,
+    }
 
 
 def is_target_crossed(
@@ -527,19 +729,39 @@ def evaluate_active_alerts(db: Session) -> AlertEvaluationResult:
         if not triggered:
             continue
 
+        # Compute percent_change for history record (price movement alerts only).
+        _history_percent_change: Decimal | None = None
+        _history_reference_price: Decimal | None = None
+        if alert.alert_type in PRICE_MOVEMENT_ALERT_TYPES and previous_row is not None and previous_row.price != 0:
+            _history_percent_change = ((current_row.price - previous_row.price) / previous_row.price) * Decimal("100")
+            _history_reference_price = previous_row.price
+        elif reference_row is not None:
+            _history_reference_price = reference_row.price
+
+        _shared_kwargs = dict(
+            alert=alert,
+            current_price=current_row,
+            reference_price=reference_row,
+            previous_price=previous_row,
+            prediction_state=prediction_state,
+            previous_signal=previous_signal,
+            signal_snapshot=signal_snapshot,
+        )
         result.notifications.append(
             TriggeredAlertNotification(
                 alert_id=alert.id,
+                user_id=alert.user_id,
+                asset_id=alert.asset_id,
+                asset_name=alert.asset.name,
+                alert_type=alert.alert_type,
                 discord_user_id=alert.user.discord_user_id,
-                content=build_alert_notification_content(
-                    alert,
-                    current_row,
-                    reference_row,
-                    previous_price=previous_row,
-                    prediction_state=prediction_state,
-                    previous_signal=previous_signal,
-                    signal_snapshot=signal_snapshot,
-                ),
+                content=build_alert_notification_content(**_shared_kwargs),
+                embed=build_alert_notification_embed(**_shared_kwargs),
+                triggered_at=triggered_at,
+                price_at_trigger=current_row.price,
+                reference_price=_history_reference_price,
+                percent_change=_history_percent_change,
+                currency=current_row.currency,
                 previous_is_active=previous_is_active,
                 previous_is_armed=previous_is_armed,
                 previous_last_observed_signal=previous_last_observed_signal,
@@ -560,7 +782,18 @@ def evaluate_active_alerts(db: Session) -> AlertEvaluationResult:
     return result
 
 
-def send_discord_alert_notification(discord_user_id: str, content: str) -> None:
+def send_discord_alert_notification(
+    discord_user_id: str,
+    content: str,
+    *,
+    embed: dict | None = None,
+) -> None:
+    """Send a Discord DM alert to a user.
+
+    If an embed dict is supplied it is sent as a rich embed message.
+    The plain-text content is included as a fallback for clients that
+    do not render embeds and is stored in alert_history regardless.
+    """
     settings = get_settings()
     if not settings.bot_token:
         raise RuntimeError("BOT_TOKEN is required for alert notifications.")
@@ -577,9 +810,15 @@ def send_discord_alert_notification(discord_user_id: str, content: str) -> None:
         channel_response.raise_for_status()
         channel_id = channel_response.json()["id"]
 
+        payload: dict = {}
+        if embed is not None:
+            payload["embeds"] = [embed]
+        else:
+            payload["content"] = content
+
         message_response = client.post(
             f"{DISCORD_API_BASE_URL}/channels/{channel_id}/messages",
-            json={"content": content},
+            json=payload,
         )
         message_response.raise_for_status()
 
@@ -599,9 +838,15 @@ def process_alert_notifications(db: Session) -> AlertProcessingResult:
         return result
 
     for notification in evaluation.notifications:
+        delivery_status = "sent"
         try:
-            send_discord_alert_notification(notification.discord_user_id, notification.content)
+            send_discord_alert_notification(
+                notification.discord_user_id,
+                notification.content,
+                embed=notification.embed,
+            )
         except Exception:
+            delivery_status = "failed"
             alert = db.get(Alert, notification.alert_id)
             if alert is not None:
                 alert.is_active = notification.previous_is_active
@@ -616,8 +861,24 @@ def process_alert_notifications(db: Session) -> AlertProcessingResult:
                 notification.discord_user_id,
             )
             result.dm_delivery_failures += 1
-            continue
-        result.notifications_sent += 1
+        else:
+            result.notifications_sent += 1
+
+        history_row = AlertHistory(
+            alert_id=notification.alert_id,
+            user_id=notification.user_id,
+            asset_id=notification.asset_id,
+            alert_type=notification.alert_type,
+            asset_name=notification.asset_name,
+            triggered_at=notification.triggered_at,
+            price_at_trigger=notification.price_at_trigger,
+            reference_price=notification.reference_price,
+            percent_change=notification.percent_change,
+            currency=notification.currency,
+            notification_content=notification.content,
+            delivery_status=delivery_status,
+        )
+        db.add(history_row)
 
     db.commit()
     return result

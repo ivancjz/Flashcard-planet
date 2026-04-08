@@ -13,14 +13,13 @@ DEFAULT_POKEMON_TCG_CARD_IDS = ",".join(
 DEFAULT_POKEMON_TCG_TRIAL_CARD_IDS = ",".join(
     f"sv3pt5-{number}" for number in range(1, 26)
 )
-# High-activity trial pool from Prismatic Evolutions.
-# This repo still ingests by explicit card id, so keep the pool definition transparent and
-# schema-free instead of adding a broader catalog-query layer just for this experiment.
-# Cards 148-180 are the premium top-end slice in sv8pt5, which skews toward chase cards,
-# Special Illustration Rares, and Hyper Rares that are more likely to move than the broader set.
-DEFAULT_POKEMON_TCG_HIGH_ACTIVITY_TRIAL_CARD_IDS = ",".join(
-    f"sv8pt5-{number}" for number in range(148, 181)
-)
+# High-activity trial pool from Prismatic Evolutions — RETIRED.
+# The 33-card contiguous sv8pt5-148..180 slice has been replaced by the tighter
+# High-Activity v2 pool below, which targets only the 13 highest-relevance cards.
+# Keeping the default empty so the scheduler stops ingesting these cards.
+# Operators who still want to observe the full 33-card slice can restore the list
+# in their local .env: POKEMON_TCG_HIGH_ACTIVITY_CARD_IDS=sv8pt5-148,...,sv8pt5-180
+DEFAULT_POKEMON_TCG_HIGH_ACTIVITY_TRIAL_CARD_IDS = ""
 # High-activity v2 diagnostic pool from Prismatic Evolutions.
 # This tighter list keeps the experiment inside the existing explicit-card-id model while
 # focusing on the most market-relevant single raw cards currently tracked in sv8pt5.
@@ -66,6 +65,9 @@ class Settings(BaseSettings):
     pokemon_tcg_high_activity_card_ids: str = DEFAULT_POKEMON_TCG_HIGH_ACTIVITY_TRIAL_CARD_IDS
     pokemon_tcg_high_activity_v2_pool_label: str = "High-Activity v2"
     pokemon_tcg_high_activity_v2_card_ids: str = DEFAULT_POKEMON_TCG_HIGH_ACTIVITY_V2_CARD_IDS
+    ebay_app_id: str = ""
+    ebay_sold_lookback_hours: int = Field(default=24, ge=1, le=168)
+    ebay_search_keywords: str = ""  # comma-separated search terms
     provider_1_source: str = "pokemon_tcg_api"
     provider_2_source: str = ""
     primary_price_source: str = "pokemon_tcg_api"
@@ -108,3 +110,6 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+settings = get_settings()

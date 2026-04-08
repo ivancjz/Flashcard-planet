@@ -100,3 +100,20 @@ class BackendClient:
             response = await client.get(f"{self.base_url}/api/v1/watchlists/{discord_user_id}")
             response.raise_for_status()
             return response.json()
+
+    async def fetch_alert_history(
+        self,
+        discord_user_id: str,
+        limit: int = 10,
+        asset_name: str | None = None,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"limit": limit}
+        if asset_name:
+            params["asset_name"] = asset_name
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{self.base_url}/api/v1/alerts/{discord_user_id}/history",
+                params=params,
+            )
+            response.raise_for_status()
+            return response.json()

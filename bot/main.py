@@ -9,6 +9,11 @@ from discord.ext import commands
 from backend.app.core.config import get_settings
 from bot.api_client import BackendClient
 
+DELIVERY_STATUS_LABELS = {
+    "sent": "Delivered",
+    "failed": "Failed to deliver",
+}
+
 logging.basicConfig(level=logging.INFO)
 
 settings = get_settings()
@@ -535,6 +540,44 @@ def build_empty_alerts_embed() -> discord.Embed:
     )
 
 
+def build_alert_history_embed(items: list[dict], limit: int) -> discord.Embed:
+    blocks = []
+    for index, item in enumerate(items, start=1):
+        alert_type = item.get("alert_type", "Unknown")
+        triggered_at = format_history_timestamp(item.get("triggered_at"))
+        price_line = format_price(item.get("price_at_trigger"), item.get("currency"))
+        delivery = DELIVERY_STATUS_LABELS.get(item.get("delivery_status", ""), item.get("delivery_status", ""))
+
+        parts = [
+            f"`{index}.` **{item.get('asset_name', 'Unknown')}**",
+            format_labeled_text("Type", alert_type),
+            format_labeled_text("Triggered", triggered_at),
+            format_labeled_text("Price", price_line),
+        ]
+        if item.get("percent_change") is not None:
+            percent = Decimal(str(item["percent_change"]))
+            sign = "+" if percent >= 0 else ""
+            parts.append(format_labeled_text("Move", f"{sign}{format_number(percent)}%"))
+        parts.append(format_labeled_text("Status", delivery))
+        blocks.append("\n".join(parts))
+
+    embed = discord.Embed(
+        title="Alert History",
+        description=join_blocks(blocks) if blocks else "No alert history found.",
+        color=EMBED_COLOR_INFO,
+    )
+    embed.set_footer(text=f"Showing {len(items)} of up to {limit} recent trigger(s).")
+    return embed
+
+
+def build_empty_alert_history_embed() -> discord.Embed:
+    return discord.Embed(
+        title="Alert History",
+        description="No alerts have fired yet. Add a watch with `/watch` and they will appear here once triggered.",
+        color=EMBED_COLOR_INFO,
+    )
+
+
 def get_test_guild() -> discord.Object | None:
     guild_id = settings.discord_guild_id.strip()
     if not guild_id:
@@ -759,6 +802,32 @@ async def topvalue(interaction: discord.Interaction, limit: app_commands.Range[i
         return
 
     await interaction.followup.send(embed=build_topvalue_embed(items, limit))
+
+
+@bot.tree.command(name="alerthistory", description="Show your recent alert trigger history.")
+@app_commands.describe(
+    limit="Number of recent triggers to show (max 20)",
+    asset_name="Filter by asset name",
+)
+async def alerthistory(
+    interaction: discord.Interaction,
+    limit: app_commands.Range[int, 1, 20] = 10,
+    asset_name: str | None = None,
+) -> None:
+    await interaction.response.defer(thinking=True)
+    try:
+        items = await client.fetch_alert_history(
+            str(interaction.user.id), limit=limit, asset_name=asset_name
+        )
+    except Exception as exc:
+        await interaction.followup.send(f"Could not load alert history: {exc}")
+        return
+
+    if not items:
+        await interaction.followup.send(embed=build_empty_alert_history_embed())
+        return
+
+    await interaction.followup.send(embed=build_alert_history_embed(items, limit))
 
 
 def run() -> None:

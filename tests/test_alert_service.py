@@ -38,6 +38,7 @@ class FakeSession:
         self.flush_called = False
         self.commit_called = False
         self.rollback_called = False
+        self.added_objects: list = []
 
     def scalars(self, _stmt):
         return FakeScalarResult(self.alerts)
@@ -50,6 +51,9 @@ class FakeSession:
 
     def rollback(self):
         self.rollback_called = True
+
+    def add(self, obj) -> None:
+        self.added_objects.append(obj)
 
     def get(self, _model, alert_id):
         for alert in self.alerts:
@@ -314,8 +318,17 @@ class AlertServiceTests(TestCase):
             notifications=[
                 TriggeredAlertNotification(
                     alert_id=alert.id,
+                    user_id=alert.user_id,
+                    asset_id=alert.asset_id,
+                    asset_name=alert.asset.name,
+                    alert_type=alert.alert_type,
                     discord_user_id="1234567890",
                     content="test",
+                    triggered_at=NOW,
+                    price_at_trigger=Decimal("110.00"),
+                    reference_price=Decimal("100.00"),
+                    percent_change=None,
+                    currency="USD",
                     previous_is_active=True,
                     previous_is_armed=True,
                     previous_last_observed_signal=None,

@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pandas as pd
+
 try:
     import streamlit as st
 except ImportError as exc:  # pragma: no cover - handled at runtime after dependency install
@@ -13,7 +15,12 @@ except ImportError as exc:  # pragma: no cover - handled at runtime after depend
 from sqlalchemy import func, select
 
 from backend.app.core.config import get_settings
-from backend.app.core.price_sources import SAMPLE_PRICE_SOURCE, get_active_price_source_filter
+from backend.app.core.price_sources import (
+    EBAY_SOLD_PRICE_SOURCE,
+    POKEMON_TCG_PRICE_SOURCE,
+    SAMPLE_PRICE_SOURCE,
+    get_active_price_source_filter,
+)
 from backend.app.db.session import SessionLocal
 from backend.app.models.asset import Asset
 from backend.app.models.price_history import PriceHistory
@@ -21,6 +28,7 @@ from backend.app.models.watchlist import Watchlist
 from backend.app.services.diagnostics_summary_service import build_standardized_diagnostics_summary
 from backend.app.services.liquidity_service import get_asset_signal_snapshots
 from backend.app.services.price_service import get_asset_prices_by_name, get_top_movers, get_top_value_assets
+from backend.app.services.smart_pool_service import get_smart_pool_candidates
 
 settings = get_settings()
 st.set_page_config(page_title="Flashcard Planet", layout="wide")
@@ -139,6 +147,31 @@ def _load_history_rows(session, asset_id, *, limit: int = 10) -> list[dict[str, 
             "Is Real Data": row.source != SAMPLE_PRICE_SOURCE,
         }
         for row in rows
+    ]
+
+
+def _load_chart_data(session, asset_id, *, limit: int = 50) -> list[dict]:
+    rows = session.execute(
+        select(
+            PriceHistory.captured_at,
+            PriceHistory.price,
+            PriceHistory.source,
+        )
+        .where(
+            PriceHistory.asset_id == asset_id,
+            PriceHistory.source != SAMPLE_PRICE_SOURCE,
+        )
+        .order_by(PriceHistory.captured_at.asc())
+        .limit(limit)
+    ).all()
+    return [
+        {
+            "captured_at": row.captured_at,
+            "price": Decimal(row.price),
+            "source": row.source,
+        }
+        for row in rows
+        if row.source != SAMPLE_PRICE_SOURCE
     ]
 
 
@@ -346,6 +379,30 @@ def _render_lookup_panel(session) -> None:
     history_rows = _load_history_rows(session, selected.asset_id, limit=10)
     if history_rows:
         st.dataframe(history_rows, use_container_width=True, hide_index=True)
+        chart_rows = _load_chart_data(session, selected.asset_id, limit=50)
+        if len(chart_rows) >= 2:
+            chart_df = pd.DataFrame(
+                [
+                    {
+                        "Date": _to_utc(row["captured_at"]).strftime("%Y-%m-%d %H:%M"),
+                        "Price": float(row["price"]),
+                    }
+                    for row in chart_rows
+                    if _to_utc(row["captured_at"]) is not None
+                ]
+            )
+            st.subheader("Price History Chart")
+            st.line_chart(chart_df, x="Date", y="Price", use_container_width=True)
+            chart_sources = {row["source"] for row in chart_rows}
+            if (
+                POKEMON_TCG_PRICE_SOURCE in chart_sources
+                and EBAY_SOLD_PRICE_SOURCE in chart_sources
+            ):
+                st.caption(
+                    "Showing all provider sources. eBay = raw transaction prices; TCG API = market estimate."
+                )
+        else:
+            st.caption("Not enough history to display a chart.")
     else:
         st.info("No recent history available for this asset.")
 
@@ -424,6 +481,136 @@ def _render_monitoring_preview(session) -> None:
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
+def _render_provider_comparison(session) -> None:
+    latest_ranked = (
+        select(
+            PriceHistory.asset_id,
+            PriceHistory.source,
+            PriceHistory.price,
+            func.row_number()
+            .over(
+                partition_by=(PriceHistory.asset_id, PriceHistory.source),
+                order_by=PriceHistory.captured_at.desc(),
+            )
+            .label("source_rank"),
+        )
+        .where(
+            PriceHistory.source.in_(
+                [POKEMON_TCG_PRICE_SOURCE, EBAY_SOLD_PRICE_SOURCE]
+            )
+        )
+        .subquery()
+    )
+    provider_counts = (
+        select(
+            PriceHistory.asset_id,
+            func.count(func.distinct(PriceHistory.source)).label("provider_count"),
+        )
+        .where(
+            PriceHistory.source.in_(
+                [POKEMON_TCG_PRICE_SOURCE, EBAY_SOLD_PRICE_SOURCE]
+            )
+        )
+        .group_by(PriceHistory.asset_id)
+        .having(func.count(func.distinct(PriceHistory.source)) == 2)
+        .subquery()
+    )
+    tcg_latest = (
+        select(
+            latest_ranked.c.asset_id,
+            latest_ranked.c.price.label("tcg_price"),
+        )
+        .where(
+            latest_ranked.c.source == POKEMON_TCG_PRICE_SOURCE,
+            latest_ranked.c.source_rank == 1,
+        )
+        .subquery()
+    )
+    ebay_latest = (
+        select(
+            latest_ranked.c.asset_id,
+            latest_ranked.c.price.label("ebay_price"),
+        )
+        .where(
+            latest_ranked.c.source == EBAY_SOLD_PRICE_SOURCE,
+            latest_ranked.c.source_rank == 1,
+        )
+        .subquery()
+    )
+    rows = session.execute(
+        select(
+            Asset.name,
+            Asset.set_name,
+            tcg_latest.c.tcg_price,
+            ebay_latest.c.ebay_price,
+        )
+        .join(provider_counts, provider_counts.c.asset_id == Asset.id)
+        .join(tcg_latest, tcg_latest.c.asset_id == Asset.id)
+        .join(ebay_latest, ebay_latest.c.asset_id == Asset.id)
+        .order_by(Asset.name.asc(), Asset.set_name.asc())
+    ).all()
+
+    st.subheader("Provider Price Comparison")
+    st.caption(
+        "Assets with data from both eBay sold listings and TCG API. Positive diff = eBay trades above TCG estimate."
+    )
+    if not rows:
+        st.info(
+            "No assets have data from both providers yet. Configure EBAY_APP_ID and EBAY_SEARCH_KEYWORDS to enable eBay ingestion."
+        )
+        return
+
+    table_rows = []
+    for row in rows:
+        tcg_price = Decimal(row.tcg_price)
+        ebay_price = Decimal(row.ebay_price)
+        difference = ebay_price - tcg_price
+        diff_pct = None
+        if tcg_price != 0:
+            diff_pct = (difference / tcg_price) * Decimal("100")
+        table_rows.append(
+            {
+                "Asset": row.name,
+                "Set": row.set_name or "N/A",
+                "TCG API Price": _format_price(tcg_price),
+                "eBay Sold Price": _format_price(ebay_price),
+                "Difference": _format_price(difference),
+                "Diff%": (
+                    f"{diff_pct.quantize(Decimal('0.01')):+.2f}%"
+                    if diff_pct is not None
+                    else "N/A"
+                ),
+            }
+        )
+    st.dataframe(table_rows, use_container_width=True, hide_index=True)
+
+
+def _render_smart_pool_panel(session) -> None:
+    st.subheader("Smart Pool Candidates")
+    st.caption(
+        "Assets with the most price activity in the last 7 days. These are candidates for tighter observation."
+    )
+    candidates = get_smart_pool_candidates(session, top_n=10, min_change_count=2)
+    if not candidates:
+        st.info("Not enough price movement data yet to suggest smart pool candidates.")
+        return
+    rows = [
+        {
+            "Asset": candidate.name,
+            "Set": candidate.set_name or "N/A",
+            "7d Price Points": candidate.price_change_count_7d,
+            "Latest Price": _format_price(candidate.latest_price),
+            "7d Range %": (
+                f"{candidate.price_range_pct.quantize(Decimal('0.01')):.2f}%"
+                if candidate.price_range_pct is not None
+                else "N/A"
+            ),
+        }
+        for candidate in candidates
+    ]
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
 def main() -> None:
     with SessionLocal() as session:
         snapshot = build_standardized_diagnostics_summary(session)
@@ -441,6 +628,12 @@ def main() -> None:
 
         st.divider()
         _render_monitoring_preview(session)
+
+        st.divider()
+        _render_provider_comparison(session)
+
+        st.divider()
+        _render_smart_pool_panel(session)
 
 
 if __name__ == "__main__":

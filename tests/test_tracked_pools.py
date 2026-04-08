@@ -14,24 +14,25 @@ from backend.app.core.tracked_pools import (
 
 
 class TrackedPokemonPoolsTests(TestCase):
-    def test_high_activity_trial_pool_is_configured_with_expected_shape(self):
+    def test_active_pools_contain_base_set_trial_and_v2(self):
+        """High-Activity Trial (33-card) is retired; only 3 active pools expected by default."""
         pools = get_tracked_pokemon_pools()
         pool_by_key = {pool.key: pool for pool in pools}
 
-        self.assertIn(BASE_SET_POOL_KEY, pool_by_key)
-        self.assertIn(TRIAL_POOL_KEY, pool_by_key)
-        self.assertIn(HIGH_ACTIVITY_TRIAL_POOL_KEY, pool_by_key)
-        self.assertIn(HIGH_ACTIVITY_V2_POOL_KEY, pool_by_key)
+        self.assertIn(BASE_SET_POOL_KEY, pool_by_key, "Base Set pool must be present")
+        self.assertIn(TRIAL_POOL_KEY, pool_by_key, "SV151 Trial pool must be present")
+        self.assertIn(HIGH_ACTIVITY_V2_POOL_KEY, pool_by_key, "High-Activity v2 pool must be present")
 
-        high_activity_pool = pool_by_key[HIGH_ACTIVITY_TRIAL_POOL_KEY]
-        self.assertEqual(high_activity_pool.label, DEFAULT_HIGH_ACTIVITY_TRIAL_LABEL)
-        self.assertEqual(len(high_activity_pool.card_ids), 33)
-        self.assertEqual(high_activity_pool.card_ids[0], "sv8pt5-148")
-        self.assertEqual(high_activity_pool.card_ids[-1], "sv8pt5-180")
-        self.assertEqual(
-            high_activity_pool.external_id_patterns[:2],
-            ("pokemontcg:sv8pt5-148:%", "pokemontcg:sv8pt5-149:%"),
+        # High-Activity Trial (33-card sv8pt5-148..180) is retired — not in default ingestion.
+        self.assertNotIn(
+            HIGH_ACTIVITY_TRIAL_POOL_KEY,
+            pool_by_key,
+            "High-Activity Trial pool should be retired (empty card IDs by default)",
         )
+
+    def test_high_activity_v2_pool_has_expected_shape(self):
+        pools = get_tracked_pokemon_pools()
+        pool_by_key = {pool.key: pool for pool in pools}
 
         high_activity_v2_pool = pool_by_key[HIGH_ACTIVITY_V2_POOL_KEY]
         self.assertEqual(high_activity_v2_pool.label, DEFAULT_HIGH_ACTIVITY_V2_LABEL)
@@ -48,4 +49,10 @@ class TrackedPokemonPoolsTests(TestCase):
 
         self.assertIsNotNone(pool)
         self.assertEqual(pool.key, PRIMARY_SMART_OBSERVATION_POOL_KEY)
+        self.assertEqual(pool.key, HIGH_ACTIVITY_V2_POOL_KEY)
         self.assertEqual(pool.label, DEFAULT_HIGH_ACTIVITY_V2_LABEL)
+
+    def test_high_activity_trial_pool_key_constant_still_exported(self):
+        """The constant remains for diagnostics comparisons against historical data."""
+        self.assertEqual(HIGH_ACTIVITY_TRIAL_POOL_KEY, "high_activity_trial_pool")
+        self.assertEqual(DEFAULT_HIGH_ACTIVITY_TRIAL_LABEL, "High-Activity Trial")

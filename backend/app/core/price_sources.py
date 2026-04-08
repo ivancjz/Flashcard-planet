@@ -10,11 +10,13 @@ from backend.app.models.price_history import PriceHistory
 
 SAMPLE_PRICE_SOURCE = "sample_seed"
 POKEMON_TCG_PRICE_SOURCE = "pokemon_tcg_api"
+EBAY_SOLD_PRICE_SOURCE = "ebay_sold"
 PROVIDER_1_SLOT = "provider_1"
 PROVIDER_2_SLOT = "provider_2"
 
 PRICE_SOURCE_LABELS = {
     POKEMON_TCG_PRICE_SOURCE: "Pokemon TCG API",
+    EBAY_SOLD_PRICE_SOURCE: "eBay Sold Listings",
 }
 
 
