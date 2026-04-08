@@ -1,5 +1,6 @@
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -16,7 +17,21 @@ from backend.app.site import router as site_router
 logging.basicConfig(level=logging.INFO)
 
 settings = get_settings()
-app = FastAPI(title=settings.project_name)
+scheduler = build_scheduler()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    if not scheduler.running:
+        prepare_scheduler_for_startup(scheduler)
+        scheduler.start()
+    yield
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
+
+
+app = FastAPI(title=settings.project_name, lifespan=lifespan)
 app.mount(
     "/static",
     StaticFiles(directory=Path(__file__).resolve().parent / "static"),
@@ -25,26 +40,10 @@ app.mount(
 app.include_router(site_router)
 app.include_router(api_router)
 
-scheduler = build_scheduler()
-
 
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok", "project": settings.project_name}
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    init_db()
-    if not scheduler.running:
-        prepare_scheduler_for_startup(scheduler)
-        scheduler.start()
-
-
-@app.on_event("shutdown")
-def on_shutdown() -> None:
-    if scheduler.running:
-        scheduler.shutdown(wait=False)
 
 
 if __name__ == "__main__":

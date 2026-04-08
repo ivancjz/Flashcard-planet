@@ -35,3 +35,6 @@ class Alert(Base):
     user: Mapped["User"] = relationship(back_populates="alerts")
     asset: Mapped["Asset"] = relationship(back_populates="alerts")
     watchlist: Mapped[Watchlist | None] = relationship(back_populates="alerts")
+    history: Mapped[list["AlertHistory"]] = relationship(
+        back_populates="alert", cascade="all, delete-orphan", passive_deletes=True
+    )

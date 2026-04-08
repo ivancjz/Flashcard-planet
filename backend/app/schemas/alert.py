@@ -25,3 +25,18 @@ class AlertItemResponse(BaseModel):
     flat_probability: Decimal | None = None
     last_triggered_at: datetime | None = None
     created_at: datetime
+
+
+class AlertHistoryItemResponse(BaseModel):
+    history_id: UUID
+    alert_id: UUID | None = None
+    asset_id: UUID
+    asset_name: str
+    alert_type: str
+    triggered_at: datetime
+    price_at_trigger: Decimal | None = None
+    reference_price: Decimal | None = None
+    percent_change: Decimal | None = None
+    currency: str | None = None
+    delivery_status: str
+    notification_content: str | None = None

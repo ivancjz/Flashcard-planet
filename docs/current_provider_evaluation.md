@@ -50,3 +50,7 @@ Interpretation:
 ## Recommendation
 
 Replace the current `High-Activity Trial` with `High-Activity v2` for the next observation window, but keep the current provider and continue observing before making any provider #2 decision.
+
+## Status (applied 2026-04-08)
+
+**High-Activity Trial retired.** `DEFAULT_POKEMON_TCG_HIGH_ACTIVITY_TRIAL_CARD_IDS` is now empty so the 33-card sv8pt5-148..180 pool is no longer ingested by default. High-Activity v2 (13 cards) is the sole active high-activity pool and the `PRIMARY_SMART_OBSERVATION_POOL_KEY`. The retired pool constants remain in `tracked_pools.py` for historical comparison queries against existing `price_history` rows.
