@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from backend.app.core.price_sources import get_active_price_source_filter
 from backend.app.models.asset import Asset
 from backend.app.models.price_history import PriceHistory
+from backend.app.services.liquidity_service import get_liquidity_snapshots
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,9 @@ class SmartPoolCandidate:
     latest_price: Decimal | None
     earliest_price_7d: Decimal | None
     price_range_pct: Decimal | None
+    external_id: str | None = None
+    liquidity_score: float = 0.0
+    composite_score: float = 0.0
 
 
 def get_smart_pool_candidates(
@@ -73,6 +77,7 @@ def get_smart_pool_candidates(
     rows = db.execute(
         select(
             Asset.id,
+            Asset.external_id,
             Asset.name,
             Asset.set_name,
             activity.c.change_count,
@@ -102,6 +107,7 @@ def get_smart_pool_candidates(
         candidates.append(
             SmartPoolCandidate(
                 asset_id=row.id,
+                external_id=getattr(row, "external_id", None),
                 name=row.name,
                 set_name=row.set_name,
                 price_change_count_7d=int(row.change_count),
@@ -111,13 +117,37 @@ def get_smart_pool_candidates(
             )
         )
 
-    candidates.sort(key=lambda item: item.price_change_count_7d, reverse=True)
+    try:
+        liquidity_snapshots = get_liquidity_snapshots(db, asset_ids=[candidate.asset_id for candidate in candidates])
+    except Exception:
+        liquidity_snapshots = {}
+    enriched_candidates: list[SmartPoolCandidate] = []
+    for candidate in candidates:
+        liquidity_snapshot = liquidity_snapshots.get(candidate.asset_id)
+        liquidity_score = float(liquidity_snapshot.liquidity_score) if liquidity_snapshot is not None else 0.0
+        composite_score = (candidate.price_change_count_7d * 0.6) + (liquidity_score * 0.4)
+        enriched_candidates.append(
+            SmartPoolCandidate(
+                asset_id=candidate.asset_id,
+                external_id=candidate.external_id,
+                name=candidate.name,
+                set_name=candidate.set_name,
+                price_change_count_7d=candidate.price_change_count_7d,
+                latest_price=candidate.latest_price,
+                earliest_price_7d=candidate.earliest_price_7d,
+                price_range_pct=candidate.price_range_pct,
+                liquidity_score=liquidity_score,
+                composite_score=composite_score,
+            )
+        )
+
+    enriched_candidates.sort(key=lambda item: item.composite_score, reverse=True)
     logger.info(
         "smart_pool_candidates_loaded",
         extra={
-            "candidate_count": len(candidates),
+            "candidate_count": len(enriched_candidates),
             "top_n": top_n,
             "min_change_count": min_change_count,
         },
     )
-    return candidates
+    return enriched_candidates

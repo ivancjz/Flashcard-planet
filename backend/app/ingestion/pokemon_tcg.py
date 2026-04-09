@@ -146,10 +146,10 @@ def build_asset_payload(card: dict[str, Any], price_source: str, price_field: st
         "card_number": card.get("number"),
         "year": parse_release_year(card),
         "language": "EN",
-        "variant": normalize_variant(price_type),
+        "variant": normalize_variant(price_field),
         "grade_company": None,
         "grade_score": None,
-        "external_id": f"pokemontcg:{card_id}:{price_type}",
+        "external_id": f"pokemontcg:{card_id}:{price_field}",
         "metadata_json": {
             "provider": POKEMON_TCG_PRICE_SOURCE,
             "provider_card_id": card_id,

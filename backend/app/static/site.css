@@ -1008,6 +1008,9 @@ canvas {
   border-radius: var(--radius-md);
   padding: 0.75rem;
   box-shadow: var(--shadow-card);
+  max-height: 260px;
+  margin-bottom: 1.5rem;
+  width: 100% !important;
 }
 
 body[data-lang=zh] .lang-en {

@@ -186,7 +186,7 @@ def _price_direction(current_price: Decimal, previous_price: Decimal) -> int:
 
 def score_source_agreement(source_count: int, source_directions: list[int]) -> int:
     if source_count <= 0:
-        return 40
+        return 0
     if source_count == 1:
         return 50
 

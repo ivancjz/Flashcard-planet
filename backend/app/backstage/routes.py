@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from backend.app.api.deps import get_database
 from backend.app.backstage.gap_detector import get_gap_report
 from backend.app.core.config import get_settings
+from backend.app.services.smart_pool_service import get_smart_pool_candidates
 
 logger = logging.getLogger(__name__)
 
@@ -51,3 +52,27 @@ def admin_gaps(
     db: Session = Depends(get_database),
 ):
     return jsonable_encoder(get_gap_report(db))
+
+
+@router.get("/smart-pool")
+def admin_smart_pool(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    candidates = get_smart_pool_candidates(db, top_n=20)
+    return jsonable_encoder(
+        [
+            {
+                "asset_id": candidate.asset_id,
+                "external_id": candidate.external_id,
+                "name": candidate.name,
+                "set_name": candidate.set_name,
+                "price_change_count_7d": candidate.price_change_count_7d,
+                "price_range_pct": candidate.price_range_pct,
+                "latest_price": candidate.latest_price,
+                "liquidity_score": candidate.liquidity_score,
+                "composite_score": candidate.composite_score,
+            }
+            for candidate in candidates
+        ]
+    )

@@ -14,11 +14,12 @@ from backend.app.core.config import settings
 from backend.app.core.price_sources import EBAY_SOLD_PRICE_SOURCE, SAMPLE_PRICE_SOURCE
 from backend.app.ingestion.pokemon_tcg import IngestionResult
 from backend.app.models.asset import Asset
+from backend.app.models.observation_match_log import ObservationMatchLog
 from backend.app.models.price_history import PriceHistory
 
 logger = logging.getLogger(__name__)
 
-EBAY_FINDING_API_URL = "https://svcs.ebcs.ebay.com/services/search/FindingService/v1"
+EBAY_FINDING_API_URL = "https://svcs.ebay.com/services/search/FindingService/v1"
 EBAY_XML_NS = "{urn:ebay:apis:eBLBaseComponents}"
 FUZZY_MATCH_THRESHOLD = 0.65
 
@@ -64,12 +65,14 @@ def _parse_listing_items(xml_payload: str) -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
     for item in search_result.findall(f"{EBAY_XML_NS}item"):
         title = _find_text(item, "title")
+        item_id = _find_text(item, "itemId") or ""
         end_time = _find_text(item, "listingInfo/endTime")
         price = _find_text(item, "sellingStatus/convertedCurrentPrice")
         if not title or not end_time or not price:
             continue
         items.append(
             {
+                "item_id": item_id,
                 "title": title,
                 "captured_at": end_time,
                 "price": price,
@@ -181,6 +184,19 @@ def ingest_ebay_sold_cards(
 
                 matched_asset, score = _match_asset(listing["title"], all_assets)
                 if matched_asset is None:
+                    session.add(
+                        ObservationMatchLog(
+                            provider=EBAY_SOLD_PRICE_SOURCE,
+                            external_item_id=listing["item_id"],
+                            raw_title=listing["title"],
+                            matched_asset_id=None,
+                            match_status="unmatched",
+                            confidence=Decimal(str(score)).quantize(Decimal("0.01")),
+                            reason=f"Fuzzy match score {score:.2f} below threshold {FUZZY_MATCH_THRESHOLD:.2f}.",
+                            requires_review=False,
+                            created_at=captured_at or datetime.now(UTC),
+                        )
+                    )
                     result.observations_unmatched += 1
                     result.observation_match_status_counts["unmatched_fuzzy_threshold"] = (
                         result.observation_match_status_counts.get("unmatched_fuzzy_threshold", 0) + 1
@@ -230,6 +246,19 @@ def ingest_ebay_sold_cards(
                         currency="USD",
                         price=price,
                         captured_at=captured_at,
+                    )
+                )
+                session.add(
+                    ObservationMatchLog(
+                        provider=EBAY_SOLD_PRICE_SOURCE,
+                        external_item_id=listing["item_id"],
+                        raw_title=listing["title"],
+                        matched_asset_id=matched_asset.id,
+                        match_status="matched",
+                        confidence=Decimal(str(score)).quantize(Decimal("0.01")),
+                        reason="Matched eBay sold listing to an existing asset via fuzzy title match.",
+                        requires_review=False,
+                        created_at=captured_at or datetime.now(UTC),
                     )
                 )
                 result.price_points_inserted += 1

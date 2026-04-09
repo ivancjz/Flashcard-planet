@@ -78,6 +78,7 @@
     const signalOps    = document.getElementById("signal-ops");
     const topValue     = document.getElementById("top-value");
     const topMovers    = document.getElementById("top-movers");
+    const smartPoolList = document.getElementById("smart-pool-list");
     const highActivity = document.getElementById("high-activity-module");
     const poolGrid     = document.getElementById("pool-grid");
     const sampleActions = document.getElementById("sample-actions");
@@ -145,6 +146,18 @@
       </div>`;
 
     fadeInChildren(topMovers);
+
+    if (smartPoolList) {
+      smartPoolList.innerHTML = snapshot.smart_pool_candidates.map((item) => `
+        <div class="mover-row">
+          <div>
+            <a class="mover-name" href="/cards/${item.external_id}">${item.name}</a>
+            <span class="list-meta">Liquidity: ${Number(item.liquidity_score ?? 0).toFixed(1)}</span>
+          </div>
+          <span class="badge-up">${Number(item.composite_score ?? 0).toFixed(1)}</span>
+        </div>`).join("");
+      fadeInChildren(smartPoolList);
+    }
 
     const ha = snapshot.high_activity_v2_vs_baseline;
     highActivity.querySelector(".module-head").innerHTML = `

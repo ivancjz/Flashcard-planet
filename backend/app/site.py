@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from html import escape
 from math import ceil
@@ -25,6 +25,7 @@ from backend.app.models.price_history import PriceHistory
 from backend.app.models.watchlist import Watchlist
 from backend.app.services.diagnostics_summary_service import build_standardized_diagnostics_summary
 from backend.app.services.price_service import get_top_movers, get_top_value_assets
+from backend.app.services.smart_pool_service import get_smart_pool_candidates
 
 router = APIRouter(include_in_schema=False)
 settings = get_settings()
@@ -125,6 +126,7 @@ def build_dashboard_snapshot(db: Session) -> dict[str, object]:
 
     top_value_assets = get_top_value_assets(db, limit=5)
     top_movers = get_top_movers(db, limit=5)
+    smart_pool_candidates = get_smart_pool_candidates(db, top_n=5)
 
     high_activity_summary = {
         "headline": smart_pool["headline"],
@@ -133,7 +135,7 @@ def build_dashboard_snapshot(db: Session) -> dict[str, object]:
     }
 
     return {
-        "generated_at": _to_iso(datetime.utcnow()),
+        "generated_at": _to_iso(datetime.now(UTC)),
         "product_stage": {
             "headline": "数据层 + 信号层 MVP",
             "summary": (
@@ -190,6 +192,20 @@ def build_dashboard_snapshot(db: Session) -> dict[str, object]:
                 "days_since_last_sale": item.days_since_last_sale,
             }
             for item in top_movers
+        ],
+        "smart_pool_candidates": [
+            {
+                "asset_id": item.asset_id,
+                "external_id": item.external_id,
+                "name": item.name,
+                "set_name": item.set_name,
+                "price_change_count_7d": item.price_change_count_7d,
+                "price_range_pct": float(item.price_range_pct) if item.price_range_pct is not None else None,
+                "latest_price": _format_currency(item.latest_price),
+                "liquidity_score": item.liquidity_score,
+                "composite_score": item.composite_score,
+            }
+            for item in smart_pool_candidates
         ],
         "pools": [
             {
@@ -405,7 +421,7 @@ def dashboard_page() -> HTMLResponse:
 
       <article class="module" id="provider-snapshot">
         <div class="module-head">
-          <p class="card-kicker">{_lang_pair("当前数据源快照", "Current source snapshot")}</p>
+          <p class="card-kicker">{_lang_pair("当前数据源快照", "Current provider snapshot")}</p>
           <h2>{_lang_pair("加载实时状态...", "Loading live status...")}</h2>
         </div>
         <div class="metric-stack skeleton-stack">
@@ -437,6 +453,14 @@ def dashboard_page() -> HTMLResponse:
           <h2>{_lang_pair("近期最大价格变动", "Largest recent price moves")}</h2>
         </div>
         <div class="list-shell skeleton-stack"><span></span><span></span><span></span></div>
+      </article>
+
+      <article class="module" id="smart-pool-module">
+        <div class="module-head">
+          <p class="card-kicker">{_lang_pair("智能池候选", "Smart Pool Candidates")}</p>
+          <h2>{_lang_pair("智能池候选", "Smart Pool Candidates")}</h2>
+        </div>
+        <div class="list-shell skeleton-stack" id="smart-pool-list"><span></span><span></span><span></span></div>
       </article>
 
       <article class="module module-wide" id="high-activity-module">
@@ -718,9 +742,7 @@ def card_detail_page(external_id: str) -> HTMLResponse:
         chart_script_tag = (
             '<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>'
         )
-        chart_markup = (
-            "<canvas id='price-chart' style='max-height:260px;margin-bottom:1.5rem;'></canvas>"
-        )
+        chart_markup = "<canvas id='price-chart'></canvas>"
         chart_inline_script = f"""
         <script>
           (() => {{
@@ -735,14 +757,35 @@ def card_detail_page(external_id: str) -> HTMLResponse:
                 datasets: [{{
                   label: "价格走势 (USD)",
                   data: {json.dumps(price_values)},
-                  borderColor: "#6366f1",
-                  fill: false,
+                  borderColor: "#00e5c8",
+                  pointBackgroundColor: "#00e5c8",
+                  pointBorderColor: "#00e5c8",
+                  backgroundColor: "rgba(0,229,200,0.07)",
+                  fill: true,
                   tension: 0.3,
                 }}],
               }},
               options: {{
                 responsive: true,
                 maintainAspectRatio: false,
+                scales: {{
+                  x: {{
+                    grid: {{
+                      color: "rgba(255,255,255,0.06)",
+                    }},
+                    ticks: {{
+                      color: "#3d4f66",
+                    }},
+                  }},
+                  y: {{
+                    grid: {{
+                      color: "rgba(255,255,255,0.06)",
+                    }},
+                    ticks: {{
+                      color: "#3d4f66",
+                    }},
+                  }},
+                }},
               }},
             }});
           }})();
