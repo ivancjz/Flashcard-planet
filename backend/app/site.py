@@ -256,7 +256,7 @@ def _render_shell(*, title: str, current_path: str, body: str, page_key: str) ->
           </span>
         </a>
         <nav class="site-nav">{_render_nav(current_path)}</nav>
-        <button class="lang-toggle" id="lang-toggle" title="切换语言 / Toggle language">{_lang_pair("中", "EN", " / ")}</button>
+        <button class="lang-toggle" id="lang-toggle" title="切换语言 / Toggle language">中文</button>
       </div>
     </header>
     <main

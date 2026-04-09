@@ -1,11 +1,12 @@
 (function () {
   // ── Language toggle ────────────────────────────────────────────────────────
   const LANG_KEY = "fp_lang";
-  const LANG_MODES = ["both", "zh", "en"];
-  const LANG_LABELS = { both: "中英", zh: "中文", en: "EN" };
+  const LANG_MODES = ["zh", "en"];
+  const LANG_LABELS = { zh: "中文", en: "EN" };
 
   function getLang() {
-    return localStorage.getItem(LANG_KEY) || "both";
+    const saved = localStorage.getItem(LANG_KEY);
+    return saved === "zh" || saved === "en" ? saved : "zh";
   }
 
   function setLang(mode) {
@@ -15,12 +16,9 @@
     if (btn) btn.textContent = LANG_LABELS[mode];
   }
 
-  // Returns bilingual string based on current mode
+  // Returns string based on current mode
   function t(zh, en) {
-    const mode = getLang();
-    if (mode === "zh") return zh;
-    if (mode === "en") return en;
-    return `${zh} · ${en}`;
+    return getLang() === "en" ? en : zh;
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────

@@ -169,18 +169,12 @@ input {
   transform: translateY(-1px);
 }
 
-body[data-lang='zh'] .lang-en {
-  display: none;
-}
-
-body[data-lang='en'] .lang-zh {
-  display: none;
-}
-
+body[data-lang='zh'] .lang-en,
 body[data-lang='zh'] .lang-sep {
   display: none;
 }
 
+body[data-lang='en'] .lang-zh,
 body[data-lang='en'] .lang-sep {
   display: none;
 }
