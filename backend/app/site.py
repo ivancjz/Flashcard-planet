@@ -259,7 +259,7 @@ def _render_shell(*, title: str, current_path: str, body: str, page_key: str) ->
     <link rel="stylesheet" href="/static/site.css" />
     <script defer src="/static/site.js"></script>
   </head>
-  <body>
+  <body data-lang="zh">
     <div class="background-orb background-orb-one"></div>
     <div class="background-orb background-orb-two"></div>
     <header class="site-header">
@@ -272,7 +272,7 @@ def _render_shell(*, title: str, current_path: str, body: str, page_key: str) ->
           </span>
         </a>
         <nav class="site-nav">{_render_nav(current_path)}</nav>
-        <button class="lang-toggle" id="lang-toggle" title="切换语言 / Toggle language">中文</button>
+        <button class="lang-toggle" id="lang-toggle" title="切换语言 / Toggle language">EN</button>
       </div>
     </header>
     <main
