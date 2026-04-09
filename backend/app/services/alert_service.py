@@ -5,21 +5,24 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from backend.app.core.config import get_settings
 from backend.app.core.price_sources import get_active_price_source_filter
 from backend.app.models.alert import Alert
 from backend.app.models.alert_history import AlertHistory
+from backend.app.models.asset import Asset
 from backend.app.models.enums import AlertDirection, AlertType
 from backend.app.models.price_history import PriceHistory
 from backend.app.models.user import User
-from backend.app.schemas.alert import AlertHistoryItemResponse, AlertItemResponse
+from backend.app.schemas.alert import AlertCreateRequest, AlertHistoryItemResponse, AlertItemResponse
 from backend.app.services.liquidity_service import AssetSignalSnapshot, get_asset_signal_snapshots
 from backend.app.services.price_service import PredictionComputation, get_prediction_state_for_asset
+from backend.app.services.watchlist_service import get_or_create_user
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +179,47 @@ def format_probability_triplet(prediction_state: PredictionComputation) -> str:
         f"Down {prediction_state.down_probability}% | "
         f"Flat {prediction_state.flat_probability}%"
     )
+
+
+def create_alert(db: Session, payload: AlertCreateRequest) -> Alert:
+    user = get_or_create_user(db, payload.discord_user_id)
+    asset = db.scalar(
+        select(Asset)
+        .where(func.lower(Asset.name).contains(func.lower(payload.asset_name)))
+        .limit(1)
+    )
+    if asset is None:
+        raise ValueError(f"No asset found matching '{payload.asset_name}'")
+
+    alert = Alert(
+        user_id=user.id,
+        asset_id=asset.id,
+        alert_type=payload.alert_type,
+        threshold_percent=payload.threshold_percent,
+        target_price=payload.target_price,
+        direction=payload.direction,
+        is_active=True,
+        is_armed=True,
+    )
+    db.add(alert)
+    db.flush()
+    return alert
+
+
+def delete_alert(db: Session, alert_id: UUID) -> bool:
+    alert = db.get(Alert, alert_id)
+    if alert is None:
+        return False
+    db.delete(alert)
+    return True
+
+
+def deactivate_alert(db: Session, alert_id: UUID) -> bool:
+    alert = db.get(Alert, alert_id)
+    if alert is None:
+        return False
+    alert.is_active = False
+    return True
 
 
 def list_active_alerts(db: Session, discord_user_id: str) -> list[AlertItemResponse]:

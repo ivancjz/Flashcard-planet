@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -34,7 +35,7 @@ def _format_decimal(value: Decimal | None, *, suffix: str = "") -> str:
     return f"{value}{suffix}"
 
 
-def _serialize_pool(pool: PoolHealthSnapshot) -> dict[str, object]:
+def _serialize_pool(pool: PoolHealthSnapshot) -> dict[str, Any]:
     return {
         "key": pool.key,
         "label": pool.label,
@@ -55,7 +56,7 @@ def _get_pool_by_key(pool_reports: list[PoolHealthSnapshot], key: str) -> PoolHe
     return next((pool for pool in pool_reports if pool.key == key), None)
 
 
-def _build_smart_pool_reference(pool_reports: list[PoolHealthSnapshot]) -> dict[str, object]:
+def _build_smart_pool_reference(pool_reports: list[PoolHealthSnapshot]) -> dict[str, Any]:
     focus_pool = _get_pool_by_key(pool_reports, PRIMARY_SMART_OBSERVATION_POOL_KEY)
     base_pool = _get_pool_by_key(pool_reports, BASE_SET_POOL_KEY)
     trial_pool = _get_pool_by_key(pool_reports, TRIAL_POOL_KEY)
@@ -133,7 +134,7 @@ def _build_recent_observation_stage(
     *,
     provider: str,
     recent_observation_limit: int,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     cutoff = datetime.now(UTC) - timedelta(hours=24)
     grouped_rows = db.execute(
         select(
@@ -206,7 +207,7 @@ def _build_recent_observation_stage(
     }
 
 
-def _serialize_ingestion_result(ingestion_result: IngestionResult | None) -> dict[str, object] | None:
+def _serialize_ingestion_result(ingestion_result: IngestionResult | None) -> dict[str, Any] | None:
     if ingestion_result is None:
         return None
 
@@ -239,7 +240,7 @@ def build_standardized_diagnostics_summary(
     recent_observation_limit: int = 5,
     scope_key: str | None = None,
     scope_label: str | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     report = get_data_health_report(db, low_coverage_limit=recent_observation_limit)
     providers = get_configured_price_providers()
     primary_source = get_primary_price_source()

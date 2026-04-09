@@ -113,12 +113,30 @@ def choose_price_snapshot(card: dict[str, Any]) -> tuple[str, str, Decimal] | No
             value = bucket.get(field_name)
             if value is None:
                 continue
-            return price_type, field_name, Decimal(str(value))
+            return "tcgplayer", field_name, Decimal(str(value))
+
+    try:
+        cardmarket = card.get("cardmarket") or {}
+        cardmarket_prices = cardmarket.get("prices") or {}
+    except AttributeError:
+        cardmarket = getattr(card, "cardmarket", None)
+        cardmarket_prices = getattr(cardmarket, "prices", None)
+        if cardmarket_prices is None:
+            return None
+
+    for field_name in ("trendPrice", "avg30", "lowPriceExPlus"):
+        try:
+            value = cardmarket_prices.get(field_name)
+        except AttributeError:
+            value = getattr(cardmarket_prices, field_name, None)
+        if value in (None, 0, 0.0):
+            continue
+        return "cardmarket", field_name, Decimal(str(value))
 
     return None
 
 
-def build_asset_payload(card: dict[str, Any], price_type: str, price_field: str) -> dict[str, Any]:
+def build_asset_payload(card: dict[str, Any], price_source: str, price_field: str) -> dict[str, Any]:
     card_id = card["id"]
     return {
         "asset_class": "TCG",
@@ -135,14 +153,13 @@ def build_asset_payload(card: dict[str, Any], price_type: str, price_field: str)
         "metadata_json": {
             "provider": POKEMON_TCG_PRICE_SOURCE,
             "provider_card_id": card_id,
-            "provider_price_type": price_type,
+            "provider_price_type": price_source,
             "provider_price_field": price_field,
             "rarity": card.get("rarity"),
             "set_id": card.get("set", {}).get("id"),
             "set_series": card.get("set", {}).get("series"),
             "set_release_date": card.get("set", {}).get("releaseDate"),
-            "image_small": card.get("images", {}).get("small"),
-            "image_large": card.get("images", {}).get("large"),
+            "images": card.get("images") or {},
             "tcgplayer_url": card.get("tcgplayer", {}).get("url"),
         },
         "notes": "Imported from Pokemon TCG API.",
@@ -328,8 +345,8 @@ def ingest_pokemon_tcg_cards(
                     result.cards_skipped_no_price += 1
                     continue
 
-                price_type, price_field, price = chosen_price
-                asset_payload = build_asset_payload(card, price_type, price_field)
+                price_source, price_field, price = chosen_price
+                asset_payload = build_asset_payload(card, price_source, price_field)
                 observation_result = stage_observation_match(
                     session,
                     provider=POKEMON_TCG_PRICE_SOURCE,

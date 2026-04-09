@@ -5,6 +5,19 @@ from uuid import UUID
 from pydantic import BaseModel
 
 
+class AlertCreateRequest(BaseModel):
+    discord_user_id: str
+    asset_name: str
+    alert_type: str
+    threshold_percent: Decimal | None = None
+    target_price: Decimal | None = None
+    direction: str | None = None
+
+
+class AlertActionResponse(BaseModel):
+    message: str
+
+
 class AlertItemResponse(BaseModel):
     alert_id: UUID
     asset_id: UUID

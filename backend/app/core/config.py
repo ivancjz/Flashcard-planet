@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     pokemon_tcg_api_base_url: str = "https://api.pokemontcg.io/v2"
     pokemon_tcg_api_key: str = ""
     pokemon_tcg_card_ids: str = DEFAULT_POKEMON_TCG_CARD_IDS
+    pokemon_tcg_bulk_set_ids: str = "base1,base2,base3,sv3pt5"
     pokemon_tcg_trial_pool_label: str = "Scarlet & Violet 151 Trial"
     pokemon_tcg_trial_card_ids: str = DEFAULT_POKEMON_TCG_TRIAL_CARD_IDS
     pokemon_tcg_high_activity_pool_label: str = "High-Activity Trial"
@@ -105,6 +106,10 @@ class Settings(BaseSettings):
     @property
     def resolved_ingest_interval_seconds(self) -> int:
         return max(int(round(self.resolved_ingest_interval_hours * 3600)), 1)
+
+    @property
+    def bulk_set_id_list(self) -> list[str]:
+        return [s.strip() for s in self.pokemon_tcg_bulk_set_ids.split(",") if s.strip()]
 
 
 @lru_cache

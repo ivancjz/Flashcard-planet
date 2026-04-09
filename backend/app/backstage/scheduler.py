@@ -68,6 +68,91 @@ def _evaluate_alerts() -> None:
         logger.exception("Alert evaluation job failed.")
 
 
+def _run_bulk_set_price_refresh() -> None:
+    from scripts.import_pokemon_cards import (
+        DEFAULT_BATCH_SIZE,
+        PokemonTCGImporter,
+        build_asset_payload,
+        build_price_payload,
+        flush_batch,
+        price_history_available,
+    )
+
+    try:
+        settings = get_settings()
+        set_ids = settings.bulk_set_id_list
+        if not set_ids:
+            logger.info("Bulk set price refresh skipped because no set IDs are configured.")
+            return
+
+        importer = PokemonTCGImporter(api_key=None, limit=None)
+
+        try:
+            with SessionLocal() as session:
+                can_record_prices = price_history_available(session)
+                if not can_record_prices:
+                    logger.warning(
+                        "price_history model or table is unavailable; bulk set price refresh will skip price ingestion."
+                    )
+
+                asset_batch: list[dict[str, object]] = []
+                price_batch: list[dict[str, object]] = []
+
+                for set_id in set_ids:
+                    logger.info("Bulk set price refresh fetching cards for set %s.", set_id)
+                    cards = importer.fetch_cards_for_set(set_id)
+                    if not cards:
+                        logger.info("Bulk set price refresh received no cards for set %s.", set_id)
+                        continue
+
+                    importer.summary.sets_processed += 1
+                    for card in cards:
+                        asset_batch.append(build_asset_payload(card))
+                        if can_record_prices:
+                            price_payload = build_price_payload(
+                                card,
+                                captured_at=importer._run_captured_at,
+                            )
+                            if price_payload is not None:
+                                price_batch.append(price_payload)
+
+                        if len(asset_batch) >= DEFAULT_BATCH_SIZE:
+                            cards_processed, prices_recorded = flush_batch(
+                                session,
+                                asset_payloads=asset_batch,
+                                price_payloads=price_batch,
+                            )
+                            importer.summary.cards_processed += cards_processed
+                            importer.summary.prices_recorded += prices_recorded
+                            logger.info(
+                                "Bulk set price refresh committed batch: assets_inserted=%s prices_recorded=%s total_seen=%s",
+                                cards_processed,
+                                prices_recorded,
+                                importer.summary.cards_seen,
+                            )
+                            asset_batch.clear()
+                            price_batch.clear()
+
+                if asset_batch:
+                    cards_processed, prices_recorded = flush_batch(
+                        session,
+                        asset_payloads=asset_batch,
+                        price_payloads=price_batch,
+                    )
+                    importer.summary.cards_processed += cards_processed
+                    importer.summary.prices_recorded += prices_recorded
+                    logger.info(
+                        "Bulk set price refresh committed final batch: assets_inserted=%s prices_recorded=%s total_seen=%s",
+                        cards_processed,
+                        prices_recorded,
+                        importer.summary.cards_seen,
+                    )
+        finally:
+            importer.close()
+    except Exception:
+        logger.exception("Bulk set price refresh job failed.")
+
+
 def _run_scheduled_ingestion() -> None:
     tracked_pools = get_tracked_pokemon_pools()
     implemented_providers = get_configured_provider_ingestors()
@@ -215,6 +300,17 @@ def build_scheduler() -> BackgroundScheduler:
             coalesce=True,
             next_run_time=None,
         )
+        if settings.bulk_set_id_list:
+            scheduler.add_job(
+                _run_bulk_set_price_refresh,
+                "interval",
+                seconds=settings.resolved_ingest_interval_seconds,
+                id="bulk-set-price-refresh",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                next_run_time=None,
+            )
         return scheduler
 
     logger.info(
@@ -233,11 +329,15 @@ def build_scheduler() -> BackgroundScheduler:
 
 def prepare_scheduler_for_startup(scheduler: BackgroundScheduler) -> None:
     job = scheduler.get_job("scheduled-ingestion")
-    if job is None:
+    bulk_job = scheduler.get_job("bulk-set-price-refresh")
+    if job is None and bulk_job is None:
         return
 
     first_run_at = datetime.now(UTC) + timedelta(seconds=INITIAL_INGEST_DELAY_SECONDS)
-    scheduler.modify_job("scheduled-ingestion", next_run_time=first_run_at)
+    if job is not None:
+        scheduler.modify_job("scheduled-ingestion", next_run_time=first_run_at)
+    if bulk_job is not None:
+        scheduler.modify_job("bulk-set-price-refresh", next_run_time=first_run_at)
     logger.info(
         "Initial scheduled ingestion delayed until %s (%s seconds after startup).",
         first_run_at.isoformat(),
