@@ -1,21 +1,20 @@
 (function () {
+  // Inject fadeIn keyframes for skeleton replacement animation
   const fadeStyle = document.createElement("style");
-  fadeStyle.textContent = `
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(4px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    .fade-in {
-      animation: fadeIn 0.3s ease forwards;
-    }
-  `;
+  fadeStyle.textContent = [
+    "@keyframes fadeIn {",
+    "  from { opacity: 0; transform: translateY(4px); }",
+    "  to   { opacity: 1; transform: translateY(0); }",
+    "}",
+    ".fade-in { animation: fadeIn 0.3s ease forwards; }",
+  ].join("\n");
   document.head.appendChild(fadeStyle);
 
-  // ?Ä?Ä Language toggle ?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä
+  // Language toggle
   const LANG_KEY = "fp_lang";
   const LANG_MODES = ["zh", "en"];
-  const LANG_NEXT_LABELS = { zh: "EN", en: "‰∏≠Êñá" };
+  // Button shows the language you will SWITCH TO
+  const LANG_NEXT_LABELS = { zh: "EN", en: "\u4e2d\u6587" };
 
   function getLang() {
     const saved = localStorage.getItem(LANG_KEY);
@@ -29,14 +28,13 @@
     if (btn) btn.textContent = LANG_NEXT_LABELS[mode];
   }
 
-  // Returns string based on current mode
   function t(zh, en) {
     return getLang() === "en" ? en : zh;
   }
 
-  // ?Ä?Ä Helpers ?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä
+  // Helpers
   function formatTimestamp(value) {
-    if (!value) return t("?™Áü•?∂Èó¥", "Unknown time");
+    if (!value) return t("\u672a\u77e5\u65f6\u95f4", "Unknown time");
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return value;
     return parsed.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -44,110 +42,121 @@
 
   function metricCard(zh, en, value, detailZh, detailEn) {
     return `<article class="metric-card">
-      <span>${t(zh, en)}</span>
-      <strong>${value}</strong>
+      <span class="metric-label">${t(zh, en)}</span>
+      <strong class="metric-value">${value}</strong>
       <p class="result-meta">${t(detailZh, detailEn)}</p>
     </article>`;
   }
 
-  function listItem(title, lines) {
-    return `<article class="list-item"><strong>${title}</strong>${lines.map((l) => `<span class="list-meta">${l}</span>`).join("")}</article>`;
-  }
-
-  async function requestJson(url) {
-    const response = await fetch(url, { headers: { Accept: "application/json" } });
-    let payload = null;
-    try { payload = await response.json(); } catch (_) { payload = null; }
-    if (!response.ok) throw new Error(payload?.detail || "Request failed.");
-    return payload;
-  }
-
-  function fadeInChildren(container) {
-    if (!container) return;
-    container.querySelectorAll(":scope > *").forEach((element) => {
-      element.classList.add("fade-in");
+  function fadeInChildren(el) {
+    if (!el) return;
+    Array.from(el.children).forEach((child, i) => {
+      child.style.animationDelay = `${i * 0.05}s`;
+      child.classList.add("fade-in");
     });
   }
 
-  // ?Ä?Ä Snapshot rendering ?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä
+  // Snapshot rendering
   let _lastSnapshot = null;
 
   function renderSnapshot(snapshot) {
     _lastSnapshot = snapshot;
-    const provider     = document.getElementById("provider-snapshot");
-    const signalOps    = document.getElementById("signal-ops");
-    const topValue     = document.getElementById("top-value");
-    const topMovers    = document.getElementById("top-movers");
+    const ps = snapshot.provider_snapshot || {};
+    const ss = snapshot.signal_ops || {};
+
+    // Provider snapshot module
+    const providerModule = document.getElementById("provider-snapshot");
+    if (providerModule) {
+      providerModule.querySelector(".module-head").innerHTML = `
+        <p class="card-kicker">${t("\u5f53\u524d\u6570\u636e\u6e90\u5feb\u7167", "Current provider snapshot")}</p>
+        <h2>${ps.label || ps.source || t("\u6570\u636e\u6e90", "Provider")}</h2>`;
+      const stack = providerModule.querySelector(".metric-stack");
+      if (stack) {
+        stack.innerHTML = [
+          metricCard("\u8ffd\u8e2a\u8d44\u4ea7", "Tracked assets",
+            ps.tracked_assets ?? "\u2014",
+            `${ps.recent_real_rows_24h ?? 0} \u884c / 24h`,
+            `${ps.recent_real_rows_24h ?? 0} rows / 24h`),
+          metricCard("24h \u884c\u6570", "Recent rows (24h)",
+            ps.recent_real_rows_24h ?? "\u2014",
+            t("\u6700\u8fd1\u6295\u9012\u884c\u6570", "Recently ingested rows"),
+            t("\u6700\u8fd1\u6295\u9012\u884c\u6570", "Recently ingested rows")),
+          metricCard("\u884c\u53d8\u5316\u7387 (24h)", "Row change rate",
+            ps.row_change_pct_24h ?? "\u2014",
+            t("\u53ef\u6bd4\u8f83\u884c\u53d1\u751f\u53d8\u5316\u7684\u6bd4\u4f8b", "% of comparable rows that changed"),
+            t("\u53ef\u6bd4\u8f83\u884c\u53d1\u751f\u53d8\u5316\u7684\u6bd4\u4f8b", "% of comparable rows that changed")),
+          metricCard("\u5df2\u914d\u7f6e\u6570\u636e\u6e90", "Configured providers",
+            ps.configured_provider_count ?? "\u2014",
+            t("\u6d3b\u8dc3\u63d2\u69fd\u6570", "Active provider slots"),
+            t("\u6d3b\u8dc3\u63d2\u69fd\u6570", "Active provider slots")),
+        ].join("");
+        fadeInChildren(stack);
+      }
+    }
+
+    // Signal ops module
+    const signalOps = document.getElementById("signal-ops");
+    if (signalOps) {
+      const stack = signalOps.querySelector(".metric-stack");
+      if (stack) {
+        stack.innerHTML = [
+          metricCard("\u5173\u6ce8\u5217\u8868", "Watchlists",
+            ss.watchlists ?? "\u2014",
+            t("\u7528\u6237\u4fdd\u5b58\u7684\u8ffd\u8e2a\u5361\u724c", "User-saved card watchlists"),
+            t("\u7528\u6237\u4fdd\u5b58\u7684\u8ffd\u8e2a\u5361\u724c", "User-saved card watchlists")),
+          metricCard("\u6d3b\u8dc3\u9884\u8b66", "Active alerts",
+            ss.active_alerts ?? "\u2014",
+            t("\u5f53\u524d\u5df2\u6fc0\u6d3b\u9884\u8b66\u6761\u6570", "Currently active alert rules"),
+            t("\u5f53\u524d\u5df2\u6fc0\u6d3b\u9884\u8b66\u6761\u6570", "Currently active alert rules")),
+          metricCard("\u8bca\u65ad", "Diagnostics",
+            ss.diagnostics_label ?? "\u2014",
+            t("\u6c60\u4e0e\u6570\u636e\u8bca\u65ad\u6807\u7b7e", "Pool and data diagnostics label"),
+            t("\u6c60\u4e0e\u6570\u636e\u8bca\u65ad\u6807\u7b7e", "Pool and data diagnostics label")),
+        ].join("");
+        fadeInChildren(stack);
+      }
+    }
+
+    // Top value
+    const topValue = document.getElementById("top-value");
+    if (topValue && snapshot.top_value) {
+      const list = topValue.querySelector(".list-shell");
+      if (list) {
+        list.innerHTML = snapshot.top_value.map((item) => `
+          <div class="mover-row">
+            <div>
+              <a class="mover-name" href="/cards/${item.external_id}">${item.name}</a>
+              <span class="list-meta">${item.set_name || t("\u7cfb\u5217\u672a\u77e5", "Set unknown")}</span>
+            </div>
+            <span class="badge-price">${item.latest_price}</span>
+          </div>`).join("");
+        fadeInChildren(list);
+      }
+    }
+
+    // Top movers
+    const topMovers = document.getElementById("top-movers");
+    if (topMovers && snapshot.top_movers) {
+      const list = topMovers.querySelector(".list-shell");
+      if (list) {
+        list.innerHTML = snapshot.top_movers.map((item) => {
+          const up = (item.percent_change ?? 0) >= 0;
+          return `
+          <div class="mover-row">
+            <div>
+              <a class="mover-name" href="/cards/${item.external_id}">${item.name}</a>
+              <span class="list-meta">${t("\u53d8\u52a8", "Move")}: ${item.absolute_change}</span>
+            </div>
+            <span class="${up ? "badge-up" : "badge-down"}">${up ? "+" : ""}${item.percent_change}%</span>
+          </div>`;
+        }).join("");
+        fadeInChildren(list);
+      }
+    }
+
+    // Smart pool candidates
     const smartPoolList = document.getElementById("smart-pool-list");
-    const highActivity = document.getElementById("high-activity-module");
-    const poolGrid     = document.getElementById("pool-grid");
-    const sampleActions = document.getElementById("sample-actions");
-    const lookupStatus  = document.getElementById("lookup-status");
-
-    if (!provider) return;
-
-    const ps = snapshot.provider_snapshot;
-    provider.innerHTML = `
-      <div class="module-head">
-        <p class="card-kicker">${t("ÂΩìÂ??∞ÊçÆÊ∫êÂø´??, "Current Provider Snapshot")}</p>
-        <h2>${ps.provider_label}</h2>
-      </div>
-      <div class="metric-stack">
-        ${metricCard("ËøΩË∏™?°Á?", "Tracked assets", ps.tracked_assets, `${ps.real_history_assets} ?°Á?ÂÆûÂ??≤`, `${ps.real_history_assets} with real history`)}
-        ${metricCard("Ëø?4Â∞èÊó∂?∞Â?", "Recent rows (24h)", ps.recent_real_rows_24h, `${ps.assets_changed_24h} Âº†‰ª∑?ºÂ??®`, `${ps.assets_changed_24h} assets changed`)}
-        ${metricCard("Ë°åÂ??ñÁ?(24h)", "Row change rate", ps.row_change_pct_24h, `7Â§? ${ps.row_change_pct_7d}`, `7d: ${ps.row_change_pct_7d}`)}
-        ${metricCard("Â∑≤È?ÁΩÆÊï∞?ÆÊ?", "Configured providers", ps.configured_provider_count, `ÂΩìÂ??•Ê?: ${ps.active_source}`, `Active: ${ps.active_source}`)}
-      </div>`;
-
-    fadeInChildren(provider);
-
-    const ss = snapshot.signal_snapshot;
-    signalOps.innerHTML = `
-      <div class="module-head">
-        <p class="card-kicker">${t("?≥Ê≥®?óË°® / È¢ÑË≠¶ / ËØäÊñ≠", "Watchlists / Alerts / Diagnostics")}</p>
-        <h2>${t("ËøêËê•Âæ™ÁéØ", "Operator Loop")}</h2>
-      </div>
-      <div class="metric-stack">
-        ${metricCard("?≥Ê≥®?óË°®", "Watchlists", ss.watchlists, "?®Êà∑‰øùÂ??ÑËøΩË∏™Âç°??, "User-saved tracked assets")}
-        ${metricCard("Ê¥ªË?È¢ÑË≠¶", "Active alerts", ss.active_alerts, "ÂΩìÂ?Â∑≤Ê?Ê¥ªÁ?È¢ÑË≠¶ËßÑÂ?", "Live rules currently armed or ready")}
-        ${metricCard("ËØäÊñ≠", "Diagnostics", ss.diagnostics_label, "Ê±†‰??∞ÊçÆÊ∫êÂÅ•Â∫∑Áä∂?ÅÊ?Áª≠ÂèØËß?, "Pool and provider health stay visible")}
-        ${metricCard("ÂΩìÂ?Ê®°Â?", "Current mode", snapshot.product_stage.headline, "‰ø°Âè∑‰ºòÂ?Ôºå‰∫§?ìÂ??∫È???, "Signals first, marketplace later")}
-      </div>
-      <p class="status-line">${ss.current_note}</p>`;
-
-    fadeInChildren(signalOps);
-
-    topValue.innerHTML = `
-      <div class="module-head">
-        <p class="card-kicker">${t("?ÄÈ´ò‰ª∑??, "Top Value")}</p>
-        <h2>${t("ÂΩìÂ??ÄÈ´ò‰ª∑?ºÂç°??, "Highest Current Prices")}</h2>
-      </div>
-      <div class="list-shell">
-        ${snapshot.top_value.map((item) => listItem(item.name, [
-          item.latest_price,
-          item.set_name || t("Á≥ªÂ??™Áü•", "Set name unavailable"),
-          `${item.source} ¬∑ ${formatTimestamp(item.captured_at)}`,
-        ])).join("")}
-      </div>`;
-
-    fadeInChildren(topValue);
-
-    topMovers.innerHTML = `
-      <div class="module-head">
-        <p class="card-kicker">${t("Ê∂®Ë?Ê¶?, "Top Movers")}</p>
-        <h2>${t("ËøëÊ??ÄÂ§ß‰ª∑?ºÂ???, "Largest Recent Step Moves")}</h2>
-      </div>
-      <div class="list-shell">
-        ${snapshot.top_movers.map((item) => listItem(item.name, [
-          item.latest_price,
-          `${t("?òÂä®", "Move")}: ${item.absolute_change}`,
-          `<span class="${item.percent_change.startsWith("-") ? "negative" : "positive"}">${item.percent_change}</span>`,
-        ])).join("")}
-      </div>`;
-
-    fadeInChildren(topMovers);
-
-    if (smartPoolList) {
+    if (smartPoolList && snapshot.smart_pool_candidates) {
       smartPoolList.innerHTML = snapshot.smart_pool_candidates.map((item) => `
         <div class="mover-row">
           <div>
@@ -159,144 +168,147 @@
       fadeInChildren(smartPoolList);
     }
 
+    // High-activity comparison
     const ha = snapshot.high_activity_v2_vs_baseline;
-    highActivity.querySelector(".module-head").innerHTML = `
-      <p class="card-kicker">${t("È´òÊ¥ªË∑ÉÂ∫¶ v2 ÂØπÊ??∫Â?", "High-Activity v2 vs Baseline")}</p>
-      <h2>${ha.headline}</h2>`;
-    highActivity.querySelector(".explanation-copy").innerHTML = `
-      <p class="status-line">${ha.summary}</p>
-      <div class="list-shell">
-        ${ha.bullets.map((l) => `<article class="list-item"><span class="list-meta">${l}</span></article>`).join("")}
-      </div>`;
+    const highActivity = document.getElementById("high-activity-module");
+    if (highActivity && ha) {
+      highActivity.querySelector(".module-head").innerHTML = `
+        <p class="card-kicker">${t("High-Activity v2 \u5bf9\u6bd4\u57fa\u51c6", "High-Activity v2 vs Baseline")}</p>
+        <h2>${ha.headline || ""}</h2>`;
+      const copy = highActivity.querySelector(".explanation-copy");
+      if (copy) {
+        copy.innerHTML = `<p>${ha.summary || ""}</p>` +
+          (ha.bullets || []).map((b) => `<p class="result-meta">${b}</p>`).join("");
+        fadeInChildren(copy);
+      }
+      const poolGrid = document.getElementById("pool-grid");
+      if (poolGrid && snapshot.pools) {
+        poolGrid.innerHTML = snapshot.pools.map((pool) => `
+          <div class="pool-card">
+            <strong>${pool.label}</strong>
+            <span>${t("\u5386\u53f2\u8986\u76d6", "History coverage")}: ${pool.assets_with_history}/${pool.total_assets}</span>
+            <span>${t("\u5e73\u5747\u6df1\u5ea6", "Avg depth")}: ${pool.average_depth}</span>
+            <span>${t("7\u5929\u53d8\u52a8", "Changed in 7d")}: ${pool.changed_assets_7d}</span>
+            <span>${t("7\u5929\u884c\u53d8\u5316\u7387", "7d row change")}: ${pool.row_change_pct_7d}</span>
+            <span>${t("\u65e0\u4ef7\u683c\u53d8\u52a8", "No movement")}: ${pool.no_movement_assets}</span>
+          </div>`).join("");
+        fadeInChildren(poolGrid);
+      }
+    }
 
-    fadeInChildren(highActivity.querySelector(".module-head"));
-    fadeInChildren(highActivity.querySelector(".explanation-copy"));
-
-    poolGrid.innerHTML = snapshot.pools.map((pool) => `
-      <article class="pool-card">
-        <strong>${pool.label}</strong>
-        <span>${t("?ÜÂè≤Ë¶ÜÁ???, "History coverage")}: ${pool.assets_with_history}</span>
-        <span>${t("Âπ≥Â?Ê∑±Â∫¶", "Avg depth")}: ${pool.average_depth}</span>
-        <span>${t("7Â§©Â???, "Changed in 7d")}: ${pool.changed_assets_7d}</span>
-        <span>${t("7Â§©Ë??òÂ???, "7d row change")}: ${pool.row_change_pct_7d}</span>
-        <span>${t("?†Â??®Âç°??, "No movement")}: ${pool.no_movement_assets}</span>
-      </article>`).join("");
-
-    fadeInChildren(poolGrid);
-
-    sampleActions.innerHTML = snapshot.lookup_examples
-      .map((name) => `<button type="button" data-query="${name}">${name}</button>`)
-      .join("");
-    fadeInChildren(sampleActions);
-
-    sampleActions.querySelectorAll("button").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        document.getElementById("price-query").value = btn.dataset.query;
-        runLookup(btn.dataset.query);
+    // Sample buttons
+    const sampleActions = document.getElementById("sample-actions");
+    if (sampleActions && snapshot.sample_cards) {
+      sampleActions.innerHTML = snapshot.sample_cards.map((name) =>
+        `<button class="btn btn-secondary btn-sm sample-btn" type="button">${name}</button>`
+      ).join("");
+      sampleActions.querySelectorAll(".sample-btn").forEach((btn) => {
+        btn.addEventListener("click", () => runLookup(btn.textContent));
       });
-    });
-
-    lookupStatus.textContent = t(
-      "ËæìÂÖ•?°Á??çÁß∞?•ËØ¢‰ª∑Ê†º?ÅÈ?Êµã‰??ÜÂè≤ËÆ∞Â???,
-      "Try a tracked card to see price, prediction, and history."
-    );
+    }
   }
 
-  // ?Ä?Ä Lookup rendering ?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä
-  function renderLookupResults(prices, predictions, history) {
-    const lookupResults = document.getElementById("lookup-results");
-    const lookupHistory = document.getElementById("lookup-history");
-    const predictionMap = new Map(predictions.map((item) => [item.asset_id, item]));
+  // Lookup rendering
+  function renderLookupResult(item) {
+    const pred = item.prediction;
+    return `
+      <div class="result-card">
+        <a class="result-name" href="/cards/${item.external_id}">${item.name}</a>
+        <span class="price-tag">${item.latest_price}</span>
+        <span class="result-meta">${item.set_name || t("\u7cfb\u5217\u672a\u77e5", "Set name unavailable")}</span>
+        <span class="result-meta">${t("\u9884\u6d4b", "Prediction")}: ${pred?.prediction_label ?? "\u2014"}</span>
+        <span class="result-meta">${t("\u6765\u6e90", "Source")}: ${item.source}</span>
+      </div>`;
+  }
 
-    lookupResults.innerHTML = prices.slice(0, 4).map((item) => {
-      const pred = predictionMap.get(item.asset_id);
-      return `<article class="result-card">
-        <strong>${item.name}</strong>
-        <span class="result-meta">${item.latest_price} ${item.currency}</span>
-        <span class="result-meta">${item.set_name || t("Á≥ªÂ??™Áü•", "Set name unavailable")}</span>
-        <span class="result-meta">${t("È¢ÑÊ?", "Prediction")}: ${pred?.prediction || t("?ÇÊ?", "Unavailable")}</span>
-        <span class="result-meta">${t("?•Ê?", "Source")}: ${item.source}</span>
-      </article>`;
-    }).join("");
+  function renderHistory(history) {
+    if (!history || !history.history || history.history.length === 0) {
+      return `<div class="lookup-history-empty">
+        <strong>${t("\u672a\u8fd4\u56de\u5386\u53f2\u6570\u636e", "No history returned")}</strong>
+        <span class="history-meta">${t("\u8be5\u5361\u724c\u5df2\u8ffd\u8e2a\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5", "Try another tracked card")}</span>
+      </div>`;
+    }
+    return `
+      <div class="lookup-history-block">
+        <strong>${history.name} ${t("\u4ef7\u683c\u5386\u53f2", "Price History")}</strong>
+        <span class="history-meta">${t("\u5f53\u524d\u4ef7\u683c", "Current price")}: ${history.latest_price}</span>
+        <table class="data-table history-table">
+          <thead><tr>
+            <th>${t("\u65e5\u671f", "Date")}</th>
+            <th>${t("\u4ef7\u683c", "Price")}</th>
+            <th>${t("\u6765\u6e90", "Source")}</th>
+          </tr></thead>
+          <tbody>${history.history.map((row) => `<tr>
+            <td>${formatTimestamp(row.captured_at)}</td>
+            <td>${row.price}</td>
+            <td>${row.source}</td>
+          </tr>`).join("")}</tbody>
+        </table>
+      </div>`;
+  }
 
-    fadeInChildren(lookupResults);
+  async function runLookup(query) {
+    const apiPrefix = document.querySelector("[data-price-api-prefix]")?.dataset?.priceApiPrefix;
+    const resultsEl = document.getElementById("lookup-results");
+    const historyEl = document.getElementById("lookup-history");
+    const statusEl = document.getElementById("lookup-status");
+    if (!resultsEl || !statusEl || !apiPrefix) return;
 
-    if (!history) {
-      lookupHistory.innerHTML = `<article class="history-card">
-        <strong>${t("?ÇÊ??ÜÂè≤?∞ÊçÆ", "No history returned")}</strong>
-        <span class="history-meta">${t("?¢‰?Âº†Â∑≤ËøΩË∏™?°Á?ËØïË???, "Try another tracked asset.")}</span>
-      </article>`;
-      fadeInChildren(lookupHistory);
+    if (!query || !query.trim()) {
+      statusEl.textContent = t("\u8bf7\u5148\u8f93\u5165\u5361\u724c\u540d\u79f0\u67e5\u8be2\u4ef7\u683c\u3002", "Enter a tracked asset name to look up a price.");
       return;
     }
+    statusEl.textContent = t(`\u67e5\u8be2\u4e2d\u201c${query}\u201d\u2026`, `Looking up "${query}"...`);
+    resultsEl.innerHTML = "";
+    if (historyEl) historyEl.innerHTML = "";
 
-    lookupHistory.innerHTML = `<article class="history-card">
-      <strong>${history.name} ${t("‰ª∑Ê†º?ÜÂè≤", "Price History")}</strong>
-      <span class="history-meta">${t("ÂΩìÂ?‰ª∑Ê†º", "Current price")}: ${history.current_price} ${history.currency}</span>
-      <div class="history-list">
-        ${history.history.map((point) => `
-          <div class="list-item">
-            <strong>${point.price} ${point.currency}</strong>
-            <span class="list-meta">${formatTimestamp(point.captured_at)}</span>
-            <span class="list-meta">${point.source}</span>
-          </div>`).join("")}
-      </div>
-    </article>`;
-    fadeInChildren(lookupHistory);
-  }
-
-  async function runLookup(rawQuery) {
-    const query = rawQuery.trim();
-    const lookupStatus = document.getElementById("lookup-status");
-    const apiPrefix = document.querySelector("[data-price-api-prefix]").dataset.priceApiPrefix;
-
-    if (!query) {
-      lookupStatus.textContent = t("ËØ∑Â?ËæìÂÖ•?°Á??çÁß∞??, "Enter a tracked asset name first.");
-      return;
-    }
-    lookupStatus.textContent = t(`?•ËØ¢‰∏?"${query}"...`, `Looking up "${query}"...`);
     try {
-      const prices = await requestJson(`${apiPrefix}/search?name=${encodeURIComponent(query)}`);
-      const predictions = await requestJson(`${apiPrefix}/predict?name=${encodeURIComponent(query)}`).catch(() => []);
-      const history = await requestJson(`${apiPrefix}/history?name=${encodeURIComponent(query)}&limit=5`).catch(() => null);
-      renderLookupResults(prices, predictions, history);
-      lookupStatus.textContent = t(`"${query}" ÂÆûÊó∂?•ËØ¢ÁªìÊ?`, `Live results for "${query}"`);
-    } catch (error) {
-      document.getElementById("lookup-results").innerHTML = "";
-      document.getElementById("lookup-history").innerHTML = "";
-      lookupStatus.textContent = error.message;
-    }
-  }
+      const res = await fetch(`${apiPrefix}/search?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      const items = Array.isArray(data) ? data : (data.results || []);
+      if (items.length === 0) {
+        statusEl.textContent = t(`\u672a\u627e\u5230\u201c${query}\u201d`, `No results for "${query}"`);
+        return;
+      }
+      statusEl.textContent = t(`\u201c${query}\u201d \u5b9e\u65f6\u67e5\u8be2\u7ed3\u679c`, `Live results for "${query}"`);
+      resultsEl.innerHTML = items.map(renderLookupResult).join("");
 
-  async function hydrateDashboard() {
-    const shell = document.querySelector("[data-dashboard-snapshot-url]");
-    const snapshotUrl = shell?.dataset.dashboardSnapshotUrl;
-    if (!snapshotUrl) return;
-    try {
-      const snapshot = await requestJson(snapshotUrl);
-      renderSnapshot(snapshot);
+      if (historyEl && items[0]?.external_id) {
+        const hRes = await fetch(`${apiPrefix}/history/${encodeURIComponent(items[0].external_id)}`);
+        const hData = await hRes.json();
+        historyEl.innerHTML = renderHistory(hData);
+      }
     } catch (error) {
-      const lookupStatus = document.getElementById("lookup-status");
-      if (lookupStatus) lookupStatus.textContent = t(
-        `‰ª™Ë°®?øÊï∞?ÆÂ?ËΩΩÂ§±Ë¥? ${error.message}`,
-        `Dashboard snapshot unavailable: ${error.message}`
+      statusEl.textContent = t(
+        `\u4ed3\u8868\u677f\u6570\u636e\u52a0\u8f7d\u5931\u8d25: ${error.message}`,
+        `Dashboard data load failed: ${error.message}`
       );
     }
   }
 
-  // ?Ä?Ä Boot ?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä?Ä
+  // Dashboard hydration
+  async function hydrateDashboard() {
+    const snapshotUrl = document.querySelector("[data-dashboard-snapshot-url]")?.dataset?.dashboardSnapshotUrl;
+    if (!snapshotUrl) return;
+    try {
+      const res = await fetch(snapshotUrl);
+      const snapshot = await res.json();
+      renderSnapshot(snapshot);
+    } catch (error) {
+      console.error("Dashboard snapshot failed:", error);
+    }
+  }
+
+  // Boot
   document.addEventListener("DOMContentLoaded", () => {
-    // Apply saved lang mode
     setLang(getLang());
 
-    // Wire lang toggle button
     const toggleBtn = document.getElementById("lang-toggle");
     if (toggleBtn) {
       toggleBtn.addEventListener("click", () => {
         const current = getLang();
         const next = LANG_MODES[(LANG_MODES.indexOf(current) + 1) % LANG_MODES.length];
         setLang(next);
-        // Re-render dynamic content with new language
         if (_lastSnapshot) renderSnapshot(_lastSnapshot);
       });
     }
@@ -308,9 +320,8 @@
       hydrateDashboard();
       document.getElementById("price-lookup-form")?.addEventListener("submit", (e) => {
         e.preventDefault();
-        runLookup(document.getElementById("price-query").value);
+        runLookup(document.getElementById("price-query").value.trim());
       });
     }
   });
 })();
-
