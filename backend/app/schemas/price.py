@@ -29,6 +29,7 @@ class AssetPriceResponse(LiquiditySummaryResponse, AlertConfidenceResponse):
     category: str
     name: str
     set_name: str | None = None
+    external_id: str | None = None
     card_number: str | None = None
     year: int | None = None
     variant: str | None = None
@@ -48,6 +49,7 @@ class TopMoverResponse(LiquiditySummaryResponse, AlertConfidenceResponse):
     name: str
     category: str
     set_name: str | None = None
+    external_id: str | None = None
     latest_price: Decimal
     previous_price: Decimal
     absolute_change: Decimal
@@ -59,6 +61,7 @@ class TopValueResponse(BaseModel):
     name: str
     category: str
     set_name: str | None = None
+    external_id: str | None = None
     latest_price: Decimal
     currency: str
     source: str

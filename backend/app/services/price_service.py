@@ -75,6 +75,7 @@ def get_asset_prices_by_name(db: Session, asset_name: str) -> list[AssetPriceRes
             current.c.source,
             current.c.captured_at,
             previous.c.price.label("previous_price"),
+            Asset.external_id,
         )
         .join(current, current.c.asset_id == Asset.id)
         .outerjoin(previous, previous.c.asset_id == Asset.id)
@@ -97,7 +98,7 @@ def get_asset_prices_by_name(db: Session, asset_name: str) -> list[AssetPriceRes
     )
 
     responses: list[AssetPriceResponse] = []
-    for asset, latest_price, currency, source, captured_at, previous_price in rows:
+    for asset, latest_price, currency, source, captured_at, previous_price, external_id in rows:
         latest_price_decimal = Decimal(latest_price)
         previous_price_decimal = Decimal(previous_price) if previous_price is not None else None
         absolute_change = None
@@ -116,6 +117,7 @@ def get_asset_prices_by_name(db: Session, asset_name: str) -> list[AssetPriceRes
                 category=asset.category,
                 name=asset.name,
                 set_name=asset.set_name,
+                external_id=external_id,
                 card_number=asset.card_number,
                 year=asset.year,
                 variant=asset.variant,
@@ -164,6 +166,7 @@ def get_top_movers(db: Session, limit: int = 10) -> list[TopMoverResponse]:
             Asset.name,
             Asset.category,
             Asset.set_name,
+            Asset.external_id,
             current.c.price.label("latest_price"),
             previous.c.price.label("previous_price"),
         )
@@ -208,6 +211,7 @@ def get_top_movers(db: Session, limit: int = 10) -> list[TopMoverResponse]:
                 name=row.name,
                 category=row.category,
                 set_name=row.set_name,
+                external_id=getattr(row, "external_id", None),
                 latest_price=latest_price,
                 previous_price=previous_price,
                 absolute_change=_quantize_change(absolute_change),

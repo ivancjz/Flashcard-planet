@@ -170,6 +170,7 @@ def build_dashboard_snapshot(db: Session) -> dict[str, object]:
             {
                 "name": item.name,
                 "set_name": item.set_name,
+                "external_id": item.external_id,
                 "latest_price": _format_currency(item.latest_price, item.currency),
                 "source": item.source,
                 "captured_at": _to_iso(item.captured_at),
@@ -180,9 +181,11 @@ def build_dashboard_snapshot(db: Session) -> dict[str, object]:
             {
                 "name": item.name,
                 "set_name": item.set_name,
+                "external_id": item.external_id,
                 "latest_price": _format_currency(item.latest_price),
                 "absolute_change": _format_currency(item.absolute_change),
                 "percent_change": _format_decimal(item.percent_change, suffix="%"),
+                "percent_change_raw": float(item.percent_change),
                 "liquidity_score": item.liquidity_score,
                 "liquidity_label": item.liquidity_label,
                 "alert_confidence": item.alert_confidence,

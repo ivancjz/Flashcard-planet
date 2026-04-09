@@ -62,14 +62,14 @@
   function renderSnapshot(snapshot) {
     _lastSnapshot = snapshot;
     const ps = snapshot.provider_snapshot || {};
-    const ss = snapshot.signal_ops || {};
+    const ss = snapshot.signal_snapshot || {};
 
     // Provider snapshot module
     const providerModule = document.getElementById("provider-snapshot");
     if (providerModule) {
       providerModule.querySelector(".module-head").innerHTML = `
         <p class="card-kicker">${t("\u5f53\u524d\u6570\u636e\u6e90\u5feb\u7167", "Current provider snapshot")}</p>
-        <h2>${ps.label || ps.source || t("\u6570\u636e\u6e90", "Provider")}</h2>`;
+        <h2>${ps.provider_label || ps.active_source || t("\u6570\u636e\u6e90", "Provider")}</h2>`;
       const stack = providerModule.querySelector(".metric-stack");
       if (stack) {
         stack.innerHTML = [
@@ -140,14 +140,14 @@
       const list = topMovers.querySelector(".list-shell");
       if (list) {
         list.innerHTML = snapshot.top_movers.map((item) => {
-          const up = (item.percent_change ?? 0) >= 0;
+          const up = (item.percent_change_raw ?? 0) >= 0;
           return `
           <div class="mover-row">
             <div>
               <a class="mover-name" href="/cards/${item.external_id}">${item.name}</a>
               <span class="list-meta">${t("\u53d8\u52a8", "Move")}: ${item.absolute_change}</span>
             </div>
-            <span class="${up ? "badge-up" : "badge-down"}">${up ? "+" : ""}${item.percent_change}%</span>
+            <span class="${up ? "badge-up" : "badge-down"}">${item.percent_change}</span>
           </div>`;
         }).join("");
         fadeInChildren(list);
@@ -198,8 +198,8 @@
 
     // Sample buttons
     const sampleActions = document.getElementById("sample-actions");
-    if (sampleActions && snapshot.sample_cards) {
-      sampleActions.innerHTML = snapshot.sample_cards.map((name) =>
+    if (sampleActions && snapshot.lookup_examples) {
+      sampleActions.innerHTML = snapshot.lookup_examples.map((name) =>
         `<button class="btn btn-secondary btn-sm sample-btn" type="button">${name}</button>`
       ).join("");
       sampleActions.querySelectorAll(".sample-btn").forEach((btn) => {
