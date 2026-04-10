@@ -19,3 +19,10 @@ class AlertType(str, Enum):
 class AlertDirection(str, Enum):
     ABOVE = "ABOVE"
     BELOW = "BELOW"
+
+
+class SignalLabel(str, Enum):
+    BREAKOUT = "BREAKOUT"
+    MOVE = "MOVE"
+    WATCH = "WATCH"
+    IDLE = "IDLE"

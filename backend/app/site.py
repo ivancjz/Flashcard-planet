@@ -7,8 +7,8 @@ from html import escape
 from math import ceil
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -247,7 +247,21 @@ def _render_nav(current_path: str) -> str:
     )
 
 
-def _render_shell(*, title: str, current_path: str, body: str, page_key: str) -> HTMLResponse:
+def _render_auth_widget(username: str | None) -> str:
+    if username:
+        return (
+            f'<span class="auth-user">{escape(username)}</span>'
+            f'<a class="auth-link" href="/auth/logout">{_lang_pair("退出", "Logout")}</a>'
+        )
+    return f'<a class="auth-link" href="/auth/login">{_lang_pair("登录", "Login with Discord")}</a>'
+
+
+def _session_username(request: Request) -> str | None:
+    return request.session.get("username")
+
+
+def _render_shell(*, title: str, current_path: str, body: str, page_key: str,
+                  username: str | None = None) -> HTMLResponse:
     full_title = f"{title} | {settings.project_name}"
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -275,6 +289,7 @@ def _render_shell(*, title: str, current_path: str, body: str, page_key: str) ->
           </span>
         </a>
         <nav class="site-nav">{_render_nav(current_path)}</nav>
+        <div class="auth-widget">{_render_auth_widget(username)}</div>
         <button class="lang-toggle" id="lang-toggle" title="切换语言 / Toggle language">EN</button>
       </div>
     </header>
@@ -298,7 +313,7 @@ def _render_shell(*, title: str, current_path: str, body: str, page_key: str) ->
 
 
 @router.get("/", response_class=HTMLResponse)
-def landing_page() -> HTMLResponse:
+def landing_page(request: Request) -> HTMLResponse:
     body = f"""
     <section class="hero">
       <div class="hero-copy">
@@ -384,11 +399,12 @@ def landing_page() -> HTMLResponse:
         current_path="/",
         body=body,
         page_key="landing",
+        username=_session_username(request),
     )
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
-def dashboard_page() -> HTMLResponse:
+def dashboard_page(request: Request) -> HTMLResponse:
     body = f"""
     <section class="page-intro">
       <div>
@@ -483,11 +499,13 @@ def dashboard_page() -> HTMLResponse:
         current_path="/dashboard",
         body=body,
         page_key="dashboard",
+        username=_session_username(request),
     )
 
 
 @router.get("/cards", response_class=HTMLResponse)
 def cards_page(
+    request: Request,
     set_id: str | None = Query(None, alias="set"),
     q: str | None = Query(None),
     page: int = Query(1, ge=1),
@@ -688,11 +706,12 @@ def cards_page(
         current_path="/cards",
         body=body,
         page_key="cards",
+        username=_session_username(request),
     )
 
 
 @router.get("/cards/{external_id}", response_class=HTMLResponse)
-def card_detail_page(external_id: str) -> HTMLResponse:
+def card_detail_page(request: Request, external_id: str) -> HTMLResponse:
     with SessionLocal() as db:
         source_filter = get_active_price_source_filter(db)
         ranked = _build_ranked_price_subquery(source_filter)
@@ -895,11 +914,12 @@ def card_detail_page(external_id: str) -> HTMLResponse:
         current_path="/cards",
         body=body,
         page_key="card-detail",
+        username=_session_username(request),
     )
 
 
 @router.get("/method", response_class=HTMLResponse)
-def method_page() -> HTMLResponse:
+def method_page(request: Request) -> HTMLResponse:
     body = f"""
     <section class="page-intro">
       <div>
@@ -994,11 +1014,14 @@ def method_page() -> HTMLResponse:
         current_path="/method",
         body=body,
         page_key="method",
+        username=_session_username(request),
     )
 
 
 @router.get("/watchlists", response_class=HTMLResponse)
-def watchlists_page() -> HTMLResponse:
+def watchlists_page(request: Request) -> HTMLResponse | RedirectResponse:
+    if not request.session.get("user_id") and get_settings().discord_client_id:
+        return RedirectResponse("/auth/login", status_code=302)
     api_base = f"{settings.api_prefix}/watchlists"
     body = f"""
     <section class="page-intro">
@@ -1126,11 +1149,14 @@ def watchlists_page() -> HTMLResponse:
         current_path="/watchlists",
         body=body,
         page_key="watchlists",
+        username=_session_username(request),
     )
 
 
 @router.get("/alerts", response_class=HTMLResponse)
-def alerts_page() -> HTMLResponse:
+def alerts_page(request: Request) -> HTMLResponse | RedirectResponse:
+    if not request.session.get("user_id") and get_settings().discord_client_id:
+        return RedirectResponse("/auth/login", status_code=302)
     api_base = f"{settings.api_prefix}/alerts"
     body = f"""
     <section class="page-intro">
@@ -1398,6 +1424,7 @@ def alerts_page() -> HTMLResponse:
         current_path="/alerts",
         body=body,
         page_key="alerts",
+        username=_session_username(request),
     )
 
 

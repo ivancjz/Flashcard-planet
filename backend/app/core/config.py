@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     provider_2_source: str = ""
     primary_price_source: str = "pokemon_tcg_api"
     admin_api_key: str = ""
+    secret_key: str = Field(default="change-me-in-production-use-a-long-random-string")
+    discord_client_id: str = ""
+    discord_client_secret: str = ""
+    discord_redirect_uri: str = ""   # e.g. https://yourdomain.com/auth/callback
+    jwt_expire_days: int = Field(default=30, ge=1)
+    signal_sweep_interval_seconds: int = Field(default=900, ge=60)
     ingest_schedule_enabled: bool = True
     ingest_interval_hours: float = Field(default=24.0, gt=0)
     gap_history_threshold: int = Field(default=7, ge=1)

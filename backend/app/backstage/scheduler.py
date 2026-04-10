@@ -19,6 +19,7 @@ from backend.app.ingestion.provider_registry import (
     get_unimplemented_configured_providers,
 )
 from backend.app.services.alert_service import process_alert_notifications
+from backend.app.services.signal_service import sweep_signals
 
 logger = logging.getLogger(__name__)
 INITIAL_INGEST_DELAY_SECONDS = 10
@@ -46,6 +47,20 @@ def _log_gap_report(report: GapReport) -> None:
         report.history_threshold,
         report.set_coverage_threshold,
     )
+
+
+def _run_signal_sweep() -> None:
+    logger.info("Signal sweep tick started.")
+    try:
+        with SessionLocal() as session:
+            result = sweep_signals(session)
+        logger.info(
+            "Signal sweep finished. total=%s breakout=%s move=%s watch=%s idle=%s errors=%s duration_ms=%.1f",
+            result.total, result.breakout, result.move, result.watch,
+            result.idle, result.errors, result.duration_ms,
+        )
+    except Exception:
+        logger.exception("Signal sweep job failed.")
 
 
 def _evaluate_alerts() -> None:
@@ -311,6 +326,16 @@ def build_scheduler() -> BackgroundScheduler:
                 coalesce=True,
                 next_run_time=None,
             )
+        scheduler.add_job(
+            _run_signal_sweep,
+            "interval",
+            seconds=settings.signal_sweep_interval_seconds,
+            id="signal-sweep",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            next_run_time=None,
+        )
         return scheduler
 
     logger.info(
@@ -323,6 +348,15 @@ def build_scheduler() -> BackgroundScheduler:
         seconds=settings.scheduler_poll_seconds,
         id="alert-poller",
         replace_existing=True,
+    )
+    scheduler.add_job(
+        _run_signal_sweep,
+        "interval",
+        seconds=settings.signal_sweep_interval_seconds,
+        id="signal-sweep",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
     return scheduler
 

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 import uvicorn
 
 from backend.app.api.router import api_router
@@ -32,6 +33,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.project_name, lifespan=lifespan)
+app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site="lax", https_only=False)
 app.mount(
     "/static",
     StaticFiles(directory=Path(__file__).resolve().parent / "static"),
