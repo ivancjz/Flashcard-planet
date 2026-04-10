@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node 'C:/Users/ivan cheng/.claude/plugins/cache/openai-codex/codex/1.0.2/scripts/codex-companion.mjs' task '<task>:*)"
+    ]
+  }
+}
