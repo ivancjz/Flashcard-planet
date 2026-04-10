@@ -54,15 +54,16 @@ def mark_processed(
     confidence: Decimal,
     method: str,
 ) -> None:
+    is_failed = method == "noise_filtered"
     db.execute(
         update(RawListing)
         .where(RawListing.id == listing_id)
         .values(
-            status=RawListingStatus.PROCESSED.value,
+            status=RawListingStatus.FAILED.value if is_failed else RawListingStatus.PROCESSED.value,
             mapped_asset_id=asset_id,
             confidence=confidence,
             match_method=method,
             processed_at=datetime.now(UTC),
-            error_reason=None,
+            error_reason="noise_filtered" if is_failed else None,
         )
     )

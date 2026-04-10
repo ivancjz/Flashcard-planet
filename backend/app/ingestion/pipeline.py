@@ -31,6 +31,7 @@ from backend.app.ingestion.metrics import (
     INGESTION_ERRORS_TOTAL,
     INGESTION_HUMAN_REVIEW_QUEUE_TOTAL,
     INGESTION_LISTINGS_FETCHED_TOTAL,
+    INGESTION_NOISE_FILTERED_TOTAL,
     INGESTION_LISTINGS_STAGED_TOTAL,
     INGESTION_RULE_MATCHES_TOTAL,
 )
@@ -328,6 +329,27 @@ async def run_batch(db: Session) -> BatchResult:
         result.duration_ms = (time.monotonic() - batch_start) * 1000
         return result
     INGESTION_BATCH_DURATION_SECONDS.labels(stage="load_pending").observe(time.monotonic() - t)
+
+    # ── Stage 3.5: AI noise filter ────────────────────────────────────────────
+    t = time.monotonic()
+    from backend.app.ingestion.noise_filter import filter_noise
+    titles = [row.raw_title for row in pending_rows]
+    is_real = filter_noise(titles)
+    real_rows: list[RawListing] = []
+    for row, real in zip(pending_rows, is_real):
+        if real:
+            real_rows.append(row)
+        else:
+            staging_repo.mark_processed(db, row.id, None, 0, "noise_filtered")
+            db.commit()
+            INGESTION_NOISE_FILTERED_TOTAL.inc()
+            result.errors.append(f"noise_filtered:{row.id}")
+    pending_rows = real_rows
+    if not pending_rows:
+        _log_json(logging.INFO, "batch_all_noise_filtered")
+        result.duration_ms = (time.monotonic() - batch_start) * 1000
+        return result
+    INGESTION_BATCH_DURATION_SECONDS.labels(stage="noise_filter").observe(time.monotonic() - t)
 
     # ── Stage 4: Mapping cache lookup ─────────────────────────────────────────
     t = time.monotonic()

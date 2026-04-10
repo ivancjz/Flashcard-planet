@@ -32,6 +32,10 @@ INGESTION_LISTINGS_STAGED_TOTAL = Counter(
     "Listings staged after dedupe.",
     ["source", "deduped"],
 )
+INGESTION_NOISE_FILTERED_TOTAL = Counter(
+    "ingestion_noise_filtered_total",
+    "Listings filtered as noise by AI pre-filter.",
+)
 INGESTION_CACHE_HITS_TOTAL = Counter(
     "ingestion_cache_hits_total",
     "Mapping cache hits.",
