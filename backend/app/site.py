@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from html import escape
@@ -21,14 +22,17 @@ from backend.app.core.price_sources import (
 from backend.app.db.session import SessionLocal
 from backend.app.models.alert import Alert
 from backend.app.models.asset import Asset
+from backend.app.models.asset_signal_history import AssetSignalHistory
 from backend.app.models.price_history import PriceHistory
 from backend.app.models.watchlist import Watchlist
 from backend.app.services.diagnostics_summary_service import build_standardized_diagnostics_summary
 from backend.app.services.price_service import get_top_movers, get_top_value_assets
+from backend.app.services.signal_service import get_all_signals, get_daily_snapshot_signals
 from backend.app.services.smart_pool_service import get_smart_pool_candidates
 
 router = APIRouter(include_in_schema=False)
 settings = get_settings()
+logger = logging.getLogger(__name__)
 CARDS_PER_PAGE = 50
 
 
@@ -234,6 +238,7 @@ def _render_nav(current_path: str) -> str:
         ("/", "概览", "Overview"),
         ("/dashboard", "实时仪表板", "Dashboard"),
         ("/cards", "卡牌浏览", "Cards"),
+        ("/signals", "市场信号", "Signals"),
         ("/watchlists", "关注列表", "Watchlists"),
         ("/alerts", "预警管理", "Alerts"),
         ("/method", "方法论 / 路线图", "Method / Roadmap"),
@@ -257,7 +262,10 @@ def _render_auth_widget(username: str | None) -> str:
 
 
 def _session_username(request: Request) -> str | None:
-    return request.session.get("username")
+    session = request.scope.get("session")
+    if isinstance(session, dict):
+        return session.get("username")
+    return None
 
 
 def _render_shell(*, title: str, current_path: str, body: str, page_key: str,
@@ -918,6 +926,206 @@ def card_detail_page(request: Request, external_id: str) -> HTMLResponse:
     )
 
 
+@router.get("/signals", response_class=HTMLResponse)
+def signals_page(
+    request: Request,
+    label: str | None = Query(None),
+) -> HTMLResponse:
+    username = _session_username(request)
+    session = request.scope.get("session")
+    user_id = session.get("user_id") if isinstance(session, dict) else None
+
+    with SessionLocal() as db:
+        current_user = None
+        if user_id:
+            from backend.app.models.user import User
+            import uuid as _uuid
+
+            try:
+                current_user = db.get(User, _uuid.UUID(user_id))
+            except Exception:
+                current_user = None
+
+        is_pro = current_user is not None and current_user.access_tier == "pro"
+
+        label_filter = label.upper() if label else None
+        valid_labels = {"BREAKOUT", "MOVE", "WATCH", "IDLE"}
+        if label_filter and label_filter not in valid_labels:
+            label_filter = None
+
+        snapshots = get_daily_snapshot_signals(db, label=label_filter)
+
+        asset_ids = [snap.asset_id for snap in snapshots]
+        asset_rows = (
+            db.execute(
+                select(Asset.id, Asset.name, Asset.set_name, Asset.variant)
+                .where(Asset.id.in_(asset_ids))
+            ).all()
+            if asset_ids
+            else []
+        )
+        asset_map = {row.id: row for row in asset_rows}
+
+        live_map = {}
+        if is_pro:
+            live_signals = get_all_signals(db, limit=500)
+            if label_filter:
+                live_signals = [signal for signal in live_signals if signal.label == label_filter]
+            live_map = {signal.asset_id: signal for signal in live_signals}
+
+    filter_links = ""
+    for lbl, zh, en in [
+        (None, "全部", "All"),
+        ("BREAKOUT", "BREAKOUT", "BREAKOUT"),
+        ("MOVE", "MOVE", "MOVE"),
+        ("WATCH", "WATCH", "WATCH"),
+        ("IDLE", "IDLE", "IDLE"),
+    ]:
+        href = "/signals" if lbl is None else f"/signals?label={lbl}"
+        active = " is-active" if label_filter == lbl else ""
+        filter_links += (
+            f'<a class="signal-filter-link{active}" href="{href}">'
+            f"{_lang_pair(zh, en)}"
+            "</a>"
+        )
+
+    rows_html = ""
+    if not snapshots:
+        rows_html = (
+            f'<p class="empty-state">'
+            f'{_lang_pair("尚无每日快照，请在积累满第一天数据后回来查看。", "No daily snapshot available yet - check back after the first full day of data.")}'
+            "</p>"
+        )
+    else:
+        for snap in snapshots:
+            asset = asset_map.get(snap.asset_id)
+            if asset is None:
+                logger.warning("signals_page: unresolvable asset_id=%s, skipping", snap.asset_id)
+                continue
+
+            asset_name = escape(asset.name)
+            asset_details: list[str] = []
+            if asset.set_name:
+                asset_details.append(escape(asset.set_name))
+            if asset.variant:
+                asset_details.append(escape(asset.variant))
+            if asset_details:
+                asset_name += f' <span class="asset-set">{" · ".join(asset_details)}</span>'
+
+            left_card = _render_snapshot_card(snap, asset_name)
+            live_signal = live_map.get(snap.asset_id) if is_pro else None
+            right_card = _render_live_card(live_signal, is_pro)
+
+            rows_html += f"""
+            <div class="signal-row">
+              {left_card}
+              {right_card}
+            </div>"""
+
+    body = f"""
+    <section class="page-intro">
+      <div>
+        <p class="eyebrow">{_lang_pair("市场信号", "Signals")}</p>
+        <h1>{_lang_pair("每日快照与实时信号层", "Daily snapshots and live signal layer")}</h1>
+        <p class="lede">
+          {_lang_pair("免费用户可查看每日快照信号。升级到 Pro 解锁实时信号与 AI 解读。", "Free users see daily snapshot signals. Upgrade to Pro for live signals and AI explanations.")}
+        </p>
+      </div>
+    </section>
+
+    <section class="signal-page">
+      <div class="signal-filter-bar">
+        {filter_links}
+      </div>
+      <div class="signal-rows">
+        {rows_html}
+      </div>
+    </section>
+    """
+
+    return _render_shell(
+        title="Signals",
+        current_path="/signals",
+        body=body,
+        page_key="signals",
+        username=username,
+    )
+
+
+_LABEL_COLOURS = {
+    "BREAKOUT": "signal-breakout",
+    "MOVE": "signal-move",
+    "WATCH": "signal-watch",
+    "IDLE": "signal-idle",
+}
+
+
+def _render_snapshot_card(snap: AssetSignalHistory, asset_name_html: str) -> str:
+    colour = _LABEL_COLOURS.get(snap.label, "signal-idle")
+    delta = f"{snap.price_delta_pct:+.2f}%" if snap.price_delta_pct is not None else "N/A"
+    conf = str(snap.confidence) if snap.confidence is not None else "N/A"
+    liq = str(snap.liquidity_score) if snap.liquidity_score is not None else "N/A"
+    pred = escape(snap.prediction) if snap.prediction else "N/A"
+    ts = snap.computed_at.strftime("%d %b %Y, %I:%M %p UTC") if snap.computed_at else "N/A"
+
+    return f"""
+    <div class="signal-card signal-card-snapshot">
+      <p class="signal-card-header">{_lang_pair("每日快照", "Daily Snapshot")}</p>
+      <p class="signal-asset-name">{asset_name_html}</p>
+      <span class="signal-badge {colour}">{escape(snap.label)}</span>
+      <dl class="signal-metrics">
+        <dt>{_lang_pair("置信度", "Confidence")}</dt><dd>{conf}</dd>
+        <dt>{_lang_pair("价格变化", "Price Delta")}</dt><dd>{delta}</dd>
+        <dt>{_lang_pair("流动性", "Liquidity")}</dt><dd>{liq}</dd>
+        <dt>{_lang_pair("预测", "Prediction")}</dt><dd>{pred}</dd>
+      </dl>
+      <p class="signal-timestamp">{_lang_pair("截至", "As of")} {ts}</p>
+    </div>"""
+
+
+def _render_live_card(live_signal, is_pro: bool) -> str:
+    if not is_pro:
+        return f"""
+    <div class="signal-card signal-card-locked">
+      <p class="signal-card-header">{_lang_pair("实时信号", "Live Signal")} <span class="pro-badge">PRO</span></p>
+      <div class="signal-locked-shell">
+        <span class="skeleton-line"></span>
+        <span class="skeleton-line skeleton-line-short"></span>
+        <span class="skeleton-line"></span>
+        <span class="skeleton-line skeleton-line-short"></span>
+      </div>
+      <p class="signal-locked-copy">{_lang_pair("解锁实时标签、置信度、涨跌幅与 AI 解读", "Unlock live label, confidence, delta, and AI explanation")}</p>
+      <a class="button button-primary signal-pro-cta" href="/pro">Go Pro</a>
+    </div>"""
+
+    if live_signal is None:
+        return f"""
+    <div class="signal-card signal-card-live signal-card-awaiting">
+      <p class="signal-card-header">{_lang_pair("实时信号", "Live Signal")}</p>
+      <p class="signal-awaiting">{_lang_pair("等待下一次扫描", "Awaiting next sweep")}</p>
+    </div>"""
+
+    colour = _LABEL_COLOURS.get(live_signal.label, "signal-idle")
+    delta = f"{live_signal.price_delta_pct:+.2f}%" if live_signal.price_delta_pct is not None else "N/A"
+    conf = str(live_signal.confidence) if live_signal.confidence is not None else "N/A"
+    liq = str(live_signal.liquidity_score) if live_signal.liquidity_score is not None else "N/A"
+    pred = escape(live_signal.prediction) if live_signal.prediction else "N/A"
+    ts = live_signal.computed_at.strftime("%d %b %Y, %I:%M %p UTC") if live_signal.computed_at else "N/A"
+
+    return f"""
+    <div class="signal-card signal-card-live">
+      <p class="signal-card-header">{_lang_pair("实时信号", "Live Signal")}</p>
+      <span class="signal-badge {colour}">{escape(live_signal.label)}</span>
+      <dl class="signal-metrics">
+        <dt>{_lang_pair("置信度", "Confidence")}</dt><dd>{conf}</dd>
+        <dt>{_lang_pair("价格变化", "Price Delta")}</dt><dd>{delta}</dd>
+        <dt>{_lang_pair("流动性", "Liquidity")}</dt><dd>{liq}</dd>
+        <dt>{_lang_pair("预测", "Prediction")}</dt><dd>{pred}</dd>
+      </dl>
+      <p class="signal-timestamp">{_lang_pair("更新于", "Updated")} {ts}</p>
+    </div>"""
+
+
 @router.get("/method", response_class=HTMLResponse)
 def method_page(request: Request) -> HTMLResponse:
     body = f"""
@@ -1019,8 +1227,10 @@ def method_page(request: Request) -> HTMLResponse:
 
 
 @router.get("/watchlists", response_class=HTMLResponse)
-def watchlists_page(request: Request) -> HTMLResponse | RedirectResponse:
-    if not request.session.get("user_id") and get_settings().discord_client_id:
+def watchlists_page(request: Request) -> HTMLResponse:
+    session = request.scope.get("session")
+    user_id = session.get("user_id") if isinstance(session, dict) else None
+    if not user_id and get_settings().discord_client_id:
         return RedirectResponse("/auth/login", status_code=302)
     api_base = f"{settings.api_prefix}/watchlists"
     body = f"""
@@ -1154,8 +1364,10 @@ def watchlists_page(request: Request) -> HTMLResponse | RedirectResponse:
 
 
 @router.get("/alerts", response_class=HTMLResponse)
-def alerts_page(request: Request) -> HTMLResponse | RedirectResponse:
-    if not request.session.get("user_id") and get_settings().discord_client_id:
+def alerts_page(request: Request) -> HTMLResponse:
+    session = request.scope.get("session")
+    user_id = session.get("user_id") if isinstance(session, dict) else None
+    if not user_id and get_settings().discord_client_id:
         return RedirectResponse("/auth/login", status_code=302)
     api_base = f"{settings.api_prefix}/alerts"
     body = f"""

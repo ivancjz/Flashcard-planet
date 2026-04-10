@@ -16,7 +16,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -25,6 +25,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from backend.app.core.price_sources import get_active_price_source_filter
+from backend.app.models.asset_signal_history import AssetSignalHistory
 from backend.app.models.asset_signal import AssetSignal
 from backend.app.models.enums import SignalLabel
 from backend.app.models.price_history import PriceHistory
@@ -216,6 +217,20 @@ def _upsert_signal(db: Session, *, signal: SignalRow) -> None:
     db.execute(stmt)
 
 
+def _append_history(db: Session, *, signal: SignalRow) -> None:
+    db.add(
+        AssetSignalHistory(
+            asset_id=signal.asset_id,
+            label=signal.label.value,
+            confidence=signal.confidence,
+            price_delta_pct=signal.price_delta_pct,
+            liquidity_score=signal.liquidity_score,
+            prediction=signal.prediction,
+            computed_at=signal.computed_at,
+        )
+    )
+
+
 # ── Sweep ─────────────────────────────────────────────────────────────────────
 
 def sweep_signals(db: Session) -> SweepResult:
@@ -301,6 +316,18 @@ def _process_batch(db: Session, asset_ids: list[Any], result: SweepResult) -> No
                 computed_at=now,
             ),
         )
+        _append_history(
+            db,
+            signal=SignalRow(
+                asset_id=asset_id,
+                label=label,
+                confidence=snapshot.alert_confidence,
+                price_delta_pct=percent_changes.get(asset_id),
+                liquidity_score=snapshot.liquidity_score,
+                prediction=prediction,
+                computed_at=now,
+            ),
+        )
 
         if label == SignalLabel.BREAKOUT:
             result.breakout += 1
@@ -339,3 +366,26 @@ def get_all_signals(db: Session, *, limit: int = 200) -> list[AssetSignal]:
         .order_by(AssetSignal.label.asc(), AssetSignal.computed_at.desc())
         .limit(limit)
     ).all()
+
+
+def get_daily_snapshot_signals(
+    db: Session,
+    *,
+    label: str | None = None,
+) -> list[AssetSignalHistory]:
+    from datetime import timezone
+
+    today_midnight = datetime.combine(
+        date.today(), datetime.min.time(), tzinfo=timezone.utc
+    )
+
+    q = (
+        select(AssetSignalHistory)
+        .where(AssetSignalHistory.computed_at < today_midnight)
+        .order_by(AssetSignalHistory.asset_id, AssetSignalHistory.computed_at.desc())
+        .distinct(AssetSignalHistory.asset_id)
+    )
+    if label is not None:
+        q = q.where(AssetSignalHistory.label == label)
+
+    return list(db.scalars(q).all())

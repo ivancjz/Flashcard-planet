@@ -20,6 +20,7 @@ class User(Base):
     discriminator: Mapped[str | None] = mapped_column(String(16))
     global_name: Mapped[str | None] = mapped_column(String(128))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    access_tier: Mapped[str] = mapped_column(String(16), nullable=False, server_default="free", default="free")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
@@ -29,3 +30,8 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan"
     )
     alerts: Mapped[list["Alert"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.access_tier is None:
+            self.access_tier = "free"
