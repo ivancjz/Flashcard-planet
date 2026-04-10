@@ -40,10 +40,11 @@
     return parsed.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   }
 
-  function metricCard(zh, en, value, detailZh, detailEn) {
+  function metricCard(zh, en, value, detailZh, detailEn, isTextLabel) {
+    const valueClass = isTextLabel ? "metric-value text-label" : "metric-value";
     return `<article class="metric-card">
       <span class="metric-label">${t(zh, en)}</span>
-      <strong class="metric-value">${value}</strong>
+      <strong class="${valueClass}">${value}</strong>
       <p class="result-meta">${t(detailZh, detailEn)}</p>
     </article>`;
   }
@@ -108,10 +109,6 @@
             ss.active_alerts ?? "\u2014",
             t("\u5f53\u524d\u5df2\u6fc0\u6d3b\u9884\u8b66\u6761\u6570", "Currently active alert rules"),
             t("\u5f53\u524d\u5df2\u6fc0\u6d3b\u9884\u8b66\u6761\u6570", "Currently active alert rules")),
-          metricCard("\u8bca\u65ad", "Diagnostics",
-            ss.diagnostics_label ?? "\u2014",
-            t("\u6c60\u4e0e\u6570\u636e\u8bca\u65ad\u6807\u7b7e", "Pool and data diagnostics label"),
-            t("\u6c60\u4e0e\u6570\u636e\u8bca\u65ad\u6807\u7b7e", "Pool and data diagnostics label")),
         ].join("");
         fadeInChildren(stack);
       }

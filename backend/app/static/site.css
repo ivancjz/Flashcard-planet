@@ -450,6 +450,14 @@ h3 {
   font-size: 1.6rem;
   font-weight: 700;
   color: var(--accent);
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+.metric-value.text-label {
+  font-size: 1rem;
+  line-height: 1.4;
+  word-break: keep-all;
 }
 
 .result-meta,
