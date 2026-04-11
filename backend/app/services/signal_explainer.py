@@ -1,7 +1,7 @@
 """Signal Explainer — AI Priority 3.
 
 Generates a plain-English explanation for why an asset received its signal label.
-Uses Claude (claude-sonnet-4-6) with prompt caching on the system prompt.
+Uses the configured LLM provider (default: Anthropic claude-sonnet-4-6).
 
 Entry points:
   explain_signal(db, signal)  — generate + persist explanation on the AssetSignal row
@@ -13,21 +13,16 @@ import json
 import logging
 import os
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
 from backend.app.models.asset import Asset
 from backend.app.models.asset_signal import AssetSignal
+from backend.app.services.llm_provider import get_llm_provider
 
 logger = logging.getLogger(__name__)
 
 EXPLANATION_MAX_AGE_HOURS = int(os.getenv("EXPLANATION_MAX_AGE_HOURS", "12"))
-
-try:
-    from anthropic import Anthropic
-except ImportError:  # pragma: no cover
-    Anthropic = None  # type: ignore[assignment,misc]
 
 _SYSTEM_PROMPT = """You are a trading card market analyst for Flashcard Planet, a collectibles data platform.
 
@@ -49,54 +44,25 @@ def _build_user_prompt(signal: AssetSignal, asset_name: str) -> str:
         if signal.price_delta_pct is not None
         else "N/A"
     )
-    return json.dumps({
-        "card_name": asset_name,
-        "signal_label": signal.label,
-        "price_change_pct": delta,
-        "confidence_score": signal.confidence,
-        "liquidity_score": signal.liquidity_score,
-        "prediction": signal.prediction or "Not enough data",
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "card_name": asset_name,
+            "signal_label": signal.label,
+            "price_change_pct": delta,
+            "confidence_score": signal.confidence,
+            "liquidity_score": signal.liquidity_score,
+            "prediction": signal.prediction or "Not enough data",
+        },
+        ensure_ascii=False,
+    )
 
 
-def _call_claude(asset_name: str, signal: AssetSignal) -> str | None:
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
-    if not api_key or Anthropic is None:
-        logger.warning(
-            "signal_explainer_unavailable missing_api_key=%s anthropic_imported=%s",
-            not bool(api_key),
-            Anthropic is not None,
-        )
-        return None
-
-    client = Anthropic(api_key=api_key)
-    try:
-        response = client.messages.create(
-            model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
-            max_tokens=256,
-            system=[
-                {
-                    "type": "text",
-                    "text": _SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[
-                {
-                    "role": "user",
-                    "content": _build_user_prompt(signal, asset_name),
-                }
-            ],
-        )
-        text = "".join(
-            block.text
-            for block in getattr(response, "content", [])
-            if getattr(block, "type", None) == "text"
-        ).strip()
-        return text or None
-    except Exception as exc:
-        logger.warning("signal_explainer_request_failed error=%s", exc)
-        return None
+def _call_llm(asset_name: str, signal: AssetSignal) -> str | None:
+    return get_llm_provider().generate_text(
+        _SYSTEM_PROMPT,
+        _build_user_prompt(signal, asset_name),
+        256,
+    )
 
 
 def _is_fresh(signal: AssetSignal) -> bool:
@@ -113,8 +79,7 @@ def explain_signal(db: Session, signal: AssetSignal) -> str | None:
     """Generate a fresh explanation and persist it on the signal row."""
     asset = db.get(Asset, signal.asset_id)
     asset_name = asset.name if asset else str(signal.asset_id)
-
-    text = _call_claude(asset_name, signal)
+    text = _call_llm(asset_name, signal)
     if text:
         signal.explanation = text
         signal.explained_at = datetime.now(UTC)

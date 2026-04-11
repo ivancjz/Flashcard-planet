@@ -84,3 +84,31 @@ class NoiseFallbackTests(unittest.TestCase):
             importlib.reload(noise_filter)
             result = noise_filter.filter_noise(["Charizard PSA 10", "50x bulk lot"])
             self.assertEqual(result, [True, True])
+
+
+class SignalExplainerFallbackTests(unittest.TestCase):
+    def test_explain_signal_returns_none_and_skips_commit_when_provider_returns_none(self):
+        import uuid
+        none_provider = MagicMock()
+        none_provider.generate_text.return_value = None
+        with patch(
+            "backend.app.services.signal_explainer.get_llm_provider",
+            return_value=none_provider,
+        ):
+            from backend.app.services import signal_explainer
+            import importlib
+            importlib.reload(signal_explainer)
+            db = MagicMock()
+            asset_mock = MagicMock()
+            asset_mock.name = "Charizard"
+            db.get.return_value = asset_mock
+            signal = MagicMock()
+            signal.asset_id = uuid.uuid4()
+            signal.label = "IDLE"
+            signal.price_delta_pct = None
+            signal.confidence = 50
+            signal.liquidity_score = 30
+            signal.prediction = None
+            result = signal_explainer.explain_signal(db, signal)
+            self.assertIsNone(result)
+            db.commit.assert_not_called()
