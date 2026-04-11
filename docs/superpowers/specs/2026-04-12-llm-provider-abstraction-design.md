@@ -23,6 +23,8 @@ class LLMProvider(Protocol):
 
 `generate_text` is the only method. It takes a flat system string, a user message string, and a token ceiling. It returns the model's text response, or `None` if the provider is misconfigured or the call fails. All provider-specific details (SDK, auth, retry, caching) are encapsulated inside the implementation.
 
+**Empty-string normalisation:** both implementations must never return `""`. If the model returns an empty response, `generate_text` returns `None` instead. This gives callers a single sentinel value to check: `None` means "no usable result" regardless of cause.
+
 The name `generate_text` is intentional — it describes what happens without implying a specific interaction pattern. A structured output layer (JSON parsing, classification) may be added on top later, but that is out of scope here.
 
 ---
@@ -44,10 +46,13 @@ Wraps the existing Anthropic SDK call, extracted verbatim from `ai_mapper._map_b
 New implementation using `google-generativeai`:
 
 - Reads `GEMINI_API_KEY` and `GEMINI_MODEL` (default `gemini-2.0-flash`) from env.
-- Returns `None` and logs if key is missing or `google.generativeai` package is not installed.
 - Passes the system string as `system_instruction` to `GenerativeModel`.
-- Calls `generate_content(user)` and returns `response.text`.
+- Calls `generate_content(user)` and returns `response.text` (normalised to `None` if empty).
 - No retry logic for MVP — failures return `None` and log.
+- Logs distinguish three failure modes with separate event names:
+  - `gemini_unavailable_no_key` — `GEMINI_API_KEY` is empty
+  - `gemini_unavailable_import_error` — `google.generativeai` package not installed
+  - `gemini_request_failed` — API exception (logs `error_type` and `message`)
 
 ### Factory
 
@@ -59,6 +64,8 @@ def get_llm_provider() -> LLMProvider:
 ```
 
 `LLM_PROVIDER` is read at call time (not module import time) so tests can patch it with `monkeypatch` or `os.environ`.
+
+If the value is not `"anthropic"` or `"gemini"`, a `WARNING` is logged before falling back to `AnthropicProvider`. This catches typos like `Gemeni` that would otherwise silently use the wrong provider.
 
 ---
 
@@ -78,7 +85,7 @@ text = get_llm_provider().generate_text(system, user, max_tokens)
 
 ### ai_mapper.py
 
-- Concatenates `SYSTEM_PROMPT + "\n\n" + FEW_SHOT_EXAMPLES` into one string before calling.
+- A private helper `_system_prompt() -> str` returns `SYSTEM_PROMPT + "\n\n" + FEW_SHOT_EXAMPLES`. This encapsulates the prompt structure so callers don't repeat the concatenation and future prompt changes have one place to land.
 - The retry loop is removed from `_map_batch_with_client` — retry is now inside `AnthropicProvider`.
 - The `_pending_result` fallback on `None` response stays in `ai_mapper` — it is feature logic, not provider logic.
 - The unavailability guard (`if not api_key or Anthropic is None`) is removed from `map_batch` — providers handle this internally.
@@ -149,6 +156,7 @@ Consumers are unchanged — they already handle `None` gracefully.
 - `AnthropicProvider.generate_text` returns `None` when `ANTHROPIC_API_KEY` is empty (no SDK call).
 - `GeminiProvider.generate_text` returns `None` when `GEMINI_API_KEY` is empty (no SDK call).
 - Three consumer modules (`ai_mapper`, `signal_explainer`, `noise_filter`) are importable and callable after refactor.
+- When `generate_text` returns `None`, each consumer produces its correct fallback: `map_batch` returns `[_pending_result(...)]` for every title, `filter_noise` returns `[True] * len(titles)`, and `get_or_explain` returns `None`.
 
 No live API calls in tests.
 
