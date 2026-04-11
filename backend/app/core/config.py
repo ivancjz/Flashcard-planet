@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     provider_2_source: str = ""
     primary_price_source: str = "pokemon_tcg_api"
     admin_api_key: str = ""
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+    llm_provider: str = "anthropic"
     secret_key: str = Field(default="change-me-in-production-use-a-long-random-string")
     discord_client_id: str = ""
     discord_client_secret: str = ""
