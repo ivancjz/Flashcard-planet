@@ -34,8 +34,8 @@ except ImportError:  # pragma: no cover
     _genai = None  # type: ignore[assignment]
 
 
-def _log(event: str, **fields: object) -> None:
-    logger.warning(json.dumps({"event": event, **fields}, default=str, sort_keys=True))
+def _log(event: str, level: int = logging.WARNING, **fields: object) -> None:
+    logger.log(level, json.dumps({"event": event, **fields}, default=str, sort_keys=True))
 
 
 # --- Protocol ---
@@ -58,10 +58,10 @@ class AnthropicProvider:
     def generate_text(self, system: str, user: str, max_tokens: int) -> str | None:
         api_key = os.getenv("ANTHROPIC_API_KEY", "")
         if not api_key:
-            _log("anthropic_unavailable_no_key")
+            _log("anthropic_unavailable_no_key", level=logging.INFO)
             return None
         if _Anthropic is None:
-            _log("anthropic_unavailable_import_error")
+            _log("anthropic_unavailable_import_error", level=logging.INFO)
             return None
 
         model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
@@ -125,12 +125,13 @@ class GeminiProvider:
     """
 
     def generate_text(self, system: str, user: str, max_tokens: int) -> str | None:  # noqa: ARG002
+        """`max_tokens` is accepted for interface compatibility but is not forwarded to the Gemini API."""
         api_key = os.getenv("GEMINI_API_KEY", "")
         if not api_key:
-            _log("gemini_unavailable_no_key")
+            _log("gemini_unavailable_no_key", level=logging.INFO)
             return None
         if _genai is None:
-            _log("gemini_unavailable_import_error")
+            _log("gemini_unavailable_import_error", level=logging.INFO)
             return None
 
         model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
