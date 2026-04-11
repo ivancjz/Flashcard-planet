@@ -69,3 +69,18 @@ class GeminiProviderTests(unittest.TestCase):
                 mock_genai.GenerativeModel.assert_not_called()
             finally:
                 m._genai = original
+
+
+class NoiseFallbackTests(unittest.TestCase):
+    def test_filter_noise_returns_all_true_when_provider_returns_none(self):
+        none_provider = MagicMock()
+        none_provider.generate_text.return_value = None
+        with patch(
+            "backend.app.ingestion.noise_filter.get_llm_provider",
+            return_value=none_provider,
+        ):
+            from backend.app.ingestion import noise_filter
+            import importlib
+            importlib.reload(noise_filter)
+            result = noise_filter.filter_noise(["Charizard PSA 10", "50x bulk lot"])
+            self.assertEqual(result, [True, True])

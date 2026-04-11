@@ -57,19 +57,13 @@ def session_scope() -> Session:
 
 
 class NoiseFilterTests(TestCase):
-    @patch("backend.app.ingestion.noise_filter.Anthropic")
-    def test_filter_noise_parses_boolean_json_array(self, anthropic_cls):
+    @patch("backend.app.ingestion.noise_filter.get_llm_provider")
+    def test_filter_noise_parses_boolean_json_array(self, get_provider):
         from backend.app.ingestion.noise_filter import filter_noise
 
-        response = MagicMock()
-        text_block = MagicMock()
-        text_block.type = "text"
-        text_block.text = "[true, false, true]"
-        response.content = [text_block]
-
-        client = MagicMock()
-        client.messages.create.return_value = response
-        anthropic_cls.return_value = client
+        provider = MagicMock()
+        provider.generate_text.return_value = "[true, false, true]"
+        get_provider.return_value = provider
 
         result = filter_noise(
             [
@@ -80,24 +74,20 @@ class NoiseFilterTests(TestCase):
         )
 
         self.assertEqual(result, [True, False, True])
-        anthropic_cls.assert_called_once_with()
-        create_kwargs = client.messages.create.call_args.kwargs
-        self.assertEqual(create_kwargs["model"], "claude-sonnet-4-6")
-        self.assertEqual(
-            create_kwargs["system"][0]["cache_control"],
-            {"type": "ephemeral"},
-        )
-        self.assertEqual(create_kwargs["messages"][0]["role"], "user")
-        self.assertIn("Pokemon 50x bulk lot", create_kwargs["messages"][0]["content"][0]["text"])
+        get_provider.assert_called_once()
+        call_args = provider.generate_text.call_args
+        system_prompt, user_text, max_tokens = call_args.args
+        self.assertEqual(max_tokens, 1024)
+        self.assertIn("Pokemon 50x bulk lot", user_text)
 
     @patch("backend.app.ingestion.noise_filter.logger")
-    @patch("backend.app.ingestion.noise_filter.Anthropic")
-    def test_filter_noise_returns_all_true_on_exception(self, anthropic_cls, logger):
+    @patch("backend.app.ingestion.noise_filter.get_llm_provider")
+    def test_filter_noise_returns_all_true_on_exception(self, get_provider, logger):
         from backend.app.ingestion.noise_filter import filter_noise
 
-        client = MagicMock()
-        client.messages.create.side_effect = RuntimeError("boom")
-        anthropic_cls.return_value = client
+        provider = MagicMock()
+        provider.generate_text.side_effect = RuntimeError("boom")
+        get_provider.return_value = provider
 
         result = filter_noise(["Pokemon 50x bulk lot", "booster box sealed"])
 

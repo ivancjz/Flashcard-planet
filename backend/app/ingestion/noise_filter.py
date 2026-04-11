@@ -3,13 +3,9 @@ from __future__ import annotations
 import json
 import logging
 
+from backend.app.services.llm_provider import get_llm_provider
+
 logger = logging.getLogger(__name__)
-
-try:
-    from anthropic import Anthropic
-except ImportError:  # pragma: no cover - exercised by local environment fallback
-    Anthropic = None
-
 
 SYSTEM_PROMPT = """You classify trading card marketplace listing titles for an ingestion pipeline.
 
@@ -39,43 +35,27 @@ def _log_json(level: int, event: str, **fields: object) -> None:
 def filter_noise(titles: list[str]) -> list[bool]:
     if not titles:
         return []
-    if Anthropic is None:
-        _log_json(logging.WARNING, "noise_filter_unavailable", anthropic_imported=False)
-        return [True] * len(titles)
-
-    user_payload = [{"index": index + 1, "title": title} for index, title in enumerate(titles)]
+    user_payload = [{"index": i + 1, "title": t} for i, t in enumerate(titles)]
+    user_text = (
+        "Classify each title and return only a JSON array of booleans in the same order.\n"
+        "Titles:\n" + json.dumps(user_payload, ensure_ascii=False)
+    )
     try:
-        client = Anthropic()
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1024,
-            system=[
-                {
-                    "type": "text",
-                    "text": SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                "Classify each title and return only a JSON array of booleans in the same order.\n"
-                                "Titles:\n"
-                                + json.dumps(user_payload, ensure_ascii=False)
-                            ),
-                        }
-                    ],
-                }
-            ],
+        text = get_llm_provider().generate_text(SYSTEM_PROMPT, user_text, 1024)
+    except Exception as exc:  # noqa: BLE001
+        _log_json(
+            logging.WARNING,
+            "noise_filter_failed",
+            error_type=type(exc).__name__,
+            message=str(exc),
+            titles=len(titles),
         )
-        text_payload = "".join(
-            block.text for block in getattr(response, "content", []) if getattr(block, "type", None) == "text"
-        ).strip()
-        parsed = json.loads(text_payload)
+        return [True] * len(titles)
+    if text is None:
+        _log_json(logging.WARNING, "noise_filter_unavailable", reason="provider_returned_none")
+        return [True] * len(titles)
+    try:
+        parsed = json.loads(text)
         if not isinstance(parsed, list):
             raise ValueError("Noise filter response must be a JSON array.")
         if len(parsed) != len(titles):
