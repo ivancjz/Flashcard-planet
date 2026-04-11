@@ -1640,6 +1640,383 @@ def alerts_page(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/backstage/review", response_class=HTMLResponse)
+def backstage_review_page(request: Request) -> HTMLResponse:
+    username = _session_username(request)
+    api_base = f"{settings.api_prefix}/admin/review"
+    body = f"""
+    <section class="page-intro">
+      <div>
+        <p class="eyebrow">Backstage Review</p>
+        <h1>Human Review Queue</h1>
+        <p class="lede">Resolve low-confidence ingestion matches with Accept, Override, or Dismiss.</p>
+      </div>
+      <div class="intro-note">
+        <strong>Admin-only flow</strong>
+        <p>The page stores the admin key in <code>sessionStorage</code> for the current tab and calls the admin review API directly.</p>
+      </div>
+    </section>
+
+    <section class="review-page" id="review-page">
+      <div class="review-key-prompt" id="review-key-prompt">
+        <div class="review-key-card">
+          <h2>Enter admin key</h2>
+          <p>Your key stays in this tab only and is never written into the page markup.</p>
+          <form class="review-key-form" id="review-key-form">
+            <input
+              id="review-admin-key"
+              type="password"
+              placeholder="Admin key"
+              autocomplete="off"
+            />
+            <button class="button button-primary" type="submit">Unlock</button>
+          </form>
+          <p class="review-error" id="review-key-error"></p>
+        </div>
+      </div>
+
+      <div class="review-queue-view" id="review-queue-view" hidden>
+        <div class="review-queue-header">
+          <div>
+            <p class="eyebrow">Pending Queue</p>
+            <h2 id="review-queue-heading">Pending reviews</h2>
+          </div>
+          <button class="button button-secondary" id="review-refresh" type="button">Refresh</button>
+        </div>
+        <div class="review-queue-list" id="review-queue-list"></div>
+      </div>
+
+      <div class="review-modal-backdrop" id="review-modal-backdrop" hidden>
+        <div class="review-modal" id="review-modal" role="dialog" aria-modal="true" aria-labelledby="review-modal-title">
+          <button class="review-modal-close" id="review-modal-close" type="button" aria-label="Close review modal">Close</button>
+          <p class="review-modal-label">Raw listing title</p>
+          <p class="review-modal-title" id="review-modal-title"></p>
+          <div class="review-modal-meta" id="review-modal-meta"></div>
+          <div class="review-modal-actions" id="review-modal-actions"></div>
+          <div class="review-override-search" id="review-override-search" hidden>
+            <input
+              id="review-override-input"
+              type="search"
+              placeholder="Search assets (min 3 chars)..."
+              autocomplete="off"
+            />
+            <ul class="review-search-results" id="review-search-results"></ul>
+          </div>
+          <p class="review-error" id="review-modal-error"></p>
+        </div>
+      </div>
+    </section>
+
+    <script>
+      (() => {{
+        const apiBase = {json.dumps(api_base)};
+        const storageKey = "flashcard-planet-admin-key";
+        let adminKey = window.sessionStorage.getItem(storageKey) || "";
+        let currentItem = null;
+        let searchTimer = null;
+
+        const elements = {{
+          keyPrompt: document.getElementById("review-key-prompt"),
+          keyForm: document.getElementById("review-key-form"),
+          keyInput: document.getElementById("review-admin-key"),
+          keyError: document.getElementById("review-key-error"),
+          queueView: document.getElementById("review-queue-view"),
+          queueHeading: document.getElementById("review-queue-heading"),
+          queueList: document.getElementById("review-queue-list"),
+          refresh: document.getElementById("review-refresh"),
+          modalBackdrop: document.getElementById("review-modal-backdrop"),
+          modalClose: document.getElementById("review-modal-close"),
+          modalTitle: document.getElementById("review-modal-title"),
+          modalMeta: document.getElementById("review-modal-meta"),
+          modalActions: document.getElementById("review-modal-actions"),
+          modalError: document.getElementById("review-modal-error"),
+          overrideSearch: document.getElementById("review-override-search"),
+          overrideInput: document.getElementById("review-override-input"),
+          searchResults: document.getElementById("review-search-results"),
+        }};
+
+        const escapeHtml = (value) => {{
+          const span = document.createElement("span");
+          span.textContent = value ?? "";
+          return span.innerHTML;
+        }};
+
+        const authHeaders = () => ({{
+          "X-Admin-Key": adminKey,
+          "Content-Type": "application/json",
+        }});
+
+        const formatConfidence = (value) => {{
+          if (value === null || value === undefined) {{
+            return "N/A";
+          }}
+          const numeric = Number(value);
+          if (!Number.isFinite(numeric)) {{
+            return "N/A";
+          }}
+          return `${{Math.round(numeric * 100)}}%`;
+        }};
+
+        const showKeyPrompt = (message = "") => {{
+          elements.keyPrompt.hidden = false;
+          elements.queueView.hidden = true;
+          elements.keyError.textContent = message;
+        }};
+
+        const showQueueView = () => {{
+          elements.keyPrompt.hidden = true;
+          elements.queueView.hidden = false;
+          elements.keyError.textContent = "";
+        }};
+
+        const closeModal = () => {{
+          currentItem = null;
+          elements.modalBackdrop.hidden = true;
+          elements.modalError.textContent = "";
+          elements.overrideSearch.hidden = true;
+          elements.overrideInput.value = "";
+          elements.searchResults.innerHTML = "";
+        }};
+
+        const setActionDisabled = (disabled) => {{
+          elements.modalActions.querySelectorAll("button").forEach((button) => {{
+            button.disabled = disabled;
+          }});
+        }};
+
+        const renderQueue = (items) => {{
+          if (!items.length) {{
+            elements.queueList.innerHTML = '<p class="review-empty">No pending reviews.</p>';
+            return;
+          }}
+
+          elements.queueList.innerHTML = items.map((item) => {{
+            return `
+              <article class="review-queue-row" data-review-id="${{item.id}}">
+                <div class="review-row-title">${{escapeHtml(item.raw_title)}}</div>
+                <div class="review-row-meta">
+                  <span class="review-row-chip">${{escapeHtml(item.best_guess_asset_name || "No AI guess")}}</span>
+                  <span class="review-row-chip">${{formatConfidence(item.best_guess_confidence)}}</span>
+                  <span class="review-row-chip">${{escapeHtml(item.reason || "No reason provided")}}</span>
+                </div>
+              </article>
+            `;
+          }}).join("");
+
+          elements.queueList.querySelectorAll(".review-queue-row").forEach((row, index) => {{
+            row.addEventListener("click", () => openReviewModal(items[index]));
+          }});
+        }};
+
+        const loadQueue = async () => {{
+          if (!adminKey) {{
+            showKeyPrompt();
+            return;
+          }}
+
+          const response = await fetch(apiBase, {{
+            headers: authHeaders(),
+          }});
+
+          if (response.status === 401 || response.status === 403) {{
+            adminKey = "";
+            window.sessionStorage.removeItem(storageKey);
+            showKeyPrompt("Session expired. Re-enter admin key.");
+            return;
+          }}
+
+          if (!response.ok) {{
+            elements.queueHeading.textContent = "Pending reviews";
+            elements.queueList.innerHTML = '<p class="review-error">Unable to load review queue.</p>';
+            return;
+          }}
+
+          const payload = await response.json();
+          elements.queueHeading.textContent = `Pending reviews (${{payload.total_pending}})`;
+          renderQueue(payload.items || []);
+        }};
+
+        const requestResolution = async (path, options = {{}}) => {{
+          const response = await fetch(`${{apiBase}}/${{currentItem.id}}/${{path}}`, {{
+            method: "POST",
+            headers: authHeaders(),
+            ...options,
+          }});
+
+          if (response.ok) {{
+            closeModal();
+            await loadQueue();
+            return;
+          }}
+
+          let detail = "Request failed.";
+          try {{
+            const payload = await response.json();
+            if (payload && payload.detail) {{
+              detail = payload.detail;
+            }}
+          }} catch (error) {{
+            detail = "Request failed.";
+          }}
+          elements.modalError.textContent = detail;
+          setActionDisabled(false);
+        }};
+
+        const renderSearchResults = (results) => {{
+          if (!results.length) {{
+            elements.searchResults.innerHTML = '<li class="search-result-empty">No results.</li>';
+            return;
+          }}
+
+          elements.searchResults.innerHTML = results.map((item) => {{
+            const meta = [item.set_name, item.variant].filter(Boolean).join(" | ");
+            return `
+              <li class="search-result-item" data-asset-id="${{item.id}}">
+                <strong>${{escapeHtml(item.name)}}</strong>
+                <span>${{escapeHtml(meta)}}</span>
+              </li>
+            `;
+          }}).join("");
+
+          elements.searchResults.querySelectorAll(".search-result-item").forEach((row, index) => {{
+            row.addEventListener("click", () => window.resolveOverride(results[index].id));
+          }});
+        }};
+
+        const searchAssets = async (query) => {{
+          const response = await fetch(
+            `${{apiBase}}/assets/search?q=${{encodeURIComponent(query)}}`,
+            {{ headers: authHeaders() }}
+          );
+
+          if (response.status === 401 || response.status === 403) {{
+            adminKey = "";
+            window.sessionStorage.removeItem(storageKey);
+            closeModal();
+            showKeyPrompt("Session expired. Re-enter admin key.");
+            return;
+          }}
+
+          if (!response.ok) {{
+            elements.searchResults.innerHTML = '<li class="search-result-empty">Search failed.</li>';
+            return;
+          }}
+
+          const results = await response.json();
+          renderSearchResults(results);
+        }};
+
+        const openReviewModal = (item) => {{
+          currentItem = item;
+          elements.modalTitle.textContent = item.raw_title || "";
+          elements.modalError.textContent = "";
+          elements.overrideSearch.hidden = true;
+          elements.overrideInput.value = "";
+          elements.searchResults.innerHTML = "";
+          elements.modalMeta.innerHTML = `
+            <dl class="review-meta-dl">
+              <dt>AI guess</dt>
+              <dd>${{escapeHtml(item.best_guess_asset_name || "No AI guess")}}</dd>
+              <dt>Confidence</dt>
+              <dd>${{formatConfidence(item.best_guess_confidence)}}</dd>
+              <dt>Reason</dt>
+              <dd>${{escapeHtml(item.reason || "No reason provided")}}</dd>
+            </dl>
+          `;
+
+          elements.modalActions.innerHTML = `
+            <button class="button button-success" id="review-accept-btn" type="button">Accept</button>
+            <button class="button button-primary" id="review-override-btn" type="button">Override</button>
+            <button class="button button-danger" id="review-dismiss-btn" type="button">Dismiss</button>
+          `;
+
+          const acceptButton = document.getElementById("review-accept-btn");
+          const overrideButton = document.getElementById("review-override-btn");
+          const dismissButton = document.getElementById("review-dismiss-btn");
+
+          acceptButton.disabled = !item.best_guess_asset_id;
+          acceptButton.addEventListener("click", async () => {{
+            setActionDisabled(true);
+            await resolveAccept();
+          }});
+          overrideButton.addEventListener("click", () => {{
+            elements.overrideSearch.hidden = false;
+            elements.overrideInput.focus();
+          }});
+          dismissButton.addEventListener("click", async () => {{
+            setActionDisabled(true);
+            await window.resolveDismiss();
+          }});
+
+          elements.modalBackdrop.hidden = false;
+        }};
+
+        const resolveAccept = async () => {{
+          await requestResolution("accept");
+        }};
+
+        window.resolveOverride = async function resolveOverride(assetId) {{
+          setActionDisabled(true);
+          await requestResolution("override", {{
+            body: JSON.stringify({{ asset_id: assetId }}),
+          }});
+        }};
+
+        window.resolveDismiss = async function resolveDismiss() {{
+          await requestResolution("dismiss");
+        }};
+
+        elements.keyForm.addEventListener("submit", async (event) => {{
+          event.preventDefault();
+          const nextKey = elements.keyInput.value.trim();
+          if (!nextKey) {{
+            elements.keyError.textContent = "Enter an admin key.";
+            return;
+          }}
+
+          adminKey = nextKey;
+          window.sessionStorage.setItem(storageKey, adminKey);
+          showQueueView();
+          await loadQueue();
+        }});
+
+        elements.refresh.addEventListener("click", loadQueue);
+        elements.modalClose.addEventListener("click", closeModal);
+        elements.modalBackdrop.addEventListener("click", (event) => {{
+          if (event.target === elements.modalBackdrop) {{
+            closeModal();
+          }}
+        }});
+        elements.overrideInput.addEventListener("input", (event) => {{
+          const query = event.target.value.trim();
+          window.clearTimeout(searchTimer);
+          if (query.length < 3) {{
+            elements.searchResults.innerHTML = "";
+            return;
+          }}
+          searchTimer = window.setTimeout(() => {{
+            searchAssets(query);
+          }}, 250);
+        }});
+
+        if (adminKey) {{
+          showQueueView();
+          loadQueue();
+        }} else {{
+          showKeyPrompt();
+        }}
+      }})();
+    </script>
+    """
+    return _render_shell(
+        title="Human Review Queue",
+        current_path="/backstage/review",
+        body=body,
+        page_key="backstage_review",
+        username=username,
+    )
+
+
 @router.get("/dashboard/snapshot")
 def dashboard_snapshot(db: Session = Depends(get_database)) -> dict[str, object]:
     return build_dashboard_snapshot(db)

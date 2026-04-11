@@ -28,3 +28,4 @@ class HumanReviewQueue(Base):
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_by: Mapped[str | None] = mapped_column(String(100))
+    resolution_type: Mapped[str | None] = mapped_column(String(16), nullable=True)

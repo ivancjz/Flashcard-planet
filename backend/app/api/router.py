@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from backend.app.backstage.routes import router as backstage_router
+from backend.app.backstage.review_routes import router as review_router
 from backend.app.api.routes.alerts import router as alerts_router
 from backend.app.api.routes.auth import api_router as auth_api_router
 from backend.app.api.routes.auth import web_router as auth_web_router
@@ -21,3 +22,4 @@ api_router.include_router(alerts_router, prefix=settings.api_prefix)
 api_router.include_router(prices_router, prefix=settings.api_prefix)
 api_router.include_router(signals_router, prefix=settings.api_prefix)
 api_router.include_router(watchlists_router, prefix=settings.api_prefix)
+api_router.include_router(review_router, prefix=settings.api_prefix)
