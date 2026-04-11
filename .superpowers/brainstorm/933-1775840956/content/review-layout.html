@@ -1,0 +1,105 @@
+<h2>Human Review UI — Layout Options</h2>
+<p class="subtitle">How should the review queue and resolution workflow be structured?</p>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Queue list + inline action buttons</h3>
+      <p>Each row in the queue shows the listing title, AI guess, confidence, and three buttons (Accept / Override / Dismiss) directly on the row. Override opens a small inline search box below the row. No modal — everything happens in place.</p>
+      <div class="mockup" style="margin-top:1rem">
+        <div class="mockup-header">Queue</div>
+        <div class="mockup-body" style="padding:0.5rem;font-size:0.78rem">
+          <div style="border:1px solid #ddd;border-radius:6px;padding:0.6rem 0.8rem;margin-bottom:0.5rem;background:#fff">
+            <div style="font-weight:600;margin-bottom:0.2rem">Charizard VMAX 074/100 PSA 10</div>
+            <div style="color:#666;font-size:0.72rem">Guess: Charizard VMAX · Conf: 0.48 · ai_confidence_below_threshold</div>
+            <div style="display:flex;gap:0.4rem;margin-top:0.5rem">
+              <button style="background:#22c55e;color:#fff;border:none;padding:0.2rem 0.6rem;border-radius:4px;font-size:0.72rem">Accept</button>
+              <button style="background:#3b82f6;color:#fff;border:none;padding:0.2rem 0.6rem;border-radius:4px;font-size:0.72rem">Override</button>
+              <button style="background:#ef4444;color:#fff;border:none;padding:0.2rem 0.6rem;border-radius:4px;font-size:0.72rem">Dismiss</button>
+            </div>
+          </div>
+          <div style="border:1px solid #ddd;border-radius:6px;padding:0.6rem 0.8rem;background:#fff">
+            <div style="font-weight:600;margin-bottom:0.2rem">Umbreon VMAX Alt Art 215/264</div>
+            <div style="color:#666;font-size:0.72rem">Guess: Umbreon VMAX · Conf: 0.51 · ai_confidence_below_threshold</div>
+            <div style="display:flex;gap:0.4rem;margin-top:0.5rem">
+              <button style="background:#22c55e;color:#fff;border:none;padding:0.2rem 0.6rem;border-radius:4px;font-size:0.72rem">Accept</button>
+              <button style="background:#3b82f6;color:#fff;border:none;padding:0.2rem 0.6rem;border-radius:4px;font-size:0.72rem">Override</button>
+              <button style="background:#ef4444;color:#fff;border:none;padding:0.2rem 0.6rem;border-radius:4px;font-size:0.72rem">Dismiss</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons" style="margin-top:0.75rem">
+        <div class="pros"><h4>Pros</h4><ul><li>Fast — one click to accept or dismiss</li><li>All context visible at once</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Override search clutters the list</li><li>Tight on small screens</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Queue list + resolution modal</h3>
+      <p>The queue shows compact rows. Clicking any row opens a focused modal with the full listing details, AI guess info, and the three action buttons. Override shows a search box inside the modal.</p>
+      <div class="mockup" style="margin-top:1rem">
+        <div class="mockup-header">Queue</div>
+        <div class="mockup-body" style="padding:0.5rem;font-size:0.78rem">
+          <div style="border:1px solid #ddd;border-radius:6px;padding:0.6rem 0.8rem;margin-bottom:0.4rem;background:#fff;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <div style="font-weight:600">Charizard VMAX 074/100 PSA 10</div>
+              <div style="color:#666;font-size:0.72rem">Conf: 0.48 · queued 2h ago</div>
+            </div>
+            <span style="color:#888;font-size:0.8rem">→</span>
+          </div>
+          <div style="border:1px solid #3b82f6;border-radius:6px;padding:0.8rem;background:#eff6ff;font-size:0.78rem">
+            <div style="font-weight:700;margin-bottom:0.4rem">Resolve: Umbreon VMAX Alt Art 215/264</div>
+            <div style="color:#444;margin-bottom:0.5rem">AI guess: <strong>Umbreon VMAX</strong> (0.51 confidence)<br>Reason: ai_confidence_below_threshold</div>
+            <div style="display:flex;gap:0.4rem">
+              <button style="background:#22c55e;color:#fff;border:none;padding:0.25rem 0.7rem;border-radius:4px;font-size:0.72rem">✓ Accept</button>
+              <button style="background:#3b82f6;color:#fff;border:none;padding:0.25rem 0.7rem;border-radius:4px;font-size:0.72rem">↩ Override</button>
+              <button style="background:#ef4444;color:#fff;border:none;padding:0.25rem 0.7rem;border-radius:4px;font-size:0.72rem">✕ Dismiss</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons" style="margin-top:0.75rem">
+        <div class="pros"><h4>Pros</h4><ul><li>Focused resolution flow</li><li>Override search has full space</li><li>Clean queue — no clutter</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Extra click to open each item</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Split panel — queue left, detail right</h3>
+      <p>Left panel is the scrollable queue. Clicking a row loads its full detail + action panel on the right without a modal or page reload. Persistent two-column layout.</p>
+      <div class="mockup" style="margin-top:1rem">
+        <div class="mockup-header">Review</div>
+        <div class="mockup-body" style="padding:0;display:flex;gap:0;font-size:0.75rem">
+          <div style="width:45%;border-right:1px solid #ddd;padding:0.5rem">
+            <div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:4px;padding:0.4rem 0.6rem;margin-bottom:0.3rem;font-weight:600">Charizard VMAX PSA 10</div>
+            <div style="padding:0.4rem 0.6rem;margin-bottom:0.3rem;color:#555">Umbreon VMAX Alt Art</div>
+            <div style="padding:0.4rem 0.6rem;color:#555">Pikachu V 172/172</div>
+          </div>
+          <div style="flex:1;padding:0.6rem">
+            <div style="font-weight:700;margin-bottom:0.3rem">Charizard VMAX 074/100 PSA 10</div>
+            <div style="color:#555;margin-bottom:0.4rem;font-size:0.72rem">Guess: Charizard VMAX · Conf: 0.48</div>
+            <div style="display:flex;gap:0.35rem">
+              <button style="background:#22c55e;color:#fff;border:none;padding:0.2rem 0.5rem;border-radius:4px;font-size:0.7rem">Accept</button>
+              <button style="background:#3b82f6;color:#fff;border:none;padding:0.2rem 0.5rem;border-radius:4px;font-size:0.7rem">Override</button>
+              <button style="background:#ef4444;color:#fff;border:none;padding:0.2rem 0.5rem;border-radius:4px;font-size:0.7rem">Dismiss</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons" style="margin-top:0.75rem">
+        <div class="pros"><h4>Pros</h4><ul><li>Fast queue traversal</li><li>Context always visible</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Most JS complexity</li><li>Awkward on narrow screens</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>
