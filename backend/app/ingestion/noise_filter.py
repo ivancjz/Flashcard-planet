@@ -40,17 +40,7 @@ def filter_noise(titles: list[str]) -> list[bool]:
         "Classify each title and return only a JSON array of booleans in the same order.\n"
         "Titles:\n" + json.dumps(user_payload, ensure_ascii=False)
     )
-    try:
-        text = get_llm_provider().generate_text(SYSTEM_PROMPT, user_text, 1024)
-    except Exception as exc:  # noqa: BLE001
-        _log_json(
-            logging.WARNING,
-            "noise_filter_failed",
-            error_type=type(exc).__name__,
-            message=str(exc),
-            titles=len(titles),
-        )
-        return [True] * len(titles)
+    text = get_llm_provider().generate_text(SYSTEM_PROMPT, user_text, 1024)
     if text is None:
         _log_json(logging.WARNING, "noise_filter_unavailable", reason="provider_returned_none")
         return [True] * len(titles)

@@ -86,7 +86,7 @@ class NoiseFilterTests(TestCase):
         from backend.app.ingestion.noise_filter import filter_noise
 
         provider = MagicMock()
-        provider.generate_text.side_effect = RuntimeError("boom")
+        provider.generate_text.return_value = "not valid json"
         get_provider.return_value = provider
 
         result = filter_noise(["Pokemon 50x bulk lot", "booster box sealed"])
