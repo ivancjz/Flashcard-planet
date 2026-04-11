@@ -112,3 +112,19 @@ class SignalExplainerFallbackTests(unittest.TestCase):
             result = signal_explainer.explain_signal(db, signal)
             self.assertIsNone(result)
             db.commit.assert_not_called()
+
+
+class AiMapperFallbackTests(unittest.TestCase):
+    def test_map_batch_returns_pending_results_when_provider_returns_none(self):
+        none_provider = MagicMock()
+        none_provider.generate_text.return_value = None
+        with patch(
+            "backend.app.ingestion.matcher.ai_mapper.get_llm_provider",
+            return_value=none_provider,
+        ):
+            from backend.app.ingestion.matcher import ai_mapper
+            import importlib
+            importlib.reload(ai_mapper)
+            results = ai_mapper.map_batch(["Charizard VMAX PSA 10", "Pikachu Alt Art"])
+            self.assertEqual(len(results), 2)
+            self.assertTrue(all(r.status == "pending" for r in results))
