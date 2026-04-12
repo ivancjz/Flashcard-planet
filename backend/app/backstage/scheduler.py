@@ -265,6 +265,8 @@ def _run_scheduled_ingestion() -> None:
 
 def _run_ebay_ingestion() -> None:
     from backend.app.ingestion.ebay_sold import ingest_ebay_sold_cards
+    from backend.app.models.asset import Asset as _Asset
+    from sqlalchemy import select as _select
 
     settings = get_settings()
 
@@ -276,37 +278,85 @@ def _run_ebay_ingestion() -> None:
         ebay_logger.warning("ebay_scheduled_ingest_skipped reason=missing_credentials")
         return
 
-    effective_limit = min(settings.ebay_max_calls_per_run, settings.ebay_daily_budget_limit)
     started_at = datetime.now(UTC).replace(microsecond=0)
-    ebay_logger.info(
-        "ebay_scheduled_ingest_started start=%s effective_limit=%s",
-        started_at.isoformat(),
-        effective_limit,
-    )
+    today_start_iso = started_at.replace(hour=0, minute=0, second=0).isoformat()
 
     try:
         with SessionLocal() as session:
-            result = ingest_ebay_sold_cards(session, max_assets=effective_limit)
+            all_assets = list(session.scalars(_select(_Asset)).all())
+
+            # ── Daily budget: count assets already ingested since 00:00 UTC ──
+            calls_today = sum(
+                1 for a in all_assets
+                if (a.metadata_json or {}).get("ebay_sold_last_ingested_at", "") >= today_start_iso
+            )
+            remaining_daily_budget = max(0, settings.ebay_daily_budget_limit - calls_today)
+            effective_limit = min(settings.ebay_max_calls_per_run, remaining_daily_budget)
+            assets_considered = len(all_assets)
+
+            if effective_limit <= 0:
+                ebay_logger.info(
+                    "ebay_scheduled_ingest_skipped reason=daily_budget_exhausted "
+                    "daily_budget=%s calls_today=%s",
+                    settings.ebay_daily_budget_limit,
+                    calls_today,
+                )
+                return
+
+            ebay_logger.info(
+                "ebay_scheduled_ingest_started start=%s assets_considered=%s "
+                "calls_today=%s remaining_daily_budget=%s effective_limit=%s",
+                started_at.isoformat(),
+                assets_considered,
+                calls_today,
+                remaining_daily_budget,
+                effective_limit,
+            )
+
+            # ── Priority ordering: tracked-pool assets first, then least-recently ingested ──
+            tracked_pools = get_tracked_pokemon_pools()
+            priority_external_ids: set[str] = set()
+            for pool in tracked_pools:
+                priority_external_ids.update(pool.card_ids)
+
+            def _sort_key(asset: _Asset) -> tuple[int, str]:
+                in_priority = int((asset.external_id or "") not in priority_external_ids)
+                last_ingested = (asset.metadata_json or {}).get("ebay_sold_last_ingested_at") or ""
+                return (in_priority, last_ingested)
+
+            ordered_assets = sorted(all_assets, key=_sort_key)
+            selected_ids = [
+                asset.external_id or str(asset.id)
+                for asset in ordered_assets[:effective_limit]
+            ]
+
+            result = ingest_ebay_sold_cards(session, card_ids=selected_ids)
+
     except Exception:
         ebay_logger.exception("ebay_scheduled_ingest_job_failed")
         return
 
     ended_at = datetime.now(UTC).replace(microsecond=0)
     duration_s = (ended_at - started_at).total_seconds()
+    api_calls_used = result.cards_processed
+    budget_remaining = max(0, remaining_daily_budget - api_calls_used)
 
     ebay_logger.info(
         "ebay_scheduled_ingest_summary "
         "start=%s end=%s duration_s=%.1f "
-        "assets_requested=%s assets_processed=%s assets_failed=%s "
-        "observations=%s matched=%s unmatched=%s "
-        "price_points_inserted=%s price_points_skipped_duplicate=%s "
+        "assets_considered=%s assets_processed=%s errors=%s "
+        "api_calls_used=%s budget_remaining=%s "
+        "observations_fetched=%s matched=%s unmatched=%s "
+        "price_points_inserted=%s duplicates_skipped=%s "
         "match_status=%s",
         started_at.isoformat(),
         ended_at.isoformat(),
         duration_s,
-        result.cards_requested,
+        assets_considered,
         result.cards_processed,
         result.cards_failed,
+        api_calls_used,
+        budget_remaining,
         result.observations_logged,
         result.observations_matched,
         result.observations_unmatched,

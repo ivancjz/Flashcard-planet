@@ -216,26 +216,42 @@ def ingest_ebay_sold_cards(
     if settings.ebay_app_id == "" or settings.ebay_cert_id == "":
         return IngestionResult()
 
-    all_assets = list(session.scalars(select(Asset)).all())
-    if card_ids is not None:
-        card_id_set = {card_id.strip() for card_id in card_ids if card_id.strip()}
-        all_assets = [
-            asset
-            for asset in all_assets
-            if str(asset.id) in card_id_set or (asset.external_id or "") in card_id_set
-        ]
+    all_assets_in_db = list(session.scalars(select(Asset)).all())
 
-    # Budget guard: cap to max_assets, prioritising least-recently ingested first
-    if max_assets is not None and len(all_assets) > max_assets:
-        all_assets.sort(
-            key=lambda a: (a.metadata_json or {}).get("ebay_sold_last_ingested_at") or ""
-        )
-        _log_info(
-            "ebay_sold_budget_guard_applied",
-            pool_size=len(all_assets),
-            effective_limit=max_assets,
-        )
-        all_assets = all_assets[:max_assets]
+    if card_ids is not None:
+        # Preserve the caller-supplied order (scheduler pre-sorts by priority).
+        id_to_asset = {
+            key: asset
+            for asset in all_assets_in_db
+            for key in (str(asset.id), asset.external_id or "")
+            if key
+        }
+        all_assets = [
+            id_to_asset[cid.strip()]
+            for cid in card_ids
+            if cid.strip() in id_to_asset
+        ]
+        # Deduplicate while preserving order (an asset can appear via both id forms).
+        seen: set[object] = set()
+        ordered: list[Asset] = []
+        for a in all_assets:
+            if a.id not in seen:
+                seen.add(a.id)
+                ordered.append(a)
+        all_assets = ordered
+    else:
+        all_assets = all_assets_in_db
+        # Budget guard: cap to max_assets, prioritising least-recently ingested first.
+        if max_assets is not None and len(all_assets) > max_assets:
+            all_assets.sort(
+                key=lambda a: (a.metadata_json or {}).get("ebay_sold_last_ingested_at") or ""
+            )
+            _log_info(
+                "ebay_sold_budget_guard_applied",
+                pool_size=len(all_assets),
+                effective_limit=max_assets,
+            )
+            all_assets = all_assets[:max_assets]
 
     if not all_assets:
         return IngestionResult()
@@ -351,6 +367,23 @@ def ingest_ebay_sold_cards(
                 )
                 matched_asset_ids.add(asset.id)
 
+                # Dedup 1 — stable external item ID (preferred)
+                item_id = listing.get("item_id", "")
+                if item_id:
+                    already_observed = session.scalar(
+                        select(ObservationMatchLog.id).where(
+                            ObservationMatchLog.provider == EBAY_SOLD_PRICE_SOURCE,
+                            ObservationMatchLog.external_item_id == item_id,
+                        )
+                    )
+                    if already_observed is not None:
+                        result.price_points_skipped_existing_timestamp += 1
+                        result.observation_match_status_counts["duplicates_skipped_item_id"] = (
+                            result.observation_match_status_counts.get("duplicates_skipped_item_id", 0) + 1
+                        )
+                        continue
+
+                # Dedup 2 — fallback: (asset_id, source, captured_at)
                 already_exists = session.scalar(
                     select(PriceHistory.id).where(
                         PriceHistory.asset_id == asset.id,
@@ -360,6 +393,9 @@ def ingest_ebay_sold_cards(
                 )
                 if already_exists is not None:
                     result.price_points_skipped_existing_timestamp += 1
+                    result.observation_match_status_counts["duplicates_skipped_timestamp"] = (
+                        result.observation_match_status_counts.get("duplicates_skipped_timestamp", 0) + 1
+                    )
                     continue
 
                 session.add(
