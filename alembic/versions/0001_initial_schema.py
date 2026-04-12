@@ -5,10 +5,11 @@ Revises:
 Create Date: 2026-04-08 00:00:00.000000+00:00
 
 Captures the full schema that was previously managed by SQLAlchemy create_all().
-Existing databases that were bootstrapped with create_all() should be stamped at
-this revision with:
+Existing databases that were bootstrapped with create_all() need to be stamped
+to the Alembic revision that matches the schema they already have. For example:
 
-    alembic stamp 0001
+    alembic stamp 0001   # if the database matches the initial Alembic schema
+    alembic stamp head   # if the database already matches the current head schema
 
 rather than running upgrade(), which would try to create tables that already exist.
 init_db() handles this automatically by detecting pre-existing tables.
