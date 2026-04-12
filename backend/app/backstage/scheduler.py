@@ -36,6 +36,25 @@ class ScheduledIngestionRun:
     gap_report: GapReport | None = None
 
 
+@dataclass
+class EbayScheduledRunSummary:
+    """Summary of a single eBay scheduled ingestion run."""
+    run_status: str  # "success" | "partial" | "skipped" | "failed"
+    assets_considered: int = 0
+    assets_processed: int = 0
+    assets_skipped_budget: int = 0
+    errors: list[str] = field(default_factory=list)
+    api_calls_used: int = 0
+    budget_remaining: int = 0
+    observations_fetched: int = 0
+    matched: int = 0
+    unmatched: int = 0
+    price_points_inserted: int = 0
+    duplicates_skipped: int = 0
+    match_status_counts: dict[str, int] = field(default_factory=dict)
+    job_blocked_reason: str | None = None
+
+
 def _log_gap_report(report: GapReport) -> None:
     logger.info(
         "Current gap report: total_assets=%s covered_assets=%s gap_count=%s zero_history_assets=%s thin_history_assets=%s partial_sets=%s threshold=%s set_coverage_threshold=%s",
@@ -263,7 +282,7 @@ def _run_scheduled_ingestion() -> None:
         )
 
 
-def _run_ebay_ingestion() -> None:
+def _run_ebay_ingestion() -> EbayScheduledRunSummary:
     from backend.app.ingestion.ebay_sold import ingest_ebay_sold_cards
     from backend.app.models.asset import Asset as _Asset
     from sqlalchemy import select as _select
@@ -272,18 +291,23 @@ def _run_ebay_ingestion() -> None:
 
     if not settings.ebay_scheduled_ingest_enabled:
         ebay_logger.info("ebay_scheduled_ingest_skipped reason=disabled")
-        return
+        return EbayScheduledRunSummary(run_status="skipped", job_blocked_reason="disabled")
 
     if not settings.ebay_app_id or not settings.ebay_cert_id:
         ebay_logger.warning("ebay_scheduled_ingest_skipped reason=missing_credentials")
-        return
+        return EbayScheduledRunSummary(run_status="skipped", job_blocked_reason="missing_credentials")
 
     started_at = datetime.now(UTC).replace(microsecond=0)
     today_start_iso = started_at.replace(hour=0, minute=0, second=0).isoformat()
 
+    assets_considered = 0
+    remaining_daily_budget = 0
+    result = None
+
     try:
         with SessionLocal() as session:
             all_assets = list(session.scalars(_select(_Asset)).all())
+            assets_considered = len(all_assets)
 
             # ── Daily budget: count assets already ingested since 00:00 UTC ──
             calls_today = sum(
@@ -292,7 +316,6 @@ def _run_ebay_ingestion() -> None:
             )
             remaining_daily_budget = max(0, settings.ebay_daily_budget_limit - calls_today)
             effective_limit = min(settings.ebay_max_calls_per_run, remaining_daily_budget)
-            assets_considered = len(all_assets)
 
             if effective_limit <= 0:
                 ebay_logger.info(
@@ -301,7 +324,15 @@ def _run_ebay_ingestion() -> None:
                     settings.ebay_daily_budget_limit,
                     calls_today,
                 )
-                return
+                return EbayScheduledRunSummary(
+                    run_status="skipped",
+                    assets_considered=assets_considered,
+                    assets_skipped_budget=assets_considered,
+                    budget_remaining=0,
+                    job_blocked_reason="daily_budget_exhausted",
+                )
+
+            assets_skipped_budget = max(0, assets_considered - effective_limit)
 
             ebay_logger.info(
                 "ebay_scheduled_ingest_started start=%s assets_considered=%s "
@@ -334,36 +365,68 @@ def _run_ebay_ingestion() -> None:
 
     except Exception:
         ebay_logger.exception("ebay_scheduled_ingest_job_failed")
-        return
+        return EbayScheduledRunSummary(
+            run_status="failed",
+            assets_considered=assets_considered,
+            errors=["Unhandled exception — see logs for details."],
+            job_blocked_reason="exception",
+        )
 
     ended_at = datetime.now(UTC).replace(microsecond=0)
     duration_s = (ended_at - started_at).total_seconds()
-    api_calls_used = result.cards_processed
+    api_calls_used = result.api_calls_used
     budget_remaining = max(0, remaining_daily_budget - api_calls_used)
+    errors: list[str] = []
+    if result.cards_failed:
+        errors.append(f"{result.cards_failed} asset(s) failed during ingestion.")
+    run_status = (
+        "failed" if not result.cards_processed and result.cards_failed
+        else "partial" if result.cards_failed
+        else "success"
+    )
+
+    summary = EbayScheduledRunSummary(
+        run_status=run_status,
+        assets_considered=assets_considered,
+        assets_processed=result.cards_processed,
+        assets_skipped_budget=assets_skipped_budget,
+        errors=errors,
+        api_calls_used=api_calls_used,
+        budget_remaining=budget_remaining,
+        observations_fetched=result.observations_logged,
+        matched=result.observations_matched,
+        unmatched=result.observations_unmatched,
+        price_points_inserted=result.price_points_inserted,
+        duplicates_skipped=result.price_points_skipped_existing_timestamp,
+        match_status_counts=dict(result.observation_match_status_counts),
+    )
 
     ebay_logger.info(
         "ebay_scheduled_ingest_summary "
         "start=%s end=%s duration_s=%.1f "
-        "assets_considered=%s assets_processed=%s errors=%s "
+        "run_status=%s assets_considered=%s assets_processed=%s assets_skipped_budget=%s "
         "api_calls_used=%s budget_remaining=%s "
         "observations_fetched=%s matched=%s unmatched=%s "
         "price_points_inserted=%s duplicates_skipped=%s "
-        "match_status=%s",
+        "errors=%s match_status=%s",
         started_at.isoformat(),
         ended_at.isoformat(),
         duration_s,
-        assets_considered,
-        result.cards_processed,
-        result.cards_failed,
-        api_calls_used,
-        budget_remaining,
-        result.observations_logged,
-        result.observations_matched,
-        result.observations_unmatched,
-        result.price_points_inserted,
-        result.price_points_skipped_existing_timestamp,
-        result.observation_match_status_counts,
+        summary.run_status,
+        summary.assets_considered,
+        summary.assets_processed,
+        summary.assets_skipped_budget,
+        summary.api_calls_used,
+        summary.budget_remaining,
+        summary.observations_fetched,
+        summary.matched,
+        summary.unmatched,
+        summary.price_points_inserted,
+        summary.duplicates_skipped,
+        summary.errors or "<none>",
+        summary.match_status_counts,
     )
+    return summary
 
 
 def _register_ebay_job(scheduler: BackgroundScheduler, settings: object) -> None:

@@ -43,38 +43,52 @@ def session_scope() -> Session:
     Base.metadata.drop_all(engine)
 
 
-def make_xml_response(*, title: str, price: str, end_time: datetime) -> str:
-    return f"""<?xml version="1.0" encoding="UTF-8"?>
-<findCompletedItemsResponse xmlns="urn:ebay:apis:eBLBaseComponents">
-  <ack>Success</ack>
-  <searchResult count="1">
-    <item>
-      <title>{title}</title>
-      <listingInfo>
-        <endTime>{end_time.astimezone(UTC).isoformat().replace("+00:00", "Z")}</endTime>
-      </listingInfo>
-      <sellingStatus>
-        <convertedCurrentPrice currencyId="USD">{price}</convertedCurrentPrice>
-      </sellingStatus>
-    </item>
-  </searchResult>
-</findCompletedItemsResponse>
-"""
+def make_browse_response(*, title: str, item_id: str, price: str, end_time: datetime) -> dict:
+    """Build a Browse API JSON payload with a single itemSummary entry."""
+    return {
+        "itemSummaries": [
+            {
+                "itemId": item_id,
+                "title": title,
+                "itemEndDate": end_time.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+                "price": {"value": price, "currency": "USD"},
+            }
+        ]
+    }
 
 
-def make_http_client(xml_payload: str) -> MagicMock:
-    response = MagicMock()
-    response.text = xml_payload
-    response.raise_for_status.return_value = None
+def make_http_client(browse_data: dict) -> MagicMock:
+    """Return a mock httpx.Client context manager.
+
+    Behaviour:
+    - client.post() simulates the OAuth token call (returns access_token).
+    - client.get() simulates the Browse API search (returns browse_data as JSON).
+    The Finding API call (also a GET) returns an empty XML body so
+    _fetch_finding_completed falls back to Browse.
+    """
+    # OAuth token response (POST)
+    token_response = MagicMock()
+    token_response.raise_for_status.return_value = None
+    token_response.json.return_value = {"access_token": "fake-token"}
+
+    # Browse API response (GET)
+    browse_response = MagicMock()
+    browse_response.status_code = 200
+    browse_response.text = ""  # no "10001" → Finding returns non-quota failure
+    browse_response.raise_for_status.return_value = None
+    browse_response.json.return_value = browse_data
+
     client = MagicMock()
-    client.get.return_value = response
+    client.post.return_value = token_response
+    client.get.return_value = browse_response
+
     client_context = MagicMock()
     client_context.__enter__.return_value = client
     client_context.__exit__.return_value = False
     return client_context
 
 
-def create_asset(session: Session, *, name: str) -> Asset:
+def create_asset(session: Session, *, name: str, external_id: str | None = None) -> Asset:
     asset = Asset(
         asset_class="TCG",
         category="Pokemon",
@@ -86,7 +100,7 @@ def create_asset(session: Session, *, name: str) -> Asset:
         variant="Holo",
         grade_company=None,
         grade_score=None,
-        external_id=f"asset:{name}",
+        external_id=external_id or f"asset:{name}",
         metadata_json={},
         notes="Test asset.",
     )
@@ -99,11 +113,19 @@ def create_asset(session: Session, *, name: str) -> Asset:
 def patch_settings(**overrides: object):
     defaults = {
         "ebay_app_id": "test-ebay-app-id",
+        "ebay_cert_id": "test-ebay-cert-id",
         "ebay_search_keywords": "charizard",
         "ebay_sold_lookback_hours": 24,
     }
     defaults.update(overrides)
     return patch.multiple("backend.app.ingestion.ebay_sold.settings", **defaults)
+
+
+# ── Patch Finding API to always return [] (empty) so Browse is the active path ──
+_patch_finding = patch(
+    "backend.app.ingestion.ebay_sold._fetch_finding_completed",
+    return_value=[],
+)
 
 
 def test_ingest_returns_result_when_no_api_key() -> None:
@@ -115,14 +137,19 @@ def test_ingest_returns_result_when_no_api_key() -> None:
 
 def test_price_inserted_for_matching_asset() -> None:
     with session_scope() as session:
-        create_asset(session, name="Charizard Base Set Holo")
-        xml_payload = make_xml_response(
-            title="Charizard Base Set Holo PSA 9",
+        create_asset(session, name="Charizard")
+        browse_data = make_browse_response(
+            title="Charizard Base Set Holo Rare",
+            item_id="ebay-item-001",
             price="450.00",
             end_time=datetime.now(UTC) - timedelta(hours=1),
         )
 
-        with patch_settings(), patch("backend.app.ingestion.ebay_sold.httpx.Client", return_value=make_http_client(xml_payload)):
+        with (
+            patch_settings(),
+            _patch_finding,
+            patch("backend.app.ingestion.ebay_sold.httpx.Client", return_value=make_http_client(browse_data)),
+        ):
             result = ingest_ebay_sold_cards(session)
 
         assert result.price_points_inserted == 1
@@ -131,9 +158,38 @@ def test_price_inserted_for_matching_asset() -> None:
         assert rows[0].price == Decimal("450.00")
 
 
-def test_duplicate_timestamp_skipped() -> None:
+def test_duplicate_item_id_skipped() -> None:
+    """Second ingest of the same eBay item_id is rejected by the item-ID dedup check."""
     with session_scope() as session:
-        asset = create_asset(session, name="Charizard Base Set Holo")
+        create_asset(session, name="Charizard")
+        end_time = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=1)
+        browse_data = make_browse_response(
+            title="Charizard Base Set Holo Rare",
+            item_id="ebay-item-002",
+            price="450.00",
+            end_time=end_time,
+        )
+
+        http_client = make_http_client(browse_data)
+        with (
+            patch_settings(),
+            _patch_finding,
+            patch("backend.app.ingestion.ebay_sold.httpx.Client", return_value=http_client),
+        ):
+            # First ingest — inserts the price point.
+            result1 = ingest_ebay_sold_cards(session)
+            # Second ingest — same item_id → dedup check fires.
+            result2 = ingest_ebay_sold_cards(session)
+
+        assert result1.price_points_inserted == 1
+        assert result2.price_points_inserted == 0
+        assert result2.price_points_skipped_existing_timestamp == 1
+
+
+def test_duplicate_timestamp_skipped() -> None:
+    """Pre-existing PriceHistory row with the same (asset, source, captured_at) is skipped."""
+    with session_scope() as session:
+        asset = create_asset(session, name="Charizard")
         end_time = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=1)
         session.add(
             PriceHistory(
@@ -145,13 +201,18 @@ def test_duplicate_timestamp_skipped() -> None:
             )
         )
         session.commit()
-        xml_payload = make_xml_response(
-            title="Charizard Base Set Holo PSA 9",
+        browse_data = make_browse_response(
+            title="Charizard Base Set Holo Rare",
+            item_id="ebay-item-003-no-log",  # no ObservationMatchLog row exists
             price="450.00",
             end_time=end_time,
         )
 
-        with patch_settings(), patch("backend.app.ingestion.ebay_sold.httpx.Client", return_value=make_http_client(xml_payload)):
+        with (
+            patch_settings(),
+            _patch_finding,
+            patch("backend.app.ingestion.ebay_sold.httpx.Client", return_value=make_http_client(browse_data)),
+        ):
             result = ingest_ebay_sold_cards(session)
 
         assert result.price_points_inserted == 0
@@ -160,14 +221,19 @@ def test_duplicate_timestamp_skipped() -> None:
 
 def test_unmatched_title_is_skipped() -> None:
     with session_scope() as session:
-        create_asset(session, name="Charizard Base Set Holo")
-        xml_payload = make_xml_response(
+        create_asset(session, name="Charizard")
+        browse_data = make_browse_response(
             title="XYZ Random Item 12345 Completely Different",
+            item_id="ebay-item-004",
             price="12.00",
             end_time=datetime.now(UTC) - timedelta(hours=1),
         )
 
-        with patch_settings(), patch("backend.app.ingestion.ebay_sold.httpx.Client", return_value=make_http_client(xml_payload)):
+        with (
+            patch_settings(),
+            _patch_finding,
+            patch("backend.app.ingestion.ebay_sold.httpx.Client", return_value=make_http_client(browse_data)),
+        ):
             result = ingest_ebay_sold_cards(session)
 
         assert result.price_points_inserted == 0
@@ -176,14 +242,19 @@ def test_unmatched_title_is_skipped() -> None:
 
 def test_volume_signal_stored_in_metadata() -> None:
     with session_scope() as session:
-        asset = create_asset(session, name="Charizard Base Set Holo")
-        xml_payload = make_xml_response(
-            title="Charizard Base Set Holo PSA 9",
+        asset = create_asset(session, name="Charizard")
+        browse_data = make_browse_response(
+            title="Charizard Base Set Holo Rare",
+            item_id="ebay-item-005",
             price="450.00",
             end_time=datetime.now(UTC) - timedelta(hours=1),
         )
 
-        with patch_settings(), patch("backend.app.ingestion.ebay_sold.httpx.Client", return_value=make_http_client(xml_payload)):
+        with (
+            patch_settings(),
+            _patch_finding,
+            patch("backend.app.ingestion.ebay_sold.httpx.Client", return_value=make_http_client(browse_data)),
+        ):
             ingest_ebay_sold_cards(session)
 
         refreshed_asset = session.scalar(select(Asset).where(Asset.id == asset.id))
@@ -191,14 +262,38 @@ def test_volume_signal_stored_in_metadata() -> None:
         assert "ebay_sold_24h_count" in (refreshed_asset.metadata_json or {})
 
 
+def test_api_calls_used_tracked() -> None:
+    """api_calls_used in the result reflects the real HTTP calls made."""
+    with session_scope() as session:
+        create_asset(session, name="Charizard")
+        browse_data = make_browse_response(
+            title="Charizard Base Set Holo Rare",
+            item_id="ebay-item-006",
+            price="450.00",
+            end_time=datetime.now(UTC) - timedelta(hours=1),
+        )
+
+        with (
+            patch_settings(),
+            _patch_finding,
+            patch("backend.app.ingestion.ebay_sold.httpx.Client", return_value=make_http_client(browse_data)),
+        ):
+            result = ingest_ebay_sold_cards(session)
+
+        # 1 OAuth call + 1 Finding attempt + 1 Browse fallback = 3 per asset
+        assert result.api_calls_used >= 3
+
+
 def load_tests(loader: unittest.TestLoader, tests: unittest.TestSuite, pattern: str | None) -> unittest.TestSuite:
     suite = unittest.TestSuite()
     for test in (
         test_ingest_returns_result_when_no_api_key,
         test_price_inserted_for_matching_asset,
+        test_duplicate_item_id_skipped,
         test_duplicate_timestamp_skipped,
         test_unmatched_title_is_skipped,
         test_volume_signal_stored_in_metadata,
+        test_api_calls_used_tracked,
     ):
         suite.addTest(unittest.FunctionTestCase(test))
     return suite

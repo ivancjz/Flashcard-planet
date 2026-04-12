@@ -269,6 +269,7 @@ def ingest_ebay_sold_cards(
     with httpx.Client(timeout=20.0) as client:
         try:
             token = _get_app_token(client)
+            result.api_calls_used += 1  # OAuth token request
         except Exception:
             logger.exception("ebay_sold_oauth_token_failed")
             return result
@@ -282,6 +283,7 @@ def ingest_ebay_sold_cards(
 
             # 1. Try findCompletedItems (real sold prices — buggy but preferred when it works)
             finding_results = _fetch_finding_completed(client, query)
+            result.api_calls_used += 1  # Finding API request (attempted regardless of outcome)
             if finding_results:
                 raw_listings = finding_results
 
@@ -302,7 +304,9 @@ def ingest_ebay_sold_cards(
                     )
                     resp.raise_for_status()
                     raw_listings = _parse_browse_items(resp.json())
+                    result.api_calls_used += 1  # Browse API request
                 except Exception:
+                    result.api_calls_used += 1  # Browse API request (failed)
                     result.cards_failed += 1
                     logger.exception("ebay_sold_asset_fetch_failed asset_id=%s name=%s", asset.id, asset.name)
                     continue
@@ -461,6 +465,7 @@ def ingest_ebay_sold_cards(
         observations_logged=result.observations_logged,
         observations_matched=result.observations_matched,
         observations_unmatched=result.observations_unmatched,
+        api_calls_used=result.api_calls_used,
         latest_captured_at=result.latest_captured_at.isoformat() if result.latest_captured_at else "<none>",
     )
     return result

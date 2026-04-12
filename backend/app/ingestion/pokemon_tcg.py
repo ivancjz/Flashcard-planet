@@ -63,6 +63,7 @@ class IngestionResult:
     observation_match_status_counts: dict[str, int] = field(default_factory=dict)
     inserted_asset_names: list[str] = field(default_factory=list)
     latest_captured_at: datetime | None = None
+    api_calls_used: int = 0
 
 
 def parse_card_ids(raw_card_ids: str) -> list[str]:
