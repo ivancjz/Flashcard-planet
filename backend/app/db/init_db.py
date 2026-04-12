@@ -46,6 +46,22 @@ def _expected_model_tables() -> set[str]:
     return {table_name for table_name in Base.metadata.tables if table_name != "alembic_version"}
 
 
+def _schema_matches_current_models(inspector: object, existing_tables: set[str]) -> bool:
+    expected_tables = _expected_model_tables()
+    if not expected_tables.issubset(existing_tables):
+        return False
+
+    for table_name in expected_tables:
+        expected_columns = {column.name for column in Base.metadata.tables[table_name].columns}
+        actual_columns = {
+            column["name"]
+            for column in inspector.get_columns(table_name)
+        }
+        if not expected_columns.issubset(actual_columns):
+            return False
+    return True
+
+
 def _current_alembic_revision(conn: object, *, has_alembic_version: bool) -> str | None:
     if not has_alembic_version:
         return None
@@ -73,12 +89,12 @@ def init_db() -> None:
         current_revision = _current_alembic_revision(
             conn, has_alembic_version=has_alembic_version
         )
+        schema_matches_head = _schema_matches_current_models(inspector, existing_tables)
 
     has_schema = "assets" in existing_tables
 
     if has_schema and current_revision is None:
-        expected_tables = _expected_model_tables()
-        if expected_tables.issubset(existing_tables):
+        if schema_matches_head:
             logger.info(
                 "Pre-Alembic database detected with full current schema. Stamping at head."
             )
@@ -92,8 +108,7 @@ def init_db() -> None:
             )
             command.stamp(cfg, "0001")
     elif has_schema:
-        expected_tables = _expected_model_tables()
-        if expected_tables.issubset(existing_tables) and current_revision != head_revision:
+        if schema_matches_head and current_revision != head_revision:
             logger.info(
                 "Database schema matches current head, but alembic_version=%s. Restamping at head %s.",
                 current_revision,
