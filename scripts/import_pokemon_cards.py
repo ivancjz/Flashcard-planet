@@ -344,6 +344,13 @@ def flush_batch(
     if not asset_payloads:
         return 0, 0
 
+    # Deduplicate by external_id — PostgreSQL raises CardinalityViolation if the
+    # same conflict-key appears twice in a single ON CONFLICT DO UPDATE batch.
+    seen: dict[str, dict] = {}
+    for payload in asset_payloads:
+        seen[payload["external_id"]] = payload
+    asset_payloads = list(seen.values())
+
     external_ids = [payload["external_id"] for payload in asset_payloads]
 
     try:
