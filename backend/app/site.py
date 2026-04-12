@@ -960,7 +960,11 @@ def signals_page(
         if label_filter and label_filter not in valid_labels:
             label_filter = None
 
-        snapshots = get_daily_snapshot_signals(db, label=label_filter)
+        try:
+            snapshots = get_daily_snapshot_signals(db, label=label_filter)
+        except Exception as exc:
+            logger.exception("signals_page: get_daily_snapshot_signals failed: %s", exc)
+            snapshots = []
 
         asset_ids = [snap.asset_id for snap in snapshots]
         asset_rows = (
@@ -975,10 +979,14 @@ def signals_page(
 
         live_map = {}
         if is_pro:
-            live_signals = get_all_signals(db, limit=500)
-            if label_filter:
-                live_signals = [signal for signal in live_signals if signal.label == label_filter]
-            live_map = {signal.asset_id: signal for signal in live_signals}
+            try:
+                live_signals = get_all_signals(db, limit=500)
+                if label_filter:
+                    live_signals = [s for s in live_signals if s.label == label_filter]
+                live_map = {s.asset_id: s for s in live_signals}
+            except Exception as exc:
+                logger.exception("signals_page: get_all_signals failed: %s", exc)
+                live_map = {}
 
     filter_links = ""
     for lbl, zh, en in [
