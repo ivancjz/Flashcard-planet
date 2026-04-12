@@ -61,31 +61,9 @@ def _quantize_change(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"))
 
 
-def get_asset_prices_by_name(db: Session, asset_name: str) -> list[AssetPriceResponse]:
-    source_filter = get_active_price_source_filter(db)
-    ranked = _build_ranked_price_subquery(source_filter)
-    current = aliased_subquery(ranked, "current_price", 1)
-    previous = aliased_subquery(ranked, "previous_price", 2)
-
-    stmt = (
-        select(
-            Asset,
-            current.c.price.label("latest_price"),
-            current.c.currency,
-            current.c.source,
-            current.c.captured_at,
-            previous.c.price.label("previous_price"),
-            Asset.external_id,
-        )
-        .join(current, current.c.asset_id == Asset.id)
-        .outerjoin(previous, previous.c.asset_id == Asset.id)
-        .where(Asset.name.ilike(f"%{asset_name}%"))
-        .order_by(Asset.name.asc(), current.c.captured_at.desc())
-    )
-
-    rows = db.execute(stmt).all()
+def _build_asset_price_responses(db: Session, rows) -> list[AssetPriceResponse]:
     percent_changes_by_asset: dict = {}
-    for asset, latest_price, _currency, _source, _captured_at, previous_price in rows:
+    for asset, latest_price, _currency, _source, _captured_at, previous_price, _external_id in rows:
         if previous_price is None or Decimal(previous_price) == 0:
             continue
         absolute_change = Decimal(latest_price) - Decimal(previous_price)
@@ -153,6 +131,60 @@ def get_asset_prices_by_name(db: Session, asset_name: str) -> list[AssetPriceRes
             )
         )
     return responses
+
+
+def get_asset_prices_by_name(db: Session, asset_name: str) -> list[AssetPriceResponse]:
+    source_filter = get_active_price_source_filter(db)
+    ranked = _build_ranked_price_subquery(source_filter)
+    current = aliased_subquery(ranked, "current_price", 1)
+    previous = aliased_subquery(ranked, "previous_price", 2)
+
+    stmt = (
+        select(
+            Asset,
+            current.c.price.label("latest_price"),
+            current.c.currency,
+            current.c.source,
+            current.c.captured_at,
+            previous.c.price.label("previous_price"),
+            Asset.external_id,
+        )
+        .join(current, current.c.asset_id == Asset.id)
+        .outerjoin(previous, previous.c.asset_id == Asset.id)
+        .where(Asset.name.ilike(f"%{asset_name}%"))
+        .order_by(Asset.name.asc(), current.c.captured_at.desc())
+    )
+
+    rows = db.execute(stmt).all()
+    return _build_asset_price_responses(db, rows)
+
+
+def get_asset_price_by_external_id(db: Session, external_id: str) -> AssetPriceResponse | None:
+    source_filter = get_active_price_source_filter(db)
+    ranked = _build_ranked_price_subquery(source_filter)
+    current = aliased_subquery(ranked, "current_price", 1)
+    previous = aliased_subquery(ranked, "previous_price", 2)
+
+    stmt = (
+        select(
+            Asset,
+            current.c.price.label("latest_price"),
+            current.c.currency,
+            current.c.source,
+            current.c.captured_at,
+            previous.c.price.label("previous_price"),
+            Asset.external_id,
+        )
+        .join(current, current.c.asset_id == Asset.id)
+        .outerjoin(previous, previous.c.asset_id == Asset.id)
+        .where(Asset.external_id == external_id)
+        .order_by(current.c.captured_at.desc())
+        .limit(1)
+    )
+
+    rows = db.execute(stmt).all()
+    responses = _build_asset_price_responses(db, rows)
+    return responses[0] if responses else None
 
 
 def get_top_movers(db: Session, limit: int = 10) -> list[TopMoverResponse]:
@@ -298,12 +330,9 @@ def get_recent_real_price_points(
     return [(Decimal(row.price), row.captured_at) for row in rows]
 
 
-def get_asset_history_by_name(db: Session, asset_name: str, limit: int = 5) -> AssetHistoryResponse | None:
-    matches = get_asset_prices_by_name(db, asset_name)
-    if not matches:
-        return None
-
-    match = matches[0]
+def _build_asset_history_response(
+    db: Session, match: AssetPriceResponse, *, limit: int = 5
+) -> AssetHistoryResponse:
     source_filter = get_active_price_source_filter(db)
     rows = db.execute(
         select(
@@ -357,6 +386,22 @@ def get_asset_history_by_name(db: Session, asset_name: str, limit: int = 5) -> A
         alert_confidence_label=match.alert_confidence_label,
         history=history,
     )
+
+
+def get_asset_history_by_name(db: Session, asset_name: str, limit: int = 5) -> AssetHistoryResponse | None:
+    matches = get_asset_prices_by_name(db, asset_name)
+    if not matches:
+        return None
+    return _build_asset_history_response(db, matches[0], limit=limit)
+
+
+def get_asset_history_by_external_id(
+    db: Session, external_id: str, limit: int = 5
+) -> AssetHistoryResponse | None:
+    match = get_asset_price_by_external_id(db, external_id)
+    if match is None:
+        return None
+    return _build_asset_history_response(db, match, limit=limit)
 
 
 def build_prediction_reason_not_enough_data(points_used: int) -> str:
