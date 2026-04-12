@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from xml.etree import ElementTree
 
 import httpx
 from sqlalchemy import delete, func, select
@@ -17,9 +18,11 @@ from backend.app.models.price_history import PriceHistory
 
 logger = logging.getLogger(__name__)
 
+EBAY_FINDING_API_URL = "https://svcs.ebay.com/services/search/FindingService/v1"
 EBAY_OAUTH_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 EBAY_INSIGHTS_API_URL = "https://api.ebay.com/buy/marketplace_insights/v1_beta/item_sales/search"
 EBAY_BROWSE_API_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+EBAY_FINDING_XML_NS = "{urn:ebay:apis:eBLBaseComponents}"
 GRADING_KEYWORDS = {"psa", "bgs", "cgc", "sgc", "gma", "ace", "beckett"}
 
 
@@ -88,6 +91,69 @@ def _parse_browse_items(data: dict) -> list[dict[str, str]]:
             continue
         items.append({"item_id": item_id, "title": title, "captured_at": date, "price": price})
     return items
+
+
+def _find_xml_text(node: ElementTree.Element, *path_parts: str) -> str:
+    current: ElementTree.Element | None = node
+    for part in path_parts:
+        if current is None:
+            return ""
+        current = current.find(f"{EBAY_FINDING_XML_NS}{part}")
+    return (current.text or "").strip() if current is not None else ""
+
+
+def _parse_finding_items(xml_text: str) -> list[dict[str, str]]:
+    try:
+        root = ElementTree.fromstring(xml_text)
+    except ElementTree.ParseError:
+        return []
+    search_result = root.find(f"{EBAY_FINDING_XML_NS}searchResult")
+    if search_result is None:
+        return []
+    items: list[dict[str, str]] = []
+    for item in search_result.findall(f"{EBAY_FINDING_XML_NS}item"):
+        title = _find_xml_text(item, "title")
+        item_id = _find_xml_text(item, "itemId")
+        end_time = _find_xml_text(item, "listingInfo", "endTime")
+        price = _find_xml_text(item, "sellingStatus", "convertedCurrentPrice")
+        if not title or not end_time or not price:
+            continue
+        items.append({"item_id": item_id, "title": title, "captured_at": end_time, "price": price})
+    return items
+
+
+def _fetch_finding_completed(client: httpx.Client, query: str) -> list[dict[str, str]] | None:
+    """Call findCompletedItems. Returns parsed items, empty list if none, or None on hard error."""
+    try:
+        resp = client.get(
+            EBAY_FINDING_API_URL,
+            params={
+                "OPERATION-NAME": "findCompletedItems",
+                "SERVICE-VERSION": "1.0.0",
+                "SECURITY-APPNAME": settings.ebay_app_id,
+                "RESPONSE-DATA-FORMAT": "XML",
+                "keywords": query,
+                "itemFilter(0).name": "SoldItemsOnly",
+                "itemFilter(0).value": "true",
+                "sortOrder": "EndTimeSoonest",
+                "paginationInput.entriesPerPage": "50",
+            },
+            timeout=20.0,
+        )
+    except Exception:
+        logger.exception("ebay_finding_api_request_failed query=%s", query)
+        return None
+
+    # errorId 10001 = quota/rate limit — check body first regardless of status code
+    if "10001" in resp.text:
+        logger.warning("ebay_finding_api_quota_limit query=%s — will retry next run", query)
+        return None
+
+    if resp.status_code != 200:
+        logger.warning("ebay_finding_api_bad_status status=%s query=%s", resp.status_code, query)
+        return None
+
+    return _parse_finding_items(resp.text)
 
 
 def _normalize(value: str) -> str:
@@ -178,33 +244,20 @@ def ingest_ebay_sold_cards(
             logger.exception("ebay_sold_oauth_token_failed")
             return result
 
-        insights_available = True
-
         for asset in all_assets:
             query = _build_search_query(asset)
             _log_info("ebay_sold_asset_fetch_started", asset_id=asset.id, name=asset.name, query=query)
 
             raw_listings: list[dict[str, str]] = []
-            api_used = "insights"
+            api_used = "finding"
 
-            if insights_available:
-                try:
-                    resp = client.get(
-                        EBAY_INSIGHTS_API_URL,
-                        headers={"Authorization": f"Bearer {token}", "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"},
-                        params={"q": query, "category_ids": "2536", "limit": "50"},
-                    )
-                    if resp.status_code in (403, 404):
-                        insights_available = False
-                        logger.warning("ebay_insights_api_unavailable status=%s — falling back to Browse API", resp.status_code)
-                    else:
-                        resp.raise_for_status()
-                        raw_listings = _parse_insights_items(resp.json())
-                except Exception:
-                    insights_available = False
-                    logger.exception("ebay_insights_api_error — falling back to Browse API")
+            # 1. Try findCompletedItems (real sold prices — buggy but preferred when it works)
+            finding_results = _fetch_finding_completed(client, query)
+            if finding_results:
+                raw_listings = finding_results
 
-            if not insights_available:
+            # 2. Fall back to Browse API if Finding returned nothing or errored
+            if not raw_listings:
                 api_used = "browse"
                 try:
                     resp = client.get(
