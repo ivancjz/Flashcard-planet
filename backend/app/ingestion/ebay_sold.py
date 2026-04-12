@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from difflib import SequenceMatcher
 
 import httpx
 from sqlalchemy import delete, func, select
@@ -19,8 +18,9 @@ from backend.app.models.price_history import PriceHistory
 logger = logging.getLogger(__name__)
 
 EBAY_OAUTH_URL = "https://api.ebay.com/identity/v1/oauth2/token"
+EBAY_INSIGHTS_API_URL = "https://api.ebay.com/buy/marketplace_insights/v1_beta/item_sales/search"
 EBAY_BROWSE_API_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
-FUZZY_MATCH_THRESHOLD = 0.65
+GRADING_KEYWORDS = {"psa", "bgs", "cgc", "sgc", "gma", "ace", "beckett"}
 
 
 def _log_info(event: str, **fields: object) -> None:
@@ -62,34 +62,73 @@ def _get_app_token(client: httpx.Client) -> str:
     return response.json()["access_token"]
 
 
-def _parse_listing_items(data: dict) -> list[dict[str, str]]:
+def _parse_insights_items(data: dict) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for item in data.get("itemSales", []):
+        title = item.get("title", "")
+        item_id = item.get("itemId", "")
+        sold_date = item.get("lastSoldDate", "")
+        price_info = item.get("lastSoldPrice", {})
+        price = price_info.get("value", "") if isinstance(price_info, dict) else ""
+        if not title or not sold_date or not price:
+            continue
+        items.append({"item_id": item_id, "title": title, "captured_at": sold_date, "price": price})
+    return items
+
+
+def _parse_browse_items(data: dict) -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
     for item in data.get("itemSummaries", []):
         title = item.get("title", "")
         item_id = item.get("itemId", "")
-        last_sold_date = item.get("lastSoldDate") or item.get("itemEndDate", "")
-        price_info = item.get("lastSoldPrice") or item.get("price", {})
+        date = item.get("itemEndDate") or item.get("lastSoldDate", "")
+        price_info = item.get("price", {})
         price = price_info.get("value", "") if isinstance(price_info, dict) else ""
-        if not title or not last_sold_date or not price:
+        if not title or not date or not price:
             continue
-        items.append(
-            {
-                "item_id": item_id,
-                "title": title,
-                "captured_at": last_sold_date,
-                "price": price,
-            }
-        )
+        items.append({"item_id": item_id, "title": title, "captured_at": date, "price": price})
     return items
 
 
-def _normalize_match_text(value: str) -> str:
+def _normalize(value: str) -> str:
     return " ".join(value.casefold().split())
 
 
 def _title_contains_card_name(title: str, asset: Asset) -> bool:
-    """Basic relevance gate: the listing title must contain the card name."""
-    return _normalize_match_text(asset.name) in _normalize_match_text(title)
+    return _normalize(asset.name) in _normalize(title)
+
+
+def _is_grade_compatible(title: str, asset: Asset) -> bool:
+    """Return False when grading keywords in title conflict with the asset's grade status."""
+    normalized = _normalize(title)
+    title_words = set(normalized.split())
+    has_grade_keyword = bool(title_words & GRADING_KEYWORDS)
+    if asset.grade_company:
+        # Graded asset: title must mention the right company and approximate score.
+        company = _normalize(asset.grade_company)
+        if not has_grade_keyword:
+            return False
+        if company not in normalized:
+            return False
+        if asset.grade_score is not None:
+            score_str = str(int(asset.grade_score))
+            if score_str not in normalized:
+                return False
+        return True
+    else:
+        # Ungraded asset: reject listings that mention any grading company.
+        return not has_grade_keyword
+
+
+def _iqr_bounds(prices: list[Decimal]) -> tuple[Decimal, Decimal]:
+    """Return (lower, upper) IQR-based outlier bounds for a list of prices."""
+    sorted_prices = sorted(prices)
+    n = len(sorted_prices)
+    q1 = sorted_prices[n // 4]
+    q3 = sorted_prices[(3 * n) // 4]
+    iqr = q3 - q1
+    multiplier = Decimal("1.5")
+    return q1 - multiplier * iqr, q3 + multiplier * iqr
 
 
 def _build_search_query(asset: Asset) -> str:
@@ -139,56 +178,102 @@ def ingest_ebay_sold_cards(
             logger.exception("ebay_sold_oauth_token_failed")
             return result
 
+        insights_available = True
+
         for asset in all_assets:
             query = _build_search_query(asset)
-            _log_info(
-                "ebay_sold_asset_fetch_started",
-                asset_id=asset.id,
-                name=asset.name,
-                query=query,
-            )
-            try:
-                response = client.get(
-                    EBAY_BROWSE_API_URL,
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
-                    },
-                    params={
-                        "q": query,
-                        "category_ids": "2536",  # Trading Card Games category
-                        "filter": "buyingOptions:{FIXED_PRICE}",
-                        "sort": "endingSoonest",
-                        "limit": "50",
-                    },
-                )
-                response.raise_for_status()
-            except Exception:
-                result.cards_failed += 1
-                logger.exception("ebay_sold_asset_fetch_failed asset_id=%s name=%s", asset.id, asset.name)
-                continue
+            _log_info("ebay_sold_asset_fetch_started", asset_id=asset.id, name=asset.name, query=query)
 
-            listings = _parse_listing_items(response.json())
+            raw_listings: list[dict[str, str]] = []
+            api_used = "insights"
+
+            if insights_available:
+                try:
+                    resp = client.get(
+                        EBAY_INSIGHTS_API_URL,
+                        headers={"Authorization": f"Bearer {token}", "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"},
+                        params={"q": query, "category_ids": "2536", "limit": "50"},
+                    )
+                    if resp.status_code in (403, 404):
+                        insights_available = False
+                        logger.warning("ebay_insights_api_unavailable status=%s — falling back to Browse API", resp.status_code)
+                    else:
+                        resp.raise_for_status()
+                        raw_listings = _parse_insights_items(resp.json())
+                except Exception:
+                    insights_available = False
+                    logger.exception("ebay_insights_api_error — falling back to Browse API")
+
+            if not insights_available:
+                api_used = "browse"
+                try:
+                    resp = client.get(
+                        EBAY_BROWSE_API_URL,
+                        headers={"Authorization": f"Bearer {token}", "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"},
+                        params={
+                            "q": query,
+                            "category_ids": "2536",
+                            "filter": "buyingOptions:{FIXED_PRICE}",
+                            "sort": "endingSoonest",
+                            "limit": "50",
+                        },
+                    )
+                    resp.raise_for_status()
+                    raw_listings = _parse_browse_items(resp.json())
+                except Exception:
+                    result.cards_failed += 1
+                    logger.exception("ebay_sold_asset_fetch_failed asset_id=%s name=%s", asset.id, asset.name)
+                    continue
+
             _log_info(
                 "ebay_sold_asset_fetch_completed",
                 asset_id=asset.id,
                 name=asset.name,
-                listings_returned=len(listings),
+                api=api_used,
+                listings_returned=len(raw_listings),
             )
             result.cards_processed += 1
 
-            for listing in listings:
+            # --- Filter: card name in title + grade compatibility ---
+            candidates: list[tuple[dict[str, str], datetime, Decimal]] = []
+            for listing in raw_listings:
                 captured_at = _parse_iso_datetime(listing["captured_at"])
                 if captured_at is None or captured_at < lookback_cutoff:
                     continue
-
                 if not _title_contains_card_name(listing["title"], asset):
                     result.observations_unmatched += 1
                     result.observation_match_status_counts["unmatched_name_not_in_title"] = (
                         result.observation_match_status_counts.get("unmatched_name_not_in_title", 0) + 1
                     )
                     continue
+                if not _is_grade_compatible(listing["title"], asset):
+                    result.observations_unmatched += 1
+                    result.observation_match_status_counts["unmatched_grade_mismatch"] = (
+                        result.observation_match_status_counts.get("unmatched_grade_mismatch", 0) + 1
+                    )
+                    continue
+                try:
+                    price = Decimal(listing["price"])
+                except InvalidOperation:
+                    result.cards_failed += 1
+                    logger.warning("ebay_sold_listing_invalid_price title=%s price=%s", listing["title"], listing["price"])
+                    continue
+                candidates.append((listing, captured_at, price))
 
+            # --- IQR outlier removal (only when 4+ candidates) ---
+            if len(candidates) >= 4:
+                prices = [p for _, _, p in candidates]
+                lower, upper = _iqr_bounds(prices)
+                before = len(candidates)
+                candidates = [(l, c, p) for l, c, p in candidates if lower <= p <= upper]
+                removed = before - len(candidates)
+                if removed:
+                    result.observation_match_status_counts["unmatched_iqr_outlier"] = (
+                        result.observation_match_status_counts.get("unmatched_iqr_outlier", 0) + removed
+                    )
+                    _log_info("ebay_sold_iqr_filtered", asset_id=asset.id, name=asset.name, removed=removed)
+
+            for listing, captured_at, price in candidates:
                 result.latest_captured_at = max(
                     filter(None, [result.latest_captured_at, captured_at]),
                     default=captured_at,
@@ -211,13 +296,6 @@ def ingest_ebay_sold_cards(
                     result.price_points_skipped_existing_timestamp += 1
                     continue
 
-                try:
-                    price = Decimal(listing["price"])
-                except InvalidOperation:
-                    result.cards_failed += 1
-                    logger.warning("ebay_sold_listing_invalid_price title=%s price=%s", listing["title"], listing["price"])
-                    continue
-
                 session.add(
                     PriceHistory(
                         asset_id=asset.id,
@@ -235,7 +313,7 @@ def ingest_ebay_sold_cards(
                         matched_asset_id=asset.id,
                         match_status="matched",
                         confidence=Decimal("1.00"),
-                        reason="Directly searched by asset name; title confirmed to contain card name.",
+                        reason=f"Searched by asset name via {api_used} API; grade-compatible; passed IQR filter.",
                         requires_review=False,
                         created_at=captured_at,
                     )
