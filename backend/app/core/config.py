@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     pokemon_tcg_api_base_url: str = "https://api.pokemontcg.io/v2"
     pokemon_tcg_api_key: str = ""
     pokemon_tcg_card_ids: str = DEFAULT_POKEMON_TCG_CARD_IDS
-    pokemon_tcg_bulk_set_ids: str = "base1,base2,base3,sv3pt5"
+    pokemon_tcg_bulk_set_ids: str = "me3,me2pt5,me2,me1,sv10,rsv10pt5,zsv10pt5,sv9,sv8pt5,sv8,sv3pt5,base1,base2,base3"
     pokemon_tcg_trial_pool_label: str = "Scarlet & Violet 151 Trial"
     pokemon_tcg_trial_card_ids: str = DEFAULT_POKEMON_TCG_TRIAL_CARD_IDS
     pokemon_tcg_high_activity_pool_label: str = "High-Activity Trial"
