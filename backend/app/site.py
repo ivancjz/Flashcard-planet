@@ -568,6 +568,7 @@ def cards_page(
                 Asset.variant,
                 latest.c.price.label("latest_price"),
                 latest.c.currency.label("currency"),
+                Asset.metadata_json["images"]["small"].astext.label("image_small"),
             )
             .outerjoin(latest, latest.c.asset_id == Asset.id)
             .where(*filters)
@@ -601,10 +602,15 @@ def cards_page(
         )
 
     if rows:
+        def _card_img_markup(image_small: str | None, name: str) -> str:
+            if not image_small:
+                return ""
+            return f'<img class="card-list-thumb" src="{escape(image_small)}" alt="{escape(name)}" loading="lazy" />'
+
         row_markup = "".join(
             """
             <tr>
-              <td><a class="table-link" href="/cards/{external_id}">{name}</a></td>
+              <td><a class="table-link card-list-name-cell" href="/cards/{external_id}">{thumb}{name}</a></td>
               <td>{set_name}</td>
               <td>{card_number}</td>
               <td>{variant}</td>
@@ -612,6 +618,7 @@ def cards_page(
             </tr>
             """.format(
                 external_id=escape(row.external_id or ""),
+                thumb=_card_img_markup(row.image_small, row.name),
                 name=escape(row.name),
                 set_name=escape(row.set_name or "未知系列"),
                 card_number=escape(row.card_number or "N/A"),

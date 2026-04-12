@@ -42,6 +42,7 @@ class AssetPriceResponse(LiquiditySummaryResponse, AlertConfidenceResponse):
     previous_price: Decimal | None = None
     absolute_change: Decimal | None = None
     percent_change: Decimal | None = None
+    image_url: str | None = None
 
 
 class TopMoverResponse(LiquiditySummaryResponse, AlertConfidenceResponse):
@@ -82,6 +83,7 @@ class PricePredictionResponse(BaseModel):
     reason: str
     points_used: int
     captured_at: datetime
+    image_url: str | None = None
 
 
 class PriceHistoryPointResponse(BaseModel):
@@ -104,3 +106,4 @@ class AssetHistoryResponse(LiquiditySummaryResponse, AlertConfidenceResponse):
     currency: str
     points_returned: int
     history: list[PriceHistoryPointResponse]
+    image_url: str | None = None

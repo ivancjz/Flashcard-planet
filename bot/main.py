@@ -215,6 +215,8 @@ def build_price_embed(item: dict, match_count: int) -> discord.Embed:
         description=format_asset_summary(item, include_category=True),
         color=EMBED_COLOR_INFO,
     )
+    if item.get("image_url"):
+        embed.set_thumbnail(url=item["image_url"])
     add_embed_field(embed, "Latest price", format_price(item.get("latest_price"), item.get("currency")))
     if item.get("percent_change") is not None:
         add_embed_field(
@@ -314,6 +316,8 @@ def build_prediction_embed(item: dict, match_count: int) -> discord.Embed:
         description=format_asset_summary(item),
         color=get_prediction_embed_color(item.get("prediction", "")),
     )
+    if item.get("image_url"):
+        embed.set_thumbnail(url=item["image_url"])
     add_embed_field(embed, "Current price", format_price(item.get("current_price"), item.get("currency")))
     add_embed_field(embed, "Prediction", item.get("prediction"))
     add_embed_field(
@@ -353,6 +357,8 @@ def build_history_embed(item: dict, limit: int, *, now: datetime | None = None) 
         description="\n".join(lines) if lines else "No recent real price history found.",
         color=EMBED_COLOR_INFO,
     )
+    if item.get("image_url"):
+        embed.set_thumbnail(url=item["image_url"])
     add_embed_field(embed, "Asset", item.get("name"), inline=False)
     if item.get("set_name"):
         add_embed_field(embed, "Set", item.get("set_name"), inline=False)

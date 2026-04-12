@@ -110,6 +110,7 @@ class PriceServiceTests(TestCase):
                 source_count=1,
                 alert_confidence=68,
                 alert_confidence_label="Medium Confidence",
+                image_url=None,
             )
         ]
         db.execute.return_value.all.return_value = [

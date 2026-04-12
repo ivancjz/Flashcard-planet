@@ -803,6 +803,22 @@ option {
   color: var(--text-1);
 }
 
+.card-list-thumb {
+  width: 36px;
+  height: 50px;
+  object-fit: contain;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.card-list-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
 .data-table td a,
 .table-link {
   color: var(--text-1);

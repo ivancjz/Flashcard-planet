@@ -110,6 +110,7 @@ def get_asset_prices_by_name(db: Session, asset_name: str) -> list[AssetPriceRes
             )
 
         signal_snapshot = signal_snapshots.get(asset.id)
+        image_url = (asset.metadata_json or {}).get("images", {}).get("small")
         responses.append(
             AssetPriceResponse(
                 asset_id=asset.id,
@@ -130,6 +131,7 @@ def get_asset_prices_by_name(db: Session, asset_name: str) -> list[AssetPriceRes
                 previous_price=previous_price_decimal,
                 absolute_change=absolute_change,
                 percent_change=percent_change,
+                image_url=image_url,
                 liquidity_score=signal_snapshot.liquidity_score if signal_snapshot is not None else None,
                 liquidity_label=signal_snapshot.liquidity_label if signal_snapshot is not None else None,
                 last_real_sale_at=signal_snapshot.last_real_sale_at if signal_snapshot is not None else None,
@@ -342,6 +344,7 @@ def get_asset_history_by_name(db: Session, asset_name: str, limit: int = 5) -> A
         current_price=Decimal(match.latest_price),
         currency=match.currency,
         points_returned=len(history),
+        image_url=match.image_url,
         liquidity_score=match.liquidity_score,
         liquidity_label=match.liquidity_label,
         last_real_sale_at=match.last_real_sale_at,
@@ -603,6 +606,7 @@ def predict_assets_by_name(db: Session, asset_name: str) -> list[PricePrediction
                 reason=prediction_state.reason,
                 points_used=prediction_state.points_used,
                 captured_at=match.captured_at,
+                image_url=match.image_url,
             )
         )
 
