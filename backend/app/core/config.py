@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     ebay_cert_id: str = ""
     ebay_sold_lookback_hours: int = Field(default=24, ge=1, le=168)
     ebay_search_keywords: str = ""  # comma-separated search terms
+    ebay_scheduled_ingest_enabled: bool = False
+    ebay_ingest_cron: str = "0 3 * * *"  # UTC; default 03:00 daily
+    ebay_daily_budget_limit: int = Field(default=500, ge=1, le=5000)
+    ebay_max_calls_per_run: int = Field(default=150, ge=1, le=5000)
     provider_1_source: str = "pokemon_tcg_api"
     provider_2_source: str = ""
     primary_price_source: str = "pokemon_tcg_api"

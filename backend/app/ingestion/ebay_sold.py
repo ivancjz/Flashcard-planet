@@ -209,6 +209,7 @@ def _build_search_query(asset: Asset) -> str:
 def ingest_ebay_sold_cards(
     session: Session,
     card_ids: list[str] | None = None,
+    max_assets: int | None = None,
     *,
     clear_sample_seed: bool = False,
 ) -> IngestionResult:
@@ -223,6 +224,18 @@ def ingest_ebay_sold_cards(
             for asset in all_assets
             if str(asset.id) in card_id_set or (asset.external_id or "") in card_id_set
         ]
+
+    # Budget guard: cap to max_assets, prioritising least-recently ingested first
+    if max_assets is not None and len(all_assets) > max_assets:
+        all_assets.sort(
+            key=lambda a: (a.metadata_json or {}).get("ebay_sold_last_ingested_at") or ""
+        )
+        _log_info(
+            "ebay_sold_budget_guard_applied",
+            pool_size=len(all_assets),
+            effective_limit=max_assets,
+        )
+        all_assets = all_assets[:max_assets]
 
     if not all_assets:
         return IngestionResult()

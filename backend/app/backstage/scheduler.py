@@ -22,6 +22,7 @@ from backend.app.services.alert_service import process_alert_notifications
 from backend.app.services.signal_service import sweep_signals
 
 logger = logging.getLogger(__name__)
+ebay_logger = logging.getLogger("backend.app.ingestion.ebay_scheduled")
 INITIAL_INGEST_DELAY_SECONDS = 10
 
 
@@ -262,6 +263,102 @@ def _run_scheduled_ingestion() -> None:
         )
 
 
+def _run_ebay_ingestion() -> None:
+    from backend.app.ingestion.ebay_sold import ingest_ebay_sold_cards
+
+    settings = get_settings()
+
+    if not settings.ebay_scheduled_ingest_enabled:
+        ebay_logger.info("ebay_scheduled_ingest_skipped reason=disabled")
+        return
+
+    if not settings.ebay_app_id or not settings.ebay_cert_id:
+        ebay_logger.warning("ebay_scheduled_ingest_skipped reason=missing_credentials")
+        return
+
+    effective_limit = min(settings.ebay_max_calls_per_run, settings.ebay_daily_budget_limit)
+    started_at = datetime.now(UTC).replace(microsecond=0)
+    ebay_logger.info(
+        "ebay_scheduled_ingest_started start=%s effective_limit=%s",
+        started_at.isoformat(),
+        effective_limit,
+    )
+
+    try:
+        with SessionLocal() as session:
+            result = ingest_ebay_sold_cards(session, max_assets=effective_limit)
+    except Exception:
+        ebay_logger.exception("ebay_scheduled_ingest_job_failed")
+        return
+
+    ended_at = datetime.now(UTC).replace(microsecond=0)
+    duration_s = (ended_at - started_at).total_seconds()
+
+    ebay_logger.info(
+        "ebay_scheduled_ingest_summary "
+        "start=%s end=%s duration_s=%.1f "
+        "assets_requested=%s assets_processed=%s assets_failed=%s "
+        "observations=%s matched=%s unmatched=%s "
+        "price_points_inserted=%s price_points_skipped_duplicate=%s "
+        "match_status=%s",
+        started_at.isoformat(),
+        ended_at.isoformat(),
+        duration_s,
+        result.cards_requested,
+        result.cards_processed,
+        result.cards_failed,
+        result.observations_logged,
+        result.observations_matched,
+        result.observations_unmatched,
+        result.price_points_inserted,
+        result.price_points_skipped_existing_timestamp,
+        result.observation_match_status_counts,
+    )
+
+
+def _register_ebay_job(scheduler: BackgroundScheduler, settings: object) -> None:
+    from backend.app.core.config import Settings
+
+    s: Settings = settings  # type: ignore[assignment]
+    if not s.ebay_scheduled_ingest_enabled:
+        logger.info("eBay scheduled ingestion disabled — job not registered.")
+        return
+    if not s.ebay_app_id or not s.ebay_cert_id:
+        logger.warning("eBay scheduled ingestion enabled but credentials missing — job not registered.")
+        return
+
+    try:
+        minute, hour, day, month, day_of_week = s.ebay_ingest_cron.split()
+    except ValueError:
+        logger.error(
+            "Invalid EBAY_INGEST_CRON value %r — expected 5-field cron expression. Job not registered.",
+            s.ebay_ingest_cron,
+        )
+        return
+
+    effective_limit = min(s.ebay_max_calls_per_run, s.ebay_daily_budget_limit)
+    scheduler.add_job(
+        _run_ebay_ingestion,
+        "cron",
+        minute=minute,
+        hour=hour,
+        day=day,
+        month=month,
+        day_of_week=day_of_week,
+        id="ebay-ingestion",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    logger.info(
+        "eBay scheduled ingestion registered. cron=%r effective_limit=%s (max_calls_per_run=%s daily_budget=%s)",
+        s.ebay_ingest_cron,
+        effective_limit,
+        s.ebay_max_calls_per_run,
+        s.ebay_daily_budget_limit,
+    )
+
+
 def build_scheduler() -> BackgroundScheduler:
     settings = get_settings()
     scheduler = BackgroundScheduler(timezone="UTC")
@@ -336,28 +433,30 @@ def build_scheduler() -> BackgroundScheduler:
             coalesce=True,
             next_run_time=None,
         )
-        return scheduler
 
-    logger.info(
-        "Scheduled ingestion disabled. Falling back to alert evaluation every %s seconds.",
-        settings.scheduler_poll_seconds,
-    )
-    scheduler.add_job(
-        _evaluate_alerts,
-        "interval",
-        seconds=settings.scheduler_poll_seconds,
-        id="alert-poller",
-        replace_existing=True,
-    )
-    scheduler.add_job(
-        _run_signal_sweep,
-        "interval",
-        seconds=settings.signal_sweep_interval_seconds,
-        id="signal-sweep",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
+    else:
+        logger.info(
+            "Scheduled ingestion disabled. Falling back to alert evaluation every %s seconds.",
+            settings.scheduler_poll_seconds,
+        )
+        scheduler.add_job(
+            _evaluate_alerts,
+            "interval",
+            seconds=settings.scheduler_poll_seconds,
+            id="alert-poller",
+            replace_existing=True,
+        )
+        scheduler.add_job(
+            _run_signal_sweep,
+            "interval",
+            seconds=settings.signal_sweep_interval_seconds,
+            id="signal-sweep",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+
+    _register_ebay_job(scheduler, settings)
     return scheduler
 
 
