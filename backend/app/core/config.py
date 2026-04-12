@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     pokemon_tcg_high_activity_v2_pool_label: str = "High-Activity v2"
     pokemon_tcg_high_activity_v2_card_ids: str = DEFAULT_POKEMON_TCG_HIGH_ACTIVITY_V2_CARD_IDS
     ebay_app_id: str = ""
+    ebay_cert_id: str = ""
     ebay_sold_lookback_hours: int = Field(default=24, ge=1, le=168)
     ebay_search_keywords: str = ""  # comma-separated search terms
     provider_1_source: str = "pokemon_tcg_api"
