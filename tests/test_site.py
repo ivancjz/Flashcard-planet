@@ -44,9 +44,19 @@ class SiteRoutesTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("Price lookup", response.text)
+        self.assertIn("Loading live data...", response.text)
         self.assertIn("Current provider snapshot", response.text)
         self.assertIn("High-Activity v2 vs baseline", response.text)
         self.assertIn("data-dashboard-snapshot-url=\"/dashboard/snapshot\"", response.text)
+
+    def test_static_site_js_uses_current_price_lookup_routes_only(self):
+        response = self.client.get("/static/site.js")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("search?q=", response.text)
+        self.assertIn("/history/${encodeURIComponent(items[0].external_id)}", response.text)
+        self.assertNotIn("search?name=", response.text)
+        self.assertNotIn("/history?name=", response.text)
 
     def test_method_page_keeps_scope_aligned_with_current_stage(self):
         response = self.client.get("/method")

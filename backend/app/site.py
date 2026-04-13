@@ -441,7 +441,7 @@ def dashboard_page(request: Request) -> HTMLResponse:
           <button class="button button-primary" type="submit">{_lang_pair("查询", "Search")}</button>
         </form>
         <div class="sample-actions" id="sample-actions"></div>
-        <p class="status-line" id="lookup-status">{_lang_pair("加载演示数据中...", "Loading demo data...")}</p>
+        <p class="status-line" id="lookup-status">{_lang_pair("加载实时数据中...", "Loading live data...")}</p>
         <div class="lookup-results" id="lookup-results"></div>
         <div class="lookup-history" id="lookup-history"></div>
       </article>

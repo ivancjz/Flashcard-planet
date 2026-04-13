@@ -15,9 +15,24 @@ import os
 import time
 from typing import Protocol
 
+import httpx
+
+from backend.app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
-_KNOWN_PROVIDERS = frozenset({"anthropic", "gemini"})
+_KNOWN_PROVIDERS = frozenset({"anthropic", "gemini", "xai"})
+_httpx_client_cls = httpx.Client
+
+
+def _setting_value(name: str, attr: str, default: str = "") -> str:
+    value = os.getenv(name)
+    if value not in (None, ""):
+        return value
+    configured = getattr(settings, attr, "")
+    if isinstance(configured, str) and configured:
+        return configured
+    return default
 
 # --- SDK imports (soft — missing packages degrade gracefully) ---
 
@@ -56,7 +71,7 @@ class AnthropicProvider:
     """
 
     def generate_text(self, system: str, user: str, max_tokens: int) -> str | None:
-        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        api_key = _setting_value("ANTHROPIC_API_KEY", "anthropic_api_key")
         if not api_key:
             _log("anthropic_unavailable_no_key", level=logging.INFO)
             return None
@@ -64,7 +79,7 @@ class AnthropicProvider:
             _log("anthropic_unavailable_import_error", level=logging.INFO)
             return None
 
-        model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+        model = _setting_value("ANTHROPIC_MODEL", "anthropic_model", "claude-sonnet-4-6")
         client = _Anthropic(api_key=api_key)
         delays = [0.5, 1.0, 2.0, 4.0]
         last_error: Exception | None = None
@@ -126,7 +141,7 @@ class GeminiProvider:
 
     def generate_text(self, system: str, user: str, max_tokens: int) -> str | None:  # noqa: ARG002
         """`max_tokens` is accepted for interface compatibility but is not forwarded to the Gemini API."""
-        api_key = os.getenv("GEMINI_API_KEY", "")
+        api_key = _setting_value("GEMINI_API_KEY", "gemini_api_key")
         if not api_key:
             _log("gemini_unavailable_no_key", level=logging.INFO)
             return None
@@ -134,7 +149,7 @@ class GeminiProvider:
             _log("gemini_unavailable_import_error", level=logging.INFO)
             return None
 
-        model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+        model_name = _setting_value("GEMINI_MODEL", "gemini_model", "gemini-2.0-flash")
         try:
             _genai.configure(api_key=api_key)
             model = _genai.GenerativeModel(
@@ -149,6 +164,76 @@ class GeminiProvider:
             return None
 
 
+def _extract_xai_text(payload: object) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+
+    output_text = payload.get("output_text")
+    if isinstance(output_text, str):
+        text = output_text.strip()
+        if text:
+            return text
+
+    outputs = payload.get("output")
+    if not isinstance(outputs, list):
+        return None
+
+    chunks: list[str] = []
+    for item in outputs:
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") in {"output_text", "text"} and isinstance(block.get("text"), str):
+                text = block["text"].strip()
+                if text:
+                    chunks.append(text)
+
+    if chunks:
+        return "\n".join(chunks)
+    return None
+
+
+class XAIProvider:
+    """Wraps xAI's Responses API.
+
+    Sends the system and user prompts as structured input and returns extracted text.
+    Returns None (never raises) on any failure or misconfiguration.
+    """
+
+    def generate_text(self, system: str, user: str, max_tokens: int) -> str | None:
+        api_key = _setting_value("XAI_API_KEY", "xai_api_key")
+        if not api_key:
+            _log("xai_unavailable_no_key", level=logging.INFO)
+            return None
+
+        model = _setting_value("XAI_MODEL", "xai_model", "grok-4.20-reasoning")
+        base_url = _setting_value("XAI_BASE_URL", "xai_base_url", "https://api.x.ai/v1")
+        try:
+            with _httpx_client_cls(base_url=base_url, timeout=30.0) as client:
+                response = client.post(
+                    "/responses",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": model,
+                        "input": [
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user},
+                        ],
+                        "max_output_tokens": max_tokens,
+                    },
+                )
+                response.raise_for_status()
+                return _extract_xai_text(response.json())
+        except Exception as exc:  # noqa: BLE001
+            _log("xai_request_failed", error_type=type(exc).__name__, message=str(exc))
+            return None
+
+
 # --- Factory ---
 
 def get_llm_provider() -> LLMProvider:
@@ -157,9 +242,11 @@ def get_llm_provider() -> LLMProvider:
     Reads LLM_PROVIDER from the environment at call time so tests can override it.
     Unknown values log a warning and fall back to Anthropic.
     """
-    provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
+    provider = _setting_value("LLM_PROVIDER", "llm_provider", "anthropic").lower()
     if provider not in _KNOWN_PROVIDERS:
         _log("llm_provider_unknown", value=provider, fallback="anthropic")
     if provider == "gemini":
         return GeminiProvider()
+    if provider == "xai":
+        return XAIProvider()
     return AnthropicProvider()

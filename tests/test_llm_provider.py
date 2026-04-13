@@ -23,12 +23,24 @@ class ProviderFactoryTests(unittest.TestCase):
             import backend.app.services.llm_provider as m
             self.assertIsInstance(m.get_llm_provider(), m.GeminiProvider)
 
+    def test_xai_returns_xai(self):
+        with patch.dict(os.environ, {"LLM_PROVIDER": "xai"}):
+            import backend.app.services.llm_provider as m
+            self.assertIsInstance(m.get_llm_provider(), m.XAIProvider)
+
     def test_unknown_provider_falls_back_to_anthropic_and_logs(self):
         with patch.dict(os.environ, {"LLM_PROVIDER": "gpt-99"}):
             import backend.app.services.llm_provider as m
             with self.assertLogs("backend.app.services.llm_provider", level="WARNING"):
                 result = m.get_llm_provider()
             self.assertIsInstance(result, m.AnthropicProvider)
+
+    def test_provider_can_fall_back_to_settings_when_env_missing(self):
+        env = {k: v for k, v in os.environ.items() if k != "LLM_PROVIDER"}
+        with patch.dict(os.environ, env, clear=True):
+            import backend.app.services.llm_provider as m
+            with patch.object(m.settings, "llm_provider", "xai"):
+                self.assertIsInstance(m.get_llm_provider(), m.XAIProvider)
 
 
 class AnthropicProviderTests(unittest.TestCase):
@@ -69,6 +81,26 @@ class GeminiProviderTests(unittest.TestCase):
                 mock_genai.GenerativeModel.assert_not_called()
             finally:
                 m._genai = original
+
+
+class XAIProviderTests(unittest.TestCase):
+    def test_returns_none_when_key_empty(self):
+        with patch.dict(os.environ, {"XAI_API_KEY": ""}):
+            import backend.app.services.llm_provider as m
+            result = m.XAIProvider().generate_text("sys", "user", 256)
+            self.assertIsNone(result)
+
+    def test_no_sdk_call_when_key_empty(self):
+        with patch.dict(os.environ, {"XAI_API_KEY": ""}):
+            import backend.app.services.llm_provider as m
+            original = m._httpx_client_cls
+            mock_cls = MagicMock()
+            m._httpx_client_cls = mock_cls
+            try:
+                m.XAIProvider().generate_text("sys", "user", 256)
+                mock_cls.assert_not_called()
+            finally:
+                m._httpx_client_cls = original
 
 
 class NoiseFallbackTests(unittest.TestCase):

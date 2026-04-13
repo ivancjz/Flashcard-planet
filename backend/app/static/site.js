@@ -244,6 +244,29 @@
       </div>`;
   }
 
+  async function readJsonSafely(response) {
+    const text = await response.text();
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function normalizeLookupItems(data) {
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.results)) return data.results;
+    if (data && typeof data === "object" && (data.asset_id || data.name || data.external_id)) return [data];
+    return [];
+  }
+
+  function getResponseErrorMessage(data, fallbackMessage) {
+    if (typeof data?.detail === "string" && data.detail) return data.detail;
+    if (Array.isArray(data?.detail) && typeof data.detail[0]?.msg === "string") return data.detail[0].msg;
+    return fallbackMessage;
+  }
+
   async function runLookup(query) {
     const apiPrefix = document.querySelector("[data-price-api-prefix]")?.dataset?.priceApiPrefix;
     const resultsEl = document.getElementById("lookup-results");
@@ -251,34 +274,49 @@
     const statusEl = document.getElementById("lookup-status");
     if (!resultsEl || !statusEl || !apiPrefix) return;
 
-    if (!query || !query.trim()) {
+    const trimmedQuery = query?.trim();
+    if (!trimmedQuery) {
       statusEl.textContent = t("\u8bf7\u5148\u8f93\u5165\u5361\u724c\u540d\u79f0\u67e5\u8be2\u4ef7\u683c\u3002", "Enter a tracked asset name to look up a price.");
       return;
     }
-    statusEl.textContent = t(`\u67e5\u8be2\u4e2d\u201c${query}\u201d\u2026`, `Looking up "${query}"...`);
+    statusEl.textContent = t(`\u67e5\u8be2\u4e2d\u201c${trimmedQuery}\u201d\u2026`, `Looking up "${trimmedQuery}"...`);
     resultsEl.innerHTML = "";
     if (historyEl) historyEl.innerHTML = "";
 
     try {
-      const res = await fetch(`${apiPrefix}/search?q=${encodeURIComponent(query)}`);
-      const data = await res.json();
-      const items = Array.isArray(data) ? data : (data.results || []);
+      const response = await fetch(`${apiPrefix}/search?q=${encodeURIComponent(trimmedQuery)}`);
+      const data = await readJsonSafely(response);
+      if (!response.ok) {
+        if (response.status === 404) {
+          statusEl.textContent = t(`\u672a\u627e\u5230\u201c${trimmedQuery}\u201d`, `No results for "${trimmedQuery}"`);
+          return;
+        }
+        throw new Error(getResponseErrorMessage(data, `HTTP ${response.status}`));
+      }
+      const items = normalizeLookupItems(data);
       if (items.length === 0) {
-        statusEl.textContent = t(`\u672a\u627e\u5230\u201c${query}\u201d`, `No results for "${query}"`);
+        statusEl.textContent = t(`\u672a\u627e\u5230\u201c${trimmedQuery}\u201d`, `No results for "${trimmedQuery}"`);
         return;
       }
-      statusEl.textContent = t(`\u201c${query}\u201d \u5b9e\u65f6\u67e5\u8be2\u7ed3\u679c`, `Live results for "${query}"`);
+      statusEl.textContent = t(`\u201c${trimmedQuery}\u201d \u5b9e\u65f6\u67e5\u8be2\u7ed3\u679c`, `Live results for "${trimmedQuery}"`);
       resultsEl.innerHTML = items.map(renderLookupResult).join("");
 
       if (historyEl && items[0]?.external_id) {
-        const hRes = await fetch(`${apiPrefix}/history/${encodeURIComponent(items[0].external_id)}`);
-        const hData = await hRes.json();
-        historyEl.innerHTML = renderHistory(hData);
+        const historyResponse = await fetch(`${apiPrefix}/history/${encodeURIComponent(items[0].external_id)}`);
+        const historyData = await readJsonSafely(historyResponse);
+        if (!historyResponse.ok) {
+          if (historyResponse.status !== 404) {
+            throw new Error(getResponseErrorMessage(historyData, `HTTP ${historyResponse.status}`));
+          }
+          historyEl.innerHTML = "";
+          return;
+        }
+        historyEl.innerHTML = renderHistory(historyData);
       }
     } catch (error) {
       statusEl.textContent = t(
-        `\u4ed3\u8868\u677f\u6570\u636e\u52a0\u8f7d\u5931\u8d25: ${error.message}`,
-        `Dashboard data load failed: ${error.message}`
+        `\u4ef7\u683c\u67e5\u8be2\u5931\u8d25: ${error.message}`,
+        `Price lookup failed: ${error.message}`
       );
     }
   }
