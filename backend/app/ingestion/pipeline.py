@@ -19,6 +19,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from backend.app.ingestion.ebay.client import EbayClient
+from backend.app.ingestion.ebay.real_client import RealEbayClient
 from backend.app.ingestion.ebay.stub_client import StubEbayClient
 from backend.app.ingestion.matcher import ai_mapper, mapping_cache
 from backend.app.ingestion.matcher.rule_engine import match_batch as rule_match_batch
@@ -70,8 +71,7 @@ def _get_client() -> EbayClient:
     stub_mode = os.getenv("EBAY_STUB_MODE", "true").lower() in {"true", "1", "yes"}
     if stub_mode:
         return StubEbayClient()
-    # Real client slots in here — same interface, zero pipeline changes
-    raise NotImplementedError("Live eBay client not yet implemented. Set EBAY_STUB_MODE=true.")
+    return RealEbayClient()
 
 
 def _confidence_bucket(confidence: Decimal) -> str:

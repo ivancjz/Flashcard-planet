@@ -23,6 +23,7 @@ Given raw eBay listing titles, extract structured card identity fields.
 
 Rules:
 - title: echo the input title exactly
+- name: required — the Pokemon card name (e.g. "Charizard ex", "Pikachu VMAX", "Mewtwo")
 - game is always "Pokemon" for this pipeline
 - grade_company: PSA / BGS / CGC / SGC only, null if raw
 - grade_score: numeric only, null if ungraded
