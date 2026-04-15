@@ -22,6 +22,7 @@ _SYSTEM_PROMPT = """You are an expert trading card identifier for Flashcard Plan
 Given raw eBay listing titles, extract structured card identity fields.
 
 Rules:
+- title: echo the input title exactly
 - game is always "Pokemon" for this pipeline
 - grade_company: PSA / BGS / CGC / SGC only, null if raw
 - grade_score: numeric only, null if ungraded
@@ -32,10 +33,10 @@ Rules:
 - Respond with strict JSON only.
 """
 
-_FEW_SHOT_EXAMPLES = """[
-  {
-    "title": "Pokemon Charizard ex SAR 199/165 SV151 PSA 10",
-    "result": {
+_FEW_SHOT_EXAMPLES = """{
+  "results": [
+    {
+      "title": "Pokemon Charizard ex SAR 199/165 SV151 PSA 10",
       "name": "Charizard ex",
       "set_name": "Scarlet & Violet 151",
       "card_number": "199/165",
@@ -44,11 +45,9 @@ _FEW_SHOT_EXAMPLES = """[
       "grade_score": 10.0,
       "language": "EN",
       "confidence": 0.97
-    }
-  },
-  {
-    "title": "PIKACHU FULL ART PROMO JAPANESE MINT",
-    "result": {
+    },
+    {
+      "title": "PIKACHU FULL ART PROMO JAPANESE MINT",
       "name": "Pikachu",
       "set_name": null,
       "card_number": null,
@@ -58,8 +57,8 @@ _FEW_SHOT_EXAMPLES = """[
       "language": "JP",
       "confidence": 0.61
     }
-  }
-]"""
+  ]
+}"""
 
 
 def _system_prompt() -> str:

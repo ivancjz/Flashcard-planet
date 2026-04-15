@@ -177,7 +177,7 @@ class GroqProvider:
             _log("groq_unavailable_no_key", level=logging.INFO)
             return None
 
-        model = _setting_value("GROQ_MODEL", "groq_model", "llama-3.1-8b-instant")
+        model = _setting_value("GROQ_MODEL", "groq_model", "llama-3.3-70b-versatile")
         base_url = _setting_value("GROQ_BASE_URL", "groq_base_url", "https://api.groq.com/openai/v1")
         try:
             with _httpx_client_cls(base_url=base_url, timeout=30.0) as client:
