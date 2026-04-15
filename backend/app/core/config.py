@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     xai_api_key: str = ""
     xai_model: str = "grok-4.20-reasoning"
     xai_base_url: str = "https://api.x.ai/v1"
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.1-8b-instant"
+    groq_base_url: str = "https://api.groq.com/openai/v1"
     llm_provider: str = "anthropic"
     secret_key: str = Field(default="change-me-in-production-use-a-long-random-string")
     discord_client_id: str = ""

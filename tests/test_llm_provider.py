@@ -11,7 +11,8 @@ class ProviderFactoryTests(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if k != "LLM_PROVIDER"}
         with patch.dict(os.environ, env, clear=True):
             import backend.app.services.llm_provider as m
-            self.assertIsInstance(m.get_llm_provider(), m.AnthropicProvider)
+            with patch.object(m.settings, "llm_provider", ""):
+                self.assertIsInstance(m.get_llm_provider(), m.AnthropicProvider)
 
     def test_explicit_anthropic_returns_anthropic(self):
         with patch.dict(os.environ, {"LLM_PROVIDER": "anthropic"}):
@@ -77,7 +78,8 @@ class GeminiProviderTests(unittest.TestCase):
             mock_genai = MagicMock()
             m._genai = mock_genai
             try:
-                m.GeminiProvider().generate_text("sys", "user", 256)
+                with patch.object(m.settings, "gemini_api_key", ""):
+                    m.GeminiProvider().generate_text("sys", "user", 256)
                 mock_genai.GenerativeModel.assert_not_called()
             finally:
                 m._genai = original
@@ -97,39 +99,67 @@ class XAIProviderTests(unittest.TestCase):
             mock_cls = MagicMock()
             m._httpx_client_cls = mock_cls
             try:
-                m.XAIProvider().generate_text("sys", "user", 256)
+                with patch.object(m.settings, "xai_api_key", ""):
+                    m.XAIProvider().generate_text("sys", "user", 256)
                 mock_cls.assert_not_called()
             finally:
                 m._httpx_client_cls = original
 
 
+class GroqProviderTests(unittest.TestCase):
+    def test_returns_none_when_key_empty(self):
+        with patch.dict(os.environ, {"GROQ_API_KEY": ""}):
+            import backend.app.services.llm_provider as m
+            with patch.object(m.settings, "groq_api_key", ""):
+                result = m.GroqProvider().generate_text("sys", "user", 256)
+            self.assertIsNone(result)
+
+    def test_no_sdk_call_when_key_empty(self):
+        with patch.dict(os.environ, {"GROQ_API_KEY": ""}):
+            import backend.app.services.llm_provider as m
+            original = m._httpx_client_cls
+            mock_cls = MagicMock()
+            m._httpx_client_cls = mock_cls
+            try:
+                with patch.object(m.settings, "groq_api_key", ""):
+                    m.GroqProvider().generate_text("sys", "user", 256)
+                mock_cls.assert_not_called()
+            finally:
+                m._httpx_client_cls = original
+
+    def test_groq_returns_groq_provider(self):
+        with patch.dict(os.environ, {"LLM_PROVIDER": "groq"}):
+            import backend.app.services.llm_provider as m
+            self.assertIsInstance(m.get_llm_provider(), m.GroqProvider)
+
+
 class NoiseFallbackTests(unittest.TestCase):
     def test_filter_noise_returns_all_true_when_provider_returns_none(self):
+        import importlib
+        from backend.app.ingestion import noise_filter
+        importlib.reload(noise_filter)
         none_provider = MagicMock()
         none_provider.generate_text.return_value = None
         with patch(
             "backend.app.ingestion.noise_filter.get_llm_provider",
             return_value=none_provider,
         ):
-            from backend.app.ingestion import noise_filter
-            import importlib
-            importlib.reload(noise_filter)
             result = noise_filter.filter_noise(["Charizard PSA 10", "50x bulk lot"])
             self.assertEqual(result, [True, True])
 
 
 class SignalExplainerFallbackTests(unittest.TestCase):
     def test_explain_signal_returns_none_and_skips_commit_when_provider_returns_none(self):
+        import importlib
         import uuid
+        from backend.app.services import signal_explainer
+        importlib.reload(signal_explainer)
         none_provider = MagicMock()
         none_provider.generate_text.return_value = None
         with patch(
             "backend.app.services.signal_explainer.get_llm_provider",
             return_value=none_provider,
         ):
-            from backend.app.services import signal_explainer
-            import importlib
-            importlib.reload(signal_explainer)
             db = MagicMock()
             asset_mock = MagicMock()
             asset_mock.name = "Charizard"
@@ -148,15 +178,15 @@ class SignalExplainerFallbackTests(unittest.TestCase):
 
 class AiMapperFallbackTests(unittest.TestCase):
     def test_map_batch_returns_pending_results_when_provider_returns_none(self):
+        import importlib
+        from backend.app.ingestion.matcher import ai_mapper
+        importlib.reload(ai_mapper)
         none_provider = MagicMock()
         none_provider.generate_text.return_value = None
         with patch(
             "backend.app.ingestion.matcher.ai_mapper.get_llm_provider",
             return_value=none_provider,
         ):
-            from backend.app.ingestion.matcher import ai_mapper
-            import importlib
-            importlib.reload(ai_mapper)
             results = ai_mapper.map_batch(["Charizard VMAX PSA 10", "Pikachu Alt Art"])
             self.assertEqual(len(results), 2)
             self.assertTrue(all(r.status == "pending" for r in results))

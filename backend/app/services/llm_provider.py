@@ -21,7 +21,7 @@ from backend.app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-_KNOWN_PROVIDERS = frozenset({"anthropic", "gemini", "xai"})
+_KNOWN_PROVIDERS = frozenset({"anthropic", "gemini", "xai", "groq"})
 _httpx_client_cls = httpx.Client
 
 
@@ -164,6 +164,44 @@ class GeminiProvider:
             return None
 
 
+class GroqProvider:
+    """Wraps Groq's OpenAI-compatible chat completions API.
+
+    Uses httpx directly (no SDK dependency). No retry for MVP.
+    Returns None (never raises) on any failure or misconfiguration.
+    """
+
+    def generate_text(self, system: str, user: str, max_tokens: int) -> str | None:
+        api_key = _setting_value("GROQ_API_KEY", "groq_api_key")
+        if not api_key:
+            _log("groq_unavailable_no_key", level=logging.INFO)
+            return None
+
+        model = _setting_value("GROQ_MODEL", "groq_model", "llama-3.1-8b-instant")
+        base_url = _setting_value("GROQ_BASE_URL", "groq_base_url", "https://api.groq.com/openai/v1")
+        try:
+            with _httpx_client_cls(base_url=base_url, timeout=30.0) as client:
+                response = client.post(
+                    "/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user},
+                        ],
+                        "max_tokens": max_tokens,
+                    },
+                )
+                response.raise_for_status()
+                payload = response.json()
+                text = payload["choices"][0]["message"]["content"].strip()
+                return text or None
+        except Exception as exc:  # noqa: BLE001
+            _log("groq_request_failed", error_type=type(exc).__name__, message=str(exc))
+            return None
+
+
 def _extract_xai_text(payload: object) -> str | None:
     if not isinstance(payload, dict):
         return None
@@ -249,4 +287,6 @@ def get_llm_provider() -> LLMProvider:
         return GeminiProvider()
     if provider == "xai":
         return XAIProvider()
+    if provider == "groq":
+        return GroqProvider()
     return AnthropicProvider()
