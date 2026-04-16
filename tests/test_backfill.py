@@ -13,11 +13,9 @@ class BackfillConfigTests(unittest.TestCase):
     def test_backfill_batch_size_respects_env(self):
         import os
         from unittest.mock import patch
+        from backend.app.core.config import Settings
         with patch.dict(os.environ, {"BACKFILL_BATCH_SIZE": "25"}):
-            from backend.app.core import config as c
-            import importlib
-            importlib.reload(c)
-            self.assertEqual(c.Settings().backfill_batch_size, 25)
+            self.assertEqual(Settings().backfill_batch_size, 25)
 
 
 class BackfillFunctionTests(unittest.TestCase):
