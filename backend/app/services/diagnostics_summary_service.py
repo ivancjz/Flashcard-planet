@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+
+_logger = logging.getLogger(__name__)
+
+
+def _safe_block(fn, *args, block_name: str, **kwargs) -> dict:
+    """Call fn(*args, **kwargs); return error dict if it raises."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:
+        _logger.exception("Diagnostics block %r failed", block_name)
+        return {"status": "error", "block": block_name, "error": str(exc)}
 
 from backend.app.core.price_sources import get_configured_price_providers, get_primary_price_source
 from backend.app.core.tracked_pools import (
@@ -233,6 +245,50 @@ def _serialize_ingestion_result(ingestion_result: IngestionResult | None) -> dic
     }
 
 
+def _build_signal_health_block(db: Session) -> dict:
+    from backend.app.models.asset_signal import AssetSignal
+    from backend.app.core.kpi_thresholds import kpi_status
+
+    rows = db.execute(
+        select(AssetSignal.label, func.count(AssetSignal.id)).group_by(AssetSignal.label)
+    ).all()
+    label_counts = {label: int(count) for label, count in rows}
+    total = sum(label_counts.values())
+
+    high_conf = int(
+        db.scalar(
+            select(func.count(AssetSignal.id)).where(AssetSignal.confidence >= 70)
+        ) or 0
+    )
+    high_conf_pct = round(high_conf / total * 100, 1) if total else 0.0
+
+    return {
+        "status": "ok",
+        "total_signals": total,
+        "label_counts": label_counts,
+        "high_confidence_count": high_conf,
+        "high_confidence_pct": high_conf_pct,
+        "kpi_status": kpi_status("high_conf_signal_pct", high_conf_pct),
+    }
+
+
+def _build_review_queue_block(db: Session) -> dict:
+    from backend.app.core.kpi_thresholds import kpi_status
+
+    pending = int(
+        db.scalar(
+            select(func.count(ObservationMatchLog.id)).where(
+                ObservationMatchLog.requires_review.is_(True)
+            )
+        ) or 0
+    )
+    return {
+        "status": "ok",
+        "pending_count": pending,
+        "kpi_status": kpi_status("review_backlog", pending),
+    }
+
+
 def build_standardized_diagnostics_summary(
     db: Session,
     *,
@@ -310,5 +366,7 @@ def build_standardized_diagnostics_summary(
             "watchlists": watchlist_count,
             "active_alerts": active_alert_count,
         },
+        "signal_health": _safe_block(_build_signal_health_block, db, block_name="signal_health"),
+        "review_queue":  _safe_block(_build_review_queue_block, db, block_name="review_queue"),
         "pools": [_serialize_pool(pool) for pool in report.pool_reports],
     }
