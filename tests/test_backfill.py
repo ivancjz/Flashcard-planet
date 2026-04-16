@@ -111,3 +111,30 @@ class RunBackfillPassTests(unittest.TestCase):
 
         self.assertEqual(result.missing_price, 1)
         self.assertEqual(result.attempted, 1)
+
+
+class SchedulerBackfillTests(unittest.TestCase):
+    def test_run_backfill_pass_called_in_scheduled_ingestion(self):
+        """_run_scheduled_ingestion must call run_backfill_pass once per run."""
+        from unittest.mock import MagicMock, patch
+        import backend.app.backstage.scheduler as sched
+
+        with patch.object(sched, "_run_signal_sweep"), \
+             patch.object(sched, "_evaluate_alerts"), \
+             patch("backend.app.backstage.scheduler.get_tracked_pokemon_pools", return_value=[]), \
+             patch("backend.app.backstage.scheduler.get_configured_provider_ingestors", return_value=[]), \
+             patch("backend.app.backstage.scheduler.get_gap_report", return_value=MagicMock()), \
+             patch("backend.app.backstage.scheduler.run_backfill_pass") as mock_backfill, \
+             patch("backend.app.backstage.scheduler.SessionLocal") as mock_session_cls:
+            mock_session = MagicMock()
+            mock_session.__enter__ = MagicMock(return_value=mock_session)
+            mock_session.__exit__ = MagicMock(return_value=False)
+            mock_session_cls.return_value = mock_session
+            mock_backfill.return_value = MagicMock(
+                missing_price=0, missing_image=0, attempted=0,
+                price_filled=0, image_filled=0, skipped_no_price=0, errors=0,
+            )
+
+            sched._run_scheduled_ingestion()
+
+        mock_backfill.assert_called_once()

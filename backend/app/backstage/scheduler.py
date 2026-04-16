@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from backend.app.backstage.gap_detector import GapReport, get_gap_report
+from backend.app.ingestion.pokemon_tcg import run_backfill_pass
 from backend.app.core.config import get_settings
 from backend.app.core.price_sources import (
     get_configured_price_providers,
@@ -270,6 +271,13 @@ def _run_scheduled_ingestion() -> None:
         except Exception as exc:
             run.errors.append(f"Gap detection failed: {exc}")
             logger.exception("Gap detection after scheduled ingestion failed.")
+
+        try:
+            with SessionLocal() as session:
+                run_backfill_pass(session)
+        except Exception as exc:
+            run.errors.append(f"Backfill pass failed: {exc}")
+            logger.exception("Backfill pass after scheduled ingestion failed.")
 
         run.ended_at = datetime.now(UTC).replace(microsecond=0)
         logger.info(
