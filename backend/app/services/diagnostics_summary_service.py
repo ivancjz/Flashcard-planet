@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.app.core.price_sources import get_configured_price_providers, get_primary_price_source
+from backend.app.core.price_sources import POKEMON_TCG_PRICE_SOURCE, get_configured_price_providers, get_primary_price_source
 from backend.app.core.tracked_pools import (
     BASE_SET_POOL_KEY,
     HIGH_ACTIVITY_TRIAL_POOL_KEY,
@@ -295,6 +295,51 @@ def _build_retry_queue_block(db: Session) -> dict:
     }
 
 
+def _build_scheduler_block(db: Session) -> dict:
+    from backend.app.services.scheduler_run_log_service import (
+        JOB_BACKFILL,
+        JOB_INGESTION,
+        JOB_RETRY,
+        JOB_SIGNALS,
+        get_last_run,
+        serialize_run,
+    )
+    return {
+        "ingestion": serialize_run(get_last_run(db, JOB_INGESTION)),
+        "backfill":  serialize_run(get_last_run(db, JOB_BACKFILL)),
+        "retry":     serialize_run(get_last_run(db, JOB_RETRY)),
+        "signals":   serialize_run(get_last_run(db, JOB_SIGNALS)),
+    }
+
+
+def _build_missing_price_block(db: Session) -> dict:
+    from sqlalchemy import exists, func
+    from backend.app.core.kpi_thresholds import kpi_status
+    from backend.app.models.asset import Asset
+    from backend.app.models.price_history import PriceHistory
+
+    total = int(db.scalar(select(func.count(Asset.id))) or 0) or 1
+    missing = int(
+        db.scalar(
+            select(func.count(Asset.id)).where(
+                ~exists(
+                    select(PriceHistory.id)
+                    .where(PriceHistory.asset_id == Asset.id)
+                    .where(PriceHistory.source == POKEMON_TCG_PRICE_SOURCE)
+                    .correlate(Asset)
+                )
+            )
+        )
+        or 0
+    )
+    pct = missing / total * 100
+    return {
+        "assets_missing_price": missing,
+        "missing_price_pct": round(pct, 2),
+        "missing_price_pct_status": kpi_status("missing_price_pct", pct),
+    }
+
+
 def _build_review_queue_block(db: Session) -> dict:
     from backend.app.core.kpi_thresholds import kpi_status
 
@@ -391,6 +436,8 @@ def build_standardized_diagnostics_summary(
         },
         "signal_health": _safe_block(_build_signal_health_block, db, block_name="signal_health"),
         "review_queue":  _safe_block(_build_review_queue_block, db, block_name="review_queue"),
-        "backfill_retry_queue": _safe_block(_build_retry_queue_block, db, block_name="backfill_retry_queue"),
+        "backfill_retry_queue": _safe_block(_build_retry_queue_block,   db, block_name="backfill_retry_queue"),
+        "scheduler":            _safe_block(_build_scheduler_block,     db, block_name="scheduler"),
+        "missing_price":        _safe_block(_build_missing_price_block, db, block_name="missing_price"),
         "pools": [_serialize_pool(pool) for pool in report.pool_reports],
     }

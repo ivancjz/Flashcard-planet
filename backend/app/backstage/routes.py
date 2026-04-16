@@ -222,11 +222,83 @@ def _render_diagnostics_html(summary: dict) -> str:
   <div style="{_CARD_STYLE}"><h2>Signal Health</h2>{signal_html}</div>
   <div style="{_CARD_STYLE}"><h2>Review Queue</h2>{review_html}</div>
   {_render_retry_queue_card(summary.get("backfill_retry_queue"))}
+  {_render_scheduler_card(summary.get("scheduler"))}
+  {_render_missing_price_card(summary.get("missing_price"))}
   <div style="{_CARD_STYLE}"><h2>Data Health</h2>{health_html}</div>
   <h2 style="margin-top:24px;">Pools</h2>
   {pools_html}
 </body>
 </html>"""
+
+
+def _render_scheduler_card(block: dict | None) -> str:
+    if not block or block.get("status") == "error":
+        if block and block.get("status") == "error":
+            return f'<div style="{_CARD_STYLE}"><h2>Scheduler Jobs</h2>{_render_block_error(block)}</div>'
+        return ""
+
+    _STATUS_COLORS = {
+        "success":   "background:#16a34a;color:white",
+        "error":     "background:#dc2626;color:white",
+        "running":   "background:#ca8a04;color:white",
+        "never_run": "background:#6b7280;color:white",
+    }
+
+    def _job_row(label: str, run: dict) -> str:
+        from html import escape
+        status = run.get("status", "never_run")
+        started = run.get("started_at") or "—"
+        duration = run.get("duration_seconds")
+        dur_str = f"{duration:.0f}s" if duration is not None else "—"
+        written = run.get("records_written", 0)
+        errors  = run.get("errors", 0)
+        err_str = f' <span style="color:#dc2626;">({errors} errors)</span>' if errors else ""
+        color_style = _STATUS_COLORS.get(status, _STATUS_COLORS["never_run"])
+        badge = f'<span style="{color_style};padding:1px 6px;border-radius:4px;font-size:0.8em;">{escape(status)}</span>'
+        started_str = started[:16] if started != "—" else "—"
+        return (
+            f"<tr>"
+            f"<td style='padding:4px 8px;'>{escape(label)}</td>"
+            f"<td style='padding:4px 8px;'>{badge}</td>"
+            f"<td style='padding:4px 8px;'>{escape(started_str)}</td>"
+            f"<td style='padding:4px 8px;'>{escape(dur_str)}&nbsp;·&nbsp;{written} written{err_str}</td>"
+            f"</tr>"
+        )
+
+    rows = "".join([
+        _job_row("Ingestion",  block.get("ingestion",  {})),
+        _job_row("Backfill",   block.get("backfill",   {})),
+        _job_row("Retry pass", block.get("retry",      {})),
+        _job_row("Signals",    block.get("signals",    {})),
+    ])
+
+    return f"""
+    <div style="{_CARD_STYLE}">
+      <h2>Scheduler Jobs</h2>
+      <table border="1" cellpadding="4" style="border-collapse:collapse;width:100%;">
+        <thead><tr><th>Job</th><th>Status</th><th>Last started</th><th>Detail</th></tr></thead>
+        <tbody>{rows}</tbody>
+      </table>
+    </div>
+    """
+
+
+def _render_missing_price_card(block: dict | None) -> str:
+    if not block or block.get("status") == "error":
+        if block and block.get("status") == "error":
+            return f'<div style="{_CARD_STYLE}"><h2>Missing Reference Price</h2>{_render_block_error(block)}</div>'
+        return ""
+
+    pct    = block.get("missing_price_pct", 0)
+    count  = block.get("assets_missing_price", 0)
+    status = block.get("missing_price_pct_status", "unknown")
+    return f"""
+    <div style="{_CARD_STYLE}">
+      <h2>Missing Reference Price</h2>
+      <p>Assets without price history: <strong>{count}</strong>
+         &nbsp;{_kpi_badge(status, f"{pct:.1f}%")}</p>
+    </div>
+    """
 
 
 @router.get("/diagnostics", response_class=HTMLResponse)
