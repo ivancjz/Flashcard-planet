@@ -513,6 +513,72 @@ def _query_missing_image(session: Session, *, limit: int) -> list[str]:
     return [row.provider_card_id for row in rows]
 
 
+def backfill_single_card(session: Session, asset: "Asset") -> bool:  # type: ignore[name-defined]
+    """Re-fetch one asset from the Pokemon TCG API and fill its missing price/image.
+
+    Returns True if a price point was inserted or an image was written; False
+    otherwise (including on any exception — callers should not rely on raising).
+    """
+    from backend.app.models.asset import Asset as _Asset  # noqa: F401 (type guard)
+
+    card_id: str | None = (asset.metadata_json or {}).get("provider_card_id")
+    if not card_id:
+        logger.warning(
+            '{"event": "backfill_single_card_no_id", "asset_id": "%s"}', asset.id
+        )
+        return False
+
+    ingested_at = datetime.now(UTC).replace(microsecond=0)
+    from backend.app.services.backfill_retry_service import clear_backfill_failure
+
+    try:
+        with httpx.Client(timeout=20.0, headers=build_headers()) as client:
+            card = fetch_card(client, card_id)
+            chosen_price = choose_price_snapshot(card)
+            if chosen_price is None:
+                return False
+            price_source, price_field, price = chosen_price
+            asset_payload = build_asset_payload(card, price_source, price_field)
+            _card_name = card.get("name", "")
+            _pf = preflight_observation(_card_name)
+            _normalised_name = _pf.normalised_title if not _pf.should_skip else _card_name
+            observation_result = stage_observation_match(
+                session,
+                provider=POKEMON_TCG_PRICE_SOURCE,
+                external_item_id=card["id"],
+                raw_title=_normalised_name,
+                raw_set_name=card.get("set", {}).get("name"),
+                raw_card_number=card.get("number"),
+                raw_language=extract_raw_language(card),
+                asset_payload=asset_payload,
+            )
+            if not observation_result.can_write_price_history or observation_result.matched_asset is None:
+                return False
+            matched = observation_result.matched_asset
+            had_image = bool((matched.metadata_json or {}).get("images", {}).get("small"))
+            insert_result = add_price_point(
+                session,
+                asset_id=matched.id,
+                source=POKEMON_TCG_PRICE_SOURCE,
+                currency="USD",
+                price=price,
+                captured_at=ingested_at,
+            )
+            price_filled = insert_result.inserted
+            has_image_now = bool((matched.metadata_json or {}).get("images", {}).get("small"))
+            image_filled = not had_image and has_image_now
+            clear_backfill_failure(session, matched.id)
+            return price_filled or image_filled
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            '{"event": "backfill_single_card_error", "asset_id": "%s", "card_id": "%s", "error": "%s"}',
+            asset.id,
+            card_id,
+            exc,
+        )
+        return False
+
+
 def run_backfill_pass(session: Session) -> BackfillResult:
     """Re-fetch Pokemon TCG API data for assets missing a price or image.
 
@@ -548,86 +614,35 @@ def run_backfill_pass(session: Session) -> BackfillResult:
         len(to_backfill),
     )
 
-    from backend.app.services.backfill_retry_service import (
-        clear_backfill_failure,
-        record_backfill_failure,
-    )
+    from backend.app.models.asset import Asset
+    from backend.app.services.backfill_retry_service import record_backfill_failure
 
-    ingested_at = datetime.now(UTC).replace(microsecond=0)
+    assets = session.scalars(
+        select(Asset).where(
+            Asset.metadata_json["provider_card_id"].astext.in_(to_backfill)
+        )
+    ).all()
+    asset_by_card_id = {
+        (a.metadata_json or {}).get("provider_card_id"): a for a in assets
+    }
 
-    with httpx.Client(timeout=20.0, headers=build_headers()) as client:
-        for card_id in to_backfill:
-            result.attempted += 1
-            had_image_before = False
-            resolved_asset = None
-            try:
-                card = fetch_card(client, card_id)
-                chosen_price = choose_price_snapshot(card)
-
-                if chosen_price is None:
-                    result.skipped_no_price += 1
-                    logger.warning(
-                        '{"event": "backfill_card_skipped", "card_id": "%s", "reason": "no_price"}',
-                        card_id,
-                    )
-                    continue
-
-                price_source, price_field, price = chosen_price
-                asset_payload = build_asset_payload(card, price_source, price_field)
-                _card_name = card.get("name", "")
-                _pf = preflight_observation(_card_name)
-                _normalised_name = _pf.normalised_title if not _pf.should_skip else _card_name
-
-                observation_result = stage_observation_match(
-                    session,
-                    provider=POKEMON_TCG_PRICE_SOURCE,
-                    external_item_id=card["id"],
-                    raw_title=_normalised_name,
-                    raw_set_name=card.get("set", {}).get("name"),
-                    raw_card_number=card.get("number"),
-                    raw_language=extract_raw_language(card),
-                    asset_payload=asset_payload,
-                )
-
-                if not observation_result.can_write_price_history or observation_result.matched_asset is None:
-                    result.errors += 1
-                    continue
-
-                resolved_asset = observation_result.matched_asset
-                had_image_before = bool(
-                    (resolved_asset.metadata_json or {}).get("images", {}).get("small")
-                )
-
-                insert_result = add_price_point(
-                    session,
-                    asset_id=resolved_asset.id,
-                    source=POKEMON_TCG_PRICE_SOURCE,
-                    currency="USD",
-                    price=price,
-                    captured_at=ingested_at,
-                )
-                if insert_result.inserted:
-                    result.price_filled += 1
-
-                # Check if image was written by observation_match updating metadata_json
-                has_image_now = bool(
-                    (resolved_asset.metadata_json or {}).get("images", {}).get("small")
-                )
-                if not had_image_before and has_image_now:
-                    result.image_filled += 1
-
-                # Clear any previous failure record on success
-                clear_backfill_failure(session, resolved_asset.id)
-
-            except Exception as exc:  # noqa: BLE001
-                result.errors += 1
-                logger.warning(
-                    '{"event": "backfill_card_error", "card_id": "%s", "error": "%s"}',
-                    card_id,
-                    str(exc),
-                )
-                if resolved_asset is not None:
-                    record_backfill_failure(session, resolved_asset.id, exc)
+    for card_id in to_backfill:
+        result.attempted += 1
+        asset = asset_by_card_id.get(card_id)
+        if asset is None:
+            result.errors += 1
+            logger.warning(
+                '{"event": "backfill_asset_not_found", "card_id": "%s"}', card_id
+            )
+            continue
+        ok = backfill_single_card(session, asset)
+        if ok:
+            result.price_filled += 1
+        else:
+            result.errors += 1
+            record_backfill_failure(
+                session, asset.id, RuntimeError("backfill_single_card returned False")
+            )
 
     logger.info(
         '{"event": "backfill_complete", "attempted": %d, "price_filled": %d, "image_filled": %d, "skipped_no_price": %d, "errors": %d}',

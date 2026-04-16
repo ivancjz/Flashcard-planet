@@ -7,7 +7,8 @@ from datetime import UTC, datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from backend.app.backstage.gap_detector import GapReport, get_gap_report
-from backend.app.ingestion.pokemon_tcg import run_backfill_pass
+from backend.app.ingestion.pokemon_tcg import backfill_single_card, run_backfill_pass
+from backend.app.services.backfill_retry_service import run_retry_pass
 from backend.app.core.config import get_settings
 from backend.app.core.price_sources import (
     get_configured_price_providers,
@@ -82,6 +83,20 @@ def _run_signal_sweep() -> None:
         )
     except Exception:
         logger.exception("Signal sweep job failed.")
+
+
+def _run_retry_pass() -> None:
+    try:
+        with SessionLocal() as session:
+            result = run_retry_pass(session, backfill_fn=backfill_single_card)
+        logger.info(
+            '{"event": "retry_pass_complete", "recovered": %d, "still_failing": %d, "newly_permanent": %d}',
+            result.recovered,
+            result.still_failing,
+            result.newly_permanent,
+        )
+    except Exception:
+        logger.exception('{"event": "retry_pass_error"}')
 
 
 def _evaluate_alerts() -> None:
@@ -549,6 +564,16 @@ def build_scheduler() -> BackgroundScheduler:
             "interval",
             seconds=settings.signal_sweep_interval_seconds,
             id="signal-sweep",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            next_run_time=None,
+        )
+        scheduler.add_job(
+            _run_retry_pass,
+            "interval",
+            hours=6,
+            id="retry-pass",
             replace_existing=True,
             max_instances=1,
             coalesce=True,
