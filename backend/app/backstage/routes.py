@@ -80,6 +80,47 @@ def _render_block_error(block: dict) -> str:
     return f'<p style="color:#dc2626;">Block failed: {error_text}</p>'
 
 
+def _render_retry_queue_card(block: dict | None) -> str:
+    if not block or block.get("status") == "error":
+        if block and block.get("status") == "error":
+            return f'<div style="{_CARD_STYLE}"><h2>Backfill Retry Queue</h2>{_render_block_error(block)}</div>'
+        return ""
+
+    pending = block.get("total_pending", 0)
+    permanent = block.get("total_permanent", 0)
+    by_type = block.get("by_failure_type", {})
+    pending_kpi = block.get("pending_kpi", "unknown")
+    permanent_kpi = block.get("permanent_kpi", "unknown")
+
+    type_rows = "".join(
+        f"<tr><td>{ftype.replace('_', ' ').title()}</td><td>{count}</td></tr>"
+        for ftype, count in sorted(by_type.items(), key=lambda kv: kv[1], reverse=True)
+    ) or "<tr><td colspan='2' style='color:#6b7280;'>No failures recorded</td></tr>"
+
+    warning_html = (
+        "<p style='color:#dc2626;margin-top:8px;'>&#9888; Permanent failures require human review.</p>"
+        if permanent > 0 else ""
+    )
+
+    return f"""
+    <div style="{_CARD_STYLE}">
+      <h2>Backfill Retry Queue</h2>
+      <p>Pending retries: <strong>{pending}</strong>
+         &nbsp;{_kpi_badge(pending_kpi)}</p>
+      <p>Permanent failures: <strong>{permanent}</strong>
+         &nbsp;{_kpi_badge(permanent_kpi)}</p>
+      <details style="margin-top:8px;">
+        <summary style="cursor:pointer;color:#374151;">By failure type</summary>
+        <table border="1" cellpadding="4" style="border-collapse:collapse;margin-top:8px;">
+          <thead><tr><th>Type</th><th>Count</th></tr></thead>
+          <tbody>{type_rows}</tbody>
+        </table>
+      </details>
+      {warning_html}
+    </div>
+    """
+
+
 def _render_diagnostics_html(summary: dict) -> str:
     generated_at = summary.get("generated_at", "N/A")
 
@@ -180,6 +221,7 @@ def _render_diagnostics_html(summary: dict) -> str:
   <div style="{_CARD_STYLE}"><h2>Observation Stage (24h)</h2>{observation_html}</div>
   <div style="{_CARD_STYLE}"><h2>Signal Health</h2>{signal_html}</div>
   <div style="{_CARD_STYLE}"><h2>Review Queue</h2>{review_html}</div>
+  {_render_retry_queue_card(summary.get("backfill_retry_queue"))}
   <div style="{_CARD_STYLE}"><h2>Data Health</h2>{health_html}</div>
   <h2 style="margin-top:24px;">Pools</h2>
   {pools_html}

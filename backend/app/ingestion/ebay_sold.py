@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.core.config import settings
 from backend.app.core.price_sources import EBAY_SOLD_PRICE_SOURCE, SAMPLE_PRICE_SOURCE
+from backend.app.ingestion.rule_engine_patches import ObservationSkipReason, preflight_observation
 from backend.app.ingestion.pokemon_tcg import IngestionResult
 from backend.app.models.asset import Asset
 from backend.app.models.observation_match_log import ObservationMatchLog
@@ -326,13 +327,23 @@ def ingest_ebay_sold_cards(
                 captured_at = _parse_iso_datetime(listing["captured_at"])
                 if captured_at is None or captured_at < lookback_cutoff:
                     continue
-                if not _title_contains_card_name(listing["title"], asset):
+                title = listing["title"]
+                _pf = preflight_observation(title)
+                if _pf.should_skip:
+                    result.observations_unmatched += 1
+                    skip_key = f"unmatched_preflight_{_pf.skip_reason.value}"
+                    result.observation_match_status_counts[skip_key] = (
+                        result.observation_match_status_counts.get(skip_key, 0) + 1
+                    )
+                    continue
+                normalised_title = _pf.normalised_title
+                if not _title_contains_card_name(normalised_title, asset):
                     result.observations_unmatched += 1
                     result.observation_match_status_counts["unmatched_name_not_in_title"] = (
                         result.observation_match_status_counts.get("unmatched_name_not_in_title", 0) + 1
                     )
                     continue
-                if not _is_grade_compatible(listing["title"], asset):
+                if not _is_grade_compatible(title, asset):
                     result.observations_unmatched += 1
                     result.observation_match_status_counts["unmatched_grade_mismatch"] = (
                         result.observation_match_status_counts.get("unmatched_grade_mismatch", 0) + 1

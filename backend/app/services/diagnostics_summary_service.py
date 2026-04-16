@@ -272,6 +272,29 @@ def _build_signal_health_block(db: Session) -> dict:
     }
 
 
+def _build_retry_queue_block(db: Session) -> dict:
+    from backend.app.services.backfill_retry_service import get_queue_summary
+    from backend.app.core.kpi_thresholds import kpi_status
+
+    summary = get_queue_summary(db)
+    pending = summary["total_pending"]
+    permanent = summary["total_permanent"]
+
+    pending_status = kpi_status("retry_queue_pending", pending)
+    permanent_status = kpi_status("retry_queue_permanent", permanent)
+    _rank = {"green": 0, "yellow": 1, "red": 2, "unknown": 0}
+    overall = pending_status if _rank[pending_status] >= _rank[permanent_status] else permanent_status
+
+    return {
+        "status": overall,
+        "total_pending": pending,
+        "total_permanent": permanent,
+        "by_failure_type": summary["by_failure_type"],
+        "pending_kpi": pending_status,
+        "permanent_kpi": permanent_status,
+    }
+
+
 def _build_review_queue_block(db: Session) -> dict:
     from backend.app.core.kpi_thresholds import kpi_status
 
@@ -368,5 +391,6 @@ def build_standardized_diagnostics_summary(
         },
         "signal_health": _safe_block(_build_signal_health_block, db, block_name="signal_health"),
         "review_queue":  _safe_block(_build_review_queue_block, db, block_name="review_queue"),
+        "backfill_retry_queue": _safe_block(_build_retry_queue_block, db, block_name="backfill_retry_queue"),
         "pools": [_serialize_pool(pool) for pool in report.pool_reports],
     }

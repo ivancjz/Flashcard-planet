@@ -16,6 +16,8 @@ THRESHOLDS: dict[str, Threshold] = {
     "missing_image_pct":     Threshold(green=15.0, yellow=30.0, higher_is_better=False),
     "review_backlog":        Threshold(green=50,   yellow=100,  higher_is_better=False),
     "high_conf_signal_pct":  Threshold(green=60.0, yellow=40.0),
+    "retry_queue_pending":   Threshold(green=50,   yellow=100,  higher_is_better=False),
+    "retry_queue_permanent": Threshold(green=10,   yellow=20,   higher_is_better=False),
 }
 
 

@@ -31,6 +31,7 @@ from backend.app.models.asset_signal_history import AssetSignalHistory
 from backend.app.models.price_history import PriceHistory
 from backend.app.models.user import User
 from backend.app.models.watchlist import Watchlist
+from backend.app.services.card_credibility_service import build_credibility_indicators, render_credibility_html
 from backend.app.services.card_detail_service import build_card_detail
 from backend.app.services.diagnostics_summary_service import build_standardized_diagnostics_summary
 from backend.app.services.price_service import get_top_movers, get_top_value_assets
@@ -779,6 +780,8 @@ def card_detail_page(request: Request, external_id: str) -> HTMLResponse:
             raise HTTPException(status_code=404, detail="卡牌不存在。")
 
         vm = build_card_detail(db, asset.id, access_tier=access_tier)
+        credibility = build_credibility_indicators(db, asset_id=asset.id, access_tier=access_tier)
+        credibility_html = render_credibility_html(credibility)
 
     if vm is None:
         raise HTTPException(status_code=404, detail="卡牌不存在。")
@@ -942,6 +945,7 @@ def card_detail_page(request: Request, external_id: str) -> HTMLResponse:
         <p class="card-kicker">{_lang_pair("价格历史", "Price history")}</p>
         <h2>{_lang_pair("价格记录", "Price records")}</h2>
       </div>
+      {credibility_html}
       {truncated_banner}
       {chart_markup}
       <div class="table-wrap">

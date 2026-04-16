@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from backend.app.core.config import get_settings
 from backend.app.core.price_sources import POKEMON_TCG_PRICE_SOURCE, SAMPLE_PRICE_SOURCE
 from backend.app.models.price_history import PriceHistory
+from backend.app.ingestion.rule_engine_patches import preflight_observation
 from backend.app.services.observation_match_service import stage_observation_match
 
 logger = logging.getLogger(__name__)
@@ -336,11 +337,14 @@ def ingest_pokemon_tcg_cards(
                 card = fetch_card(client, card_id)
                 chosen_price = choose_price_snapshot(card)
                 if chosen_price is None:
+                    _card_name = card.get("name", "")
+                    _pf = preflight_observation(_card_name)
+                    _normalised_name = _pf.normalised_title if not _pf.should_skip else _card_name
                     observation_result = stage_observation_match(
                         session,
                         provider=POKEMON_TCG_PRICE_SOURCE,
                         external_item_id=card["id"],
-                        raw_title=card.get("name"),
+                        raw_title=_normalised_name,
                         raw_set_name=card.get("set", {}).get("name"),
                         raw_card_number=card.get("number"),
                         raw_language=extract_raw_language(card),
@@ -359,11 +363,14 @@ def ingest_pokemon_tcg_cards(
 
                 price_source, price_field, price = chosen_price
                 asset_payload = build_asset_payload(card, price_source, price_field)
+                _card_name = card.get("name", "")
+                _pf = preflight_observation(_card_name)
+                _normalised_name = _pf.normalised_title if not _pf.should_skip else _card_name
                 observation_result = stage_observation_match(
                     session,
                     provider=POKEMON_TCG_PRICE_SOURCE,
                     external_item_id=card["id"],
-                    raw_title=card.get("name"),
+                    raw_title=_normalised_name,
                     raw_set_name=card.get("set", {}).get("name"),
                     raw_card_number=card.get("number"),
                     raw_language=extract_raw_language(card),
@@ -567,12 +574,15 @@ def run_backfill_pass(session: Session) -> BackfillResult:
 
                 price_source, price_field, price = chosen_price
                 asset_payload = build_asset_payload(card, price_source, price_field)
+                _card_name = card.get("name", "")
+                _pf = preflight_observation(_card_name)
+                _normalised_name = _pf.normalised_title if not _pf.should_skip else _card_name
 
                 observation_result = stage_observation_match(
                     session,
                     provider=POKEMON_TCG_PRICE_SOURCE,
                     external_item_id=card["id"],
-                    raw_title=card.get("name"),
+                    raw_title=_normalised_name,
                     raw_set_name=card.get("set", {}).get("name"),
                     raw_card_number=card.get("number"),
                     raw_language=extract_raw_language(card),
