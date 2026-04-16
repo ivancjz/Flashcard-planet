@@ -541,12 +541,18 @@ def run_backfill_pass(session: Session) -> BackfillResult:
         len(to_backfill),
     )
 
+    from backend.app.services.backfill_retry_service import (
+        clear_backfill_failure,
+        record_backfill_failure,
+    )
+
     ingested_at = datetime.now(UTC).replace(microsecond=0)
 
     with httpx.Client(timeout=20.0, headers=build_headers()) as client:
         for card_id in to_backfill:
             result.attempted += 1
             had_image_before = False
+            resolved_asset = None
             try:
                 card = fetch_card(client, card_id)
                 chosen_price = choose_price_snapshot(card)
@@ -577,14 +583,14 @@ def run_backfill_pass(session: Session) -> BackfillResult:
                     result.errors += 1
                     continue
 
-                asset = observation_result.matched_asset
+                resolved_asset = observation_result.matched_asset
                 had_image_before = bool(
-                    (asset.metadata_json or {}).get("images", {}).get("small")
+                    (resolved_asset.metadata_json or {}).get("images", {}).get("small")
                 )
 
                 insert_result = add_price_point(
                     session,
-                    asset_id=asset.id,
+                    asset_id=resolved_asset.id,
                     source=POKEMON_TCG_PRICE_SOURCE,
                     currency="USD",
                     price=price,
@@ -595,10 +601,13 @@ def run_backfill_pass(session: Session) -> BackfillResult:
 
                 # Check if image was written by observation_match updating metadata_json
                 has_image_now = bool(
-                    (asset.metadata_json or {}).get("images", {}).get("small")
+                    (resolved_asset.metadata_json or {}).get("images", {}).get("small")
                 )
                 if not had_image_before and has_image_now:
                     result.image_filled += 1
+
+                # Clear any previous failure record on success
+                clear_backfill_failure(session, resolved_asset.id)
 
             except Exception as exc:  # noqa: BLE001
                 result.errors += 1
@@ -607,6 +616,8 @@ def run_backfill_pass(session: Session) -> BackfillResult:
                     card_id,
                     str(exc),
                 )
+                if resolved_asset is not None:
+                    record_backfill_failure(session, resolved_asset.id, exc)
 
     logger.info(
         '{"event": "backfill_complete", "attempted": %d, "price_filled": %d, "image_filled": %d, "skipped_no_price": %d, "errors": %d}',
