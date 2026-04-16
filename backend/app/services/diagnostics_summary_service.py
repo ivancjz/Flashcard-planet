@@ -8,17 +8,6 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-_logger = logging.getLogger(__name__)
-
-
-def _safe_block(fn, *args, block_name: str, **kwargs) -> dict:
-    """Call fn(*args, **kwargs); return error dict if it raises."""
-    try:
-        return fn(*args, **kwargs)
-    except Exception as exc:
-        _logger.exception("Diagnostics block %r failed", block_name)
-        return {"status": "error", "block": block_name, "error": str(exc)}
-
 from backend.app.core.price_sources import get_configured_price_providers, get_primary_price_source
 from backend.app.core.tracked_pools import (
     BASE_SET_POOL_KEY,
@@ -31,6 +20,17 @@ from backend.app.models.alert import Alert
 from backend.app.models.observation_match_log import ObservationMatchLog
 from backend.app.models.watchlist import Watchlist
 from backend.app.services.data_health_service import PoolHealthSnapshot, get_data_health_report
+
+_logger = logging.getLogger(__name__)
+
+
+def _safe_block(fn, *args, block_name: str, **kwargs) -> dict:
+    """Call fn(*args, **kwargs); return error dict if it raises."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:
+        _logger.exception("Diagnostics block %r failed", block_name)
+        return {"status": "error", "block": block_name, "error": str(exc)}
 
 
 def _to_iso(value: datetime | None) -> str | None:
