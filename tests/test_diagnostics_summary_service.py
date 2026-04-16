@@ -207,10 +207,10 @@ class DiagnosticsSummaryServiceTests(TestCase):
             summary["smart_pool"]["headline"],
             "High-Activity v2 is the main smart observation reference.",
         )
-        self.assertEqual(summary["observation_stage"]["observations_logged"], 13)
-        self.assertEqual(summary["observation_stage"]["observations_matched"], 12)
+        self.assertEqual(summary["observation_stage"]["observations_logged"], 99)
+        self.assertEqual(summary["observation_stage"]["observations_matched"], 98)
         self.assertEqual(summary["observation_stage"]["observations_unmatched"], 1)
-        self.assertEqual(summary["observation_stage"]["observations_require_review"], 2)
+        self.assertEqual(summary["observation_stage"]["observations_require_review"], 0)
         self.assertEqual(summary["signal_layer"]["watchlists"], 4)
         self.assertEqual(summary["signal_layer"]["active_alerts"], 7)
         self.assertTrue(

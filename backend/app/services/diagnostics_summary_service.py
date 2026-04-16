@@ -360,11 +360,15 @@ def _build_review_queue_block(db: Session) -> dict:
 def build_standardized_diagnostics_summary(
     db: Session,
     *,
-    ingestion_result: IngestionResult | None = None,
+    ingestion_result: IngestionResult | None = None,  # deprecated: ignored, kept for caller compatibility
     recent_observation_limit: int = 5,
     scope_key: str | None = None,
     scope_label: str | None = None,
 ) -> dict[str, Any]:
+    # ingestion_result is no longer used — the "ingestion" block is now populated from
+    # scheduler_run_log via serialize_run(). The parameter is retained to avoid breaking
+    # the 5 scripts that still pass it. Remove after those scripts are updated.
+    _ = ingestion_result
     report = get_data_health_report(db, low_coverage_limit=recent_observation_limit)
     providers = get_configured_price_providers()
     primary_source = get_primary_price_source()
@@ -378,15 +382,6 @@ def build_standardized_diagnostics_summary(
         provider=primary_source,
         recent_observation_limit=recent_observation_limit,
     )
-    if ingestion_result is not None:
-        observation_stage = {
-            **observation_stage,
-            "observations_logged": ingestion_result.observations_logged,
-            "observations_matched": ingestion_result.observations_matched,
-            "observations_unmatched": ingestion_result.observations_unmatched,
-            "observations_require_review": ingestion_result.observations_require_review,
-            "match_status_counts": dict(ingestion_result.observation_match_status_counts),
-        }
 
     watchlist_count = int(db.scalar(select(func.count(Watchlist.id))) or 0)
     active_alert_count = int(

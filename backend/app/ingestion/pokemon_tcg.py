@@ -149,6 +149,53 @@ def choose_price_snapshot(card: dict[str, Any]) -> tuple[str, str, Decimal] | No
     return None
 
 
+def _extract_tcg_language(card: dict[str, Any]) -> str:
+    """Derive asset language from TCG API card data.
+
+    Standard API cards are English. Non-English sets use distinct set ID prefixes.
+    Returns a two-letter lowercase code, defaulting to 'en'.
+    """
+    set_id: str = (card.get("set") or {}).get("id", "")
+    JP_PREFIXES = ("jp", "JPN", "sv1j", "sv2j", "sv3j")
+    KR_PREFIXES = ("ko",)
+    if any(set_id.startswith(p) for p in JP_PREFIXES):
+        return "jp"
+    if any(set_id.startswith(p) for p in KR_PREFIXES):
+        return "kr"
+    lang = card.get("language") or card.get("lang")
+    if lang:
+        return str(lang).lower()[:2]
+    return "en"
+
+
+def _extract_tcg_variant(card: dict[str, Any]) -> str | None:
+    """Derive asset variant from TCG API card data using subtypes and rarity.
+
+    Returns a canonical variant string (matching CardVariant values where
+    possible) or None for base/standard prints.
+    """
+    subtypes: list[str] = card.get("subtypes") or []
+    rarity: str = (card.get("rarity") or "").lower()
+    name: str = card.get("name", "")
+    subtype_lower = [s.lower() for s in subtypes]
+
+    if "1st edition" in subtype_lower:
+        return "first_edition"
+    if "shadowless" in subtype_lower or "shadowless" in name.lower():
+        return "shadowless"
+    if "secret" in rarity or "rainbow" in rarity or "hyper" in rarity:
+        return "secret_rare"
+    if "full art" in rarity or "alternate art" in rarity:
+        return "full_art"
+    if "promo" in rarity or "promo" in subtype_lower:
+        return "promo"
+    if any("reverse" in s for s in subtype_lower):
+        return "reverse_holo"
+    if "holo" in rarity:
+        return "holo"
+    return None
+
+
 def build_asset_payload(card: dict[str, Any], price_source: str, price_field: str) -> dict[str, Any]:
     card_id = card["id"]
     return {
@@ -158,8 +205,8 @@ def build_asset_payload(card: dict[str, Any], price_source: str, price_field: st
         "set_name": card.get("set", {}).get("name"),
         "card_number": card.get("number"),
         "year": parse_release_year(card),
-        "language": "EN",
-        "variant": normalize_variant(price_field),
+        "language": _extract_tcg_language(card),
+        "variant": _extract_tcg_variant(card),
         "grade_company": None,
         "grade_score": None,
         "external_id": f"pokemontcg:{card_id}:{price_field}",
