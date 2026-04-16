@@ -1,0 +1,8 @@
+{% macro progate(cta_label, upgrade_url="/upgrade") %}
+  <div class="progate">
+    <div class="progate__blur">{{ caller() }}</div>
+    <div class="progate__overlay">
+      <a href="{{ upgrade_url }}" class="progate__cta">{{ cta_label }}</a>
+    </div>
+  </div>
+{% endmacro %}

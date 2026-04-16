@@ -4,11 +4,11 @@ from functools import lru_cache
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# All Base Set Pokemon cards only.
-# This intentionally covers base1-1 through base1-69 and excludes trainers and energy cards.
-DEFAULT_POKEMON_TCG_CARD_IDS = ",".join(
-    f"base1-{number}" for number in range(1, 70)
-)
+from backend.app.core.set_registry import P1_P2_BULK_SET_IDS, P1_P2_CARD_IDS
+
+# P1+P2 sets from set_registry: Base Set (102), Jungle (64), Fossil (62), Team Rocket (83).
+# Operators can override via POKEMON_TCG_CARD_IDS env var.
+DEFAULT_POKEMON_TCG_CARD_IDS = ",".join(P1_P2_CARD_IDS)
 # Small activity-focused trial pool from Scarlet & Violet 151.
 DEFAULT_POKEMON_TCG_TRIAL_CARD_IDS = ",".join(
     f"sv3pt5-{number}" for number in range(1, 26)
@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     pokemon_tcg_api_base_url: str = "https://api.pokemontcg.io/v2"
     pokemon_tcg_api_key: str = ""
     pokemon_tcg_card_ids: str = DEFAULT_POKEMON_TCG_CARD_IDS
-    pokemon_tcg_bulk_set_ids: str = "me3,me2pt5,me2,me1,sv10,rsv10pt5,zsv10pt5,sv9,sv8pt5,sv8,sv3pt5,base1,base2,base3"
+    pokemon_tcg_bulk_set_ids: str = P1_P2_BULK_SET_IDS
     pokemon_tcg_trial_pool_label: str = "Scarlet & Violet 151 Trial"
     pokemon_tcg_trial_card_ids: str = DEFAULT_POKEMON_TCG_TRIAL_CARD_IDS
     pokemon_tcg_high_activity_pool_label: str = "High-Activity Trial"

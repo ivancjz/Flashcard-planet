@@ -1,11 +1,12 @@
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.app.api.deps import get_database
 from backend.app.backstage.routes import router as backstage_router
+from backend.app.models.enums import AccessTier
 
 
 def _fake_db():
@@ -105,3 +106,134 @@ class BackstageRoutesTests(TestCase):
         response = self.client.get("/admin/gaps", headers={"X-Admin-Key": "secret-ke"})
 
         self.assertEqual(response.status_code, 403)
+
+
+class AdminSetUserTierTests(TestCase):
+    """Tests for PATCH /admin/users/{discord_user_id}/tier."""
+
+    def _make_client(self, fake_db_fn=None):
+        app = FastAPI()
+        app.include_router(backstage_router)
+        app.dependency_overrides[get_database] = fake_db_fn or _fake_db
+        client = TestClient(app)
+        return app, client
+
+    # ------------------------------------------------------------------
+    # Auth guard (re-uses require_admin_key — one smoke test is enough)
+    # ------------------------------------------------------------------
+
+    @patch("backend.app.backstage.routes.get_settings")
+    def test_missing_key_returns_401(self, get_settings_mock):
+        get_settings_mock.return_value.admin_api_key = "secret-key"
+        _, client = self._make_client()
+
+        response = client.patch("/admin/users/123/tier?tier=pro")
+
+        self.assertEqual(response.status_code, 401)
+
+    # ------------------------------------------------------------------
+    # User not found → 404
+    # ------------------------------------------------------------------
+
+    @patch("backend.app.backstage.routes.get_settings")
+    def test_unknown_user_returns_404(self, get_settings_mock):
+        get_settings_mock.return_value.admin_api_key = "secret-key"
+
+        db_mock = MagicMock()
+        db_mock.scalars.return_value.first.return_value = None
+
+        def _db_with_mock():
+            yield db_mock
+
+        _, client = self._make_client(_db_with_mock)
+
+        response = client.patch(
+            "/admin/users/nonexistent/tier?tier=pro",
+            headers={"X-Admin-Key": "secret-key"},
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "User not found.")
+
+    # ------------------------------------------------------------------
+    # Valid user → tier updated, response reflects new tier
+    # ------------------------------------------------------------------
+
+    @patch("backend.app.backstage.routes.set_user_tier")
+    @patch("backend.app.backstage.routes.get_settings")
+    def test_valid_user_returns_ok(self, get_settings_mock, set_user_tier_mock):
+        get_settings_mock.return_value.admin_api_key = "secret-key"
+
+        fake_user = MagicMock()
+        fake_user.access_tier = "pro"
+
+        def _side_effect(db, user, tier):
+            user.access_tier = tier.value
+
+        set_user_tier_mock.side_effect = _side_effect
+
+        db_mock = MagicMock()
+        db_mock.scalars.return_value.first.return_value = fake_user
+
+        def _db_with_mock():
+            yield db_mock
+
+        _, client = self._make_client(_db_with_mock)
+
+        response = client.patch(
+            "/admin/users/999/tier?tier=pro",
+            headers={"X-Admin-Key": "secret-key"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["discord_user_id"], "999")
+        self.assertEqual(body["tier"], "pro")
+
+    # ------------------------------------------------------------------
+    # set_user_tier is called exactly once with the right arguments
+    # ------------------------------------------------------------------
+
+    @patch("backend.app.backstage.routes.set_user_tier")
+    @patch("backend.app.backstage.routes.get_settings")
+    def test_set_user_tier_called_with_correct_args(self, get_settings_mock, set_user_tier_mock):
+        get_settings_mock.return_value.admin_api_key = "secret-key"
+
+        fake_user = MagicMock()
+        fake_user.access_tier = "free"
+        set_user_tier_mock.side_effect = lambda db, user, tier: setattr(user, "access_tier", tier.value)
+
+        db_mock = MagicMock()
+        db_mock.scalars.return_value.first.return_value = fake_user
+
+        def _db_with_mock():
+            yield db_mock
+
+        _, client = self._make_client(_db_with_mock)
+
+        client.patch(
+            "/admin/users/777/tier?tier=pro",
+            headers={"X-Admin-Key": "secret-key"},
+        )
+
+        set_user_tier_mock.assert_called_once()
+        _, call_user, call_tier = set_user_tier_mock.call_args.args
+        self.assertIs(call_user, fake_user)
+        self.assertEqual(call_tier, AccessTier.PRO)
+
+    # ------------------------------------------------------------------
+    # Invalid tier value → 422 (FastAPI validation)
+    # ------------------------------------------------------------------
+
+    @patch("backend.app.backstage.routes.get_settings")
+    def test_invalid_tier_value_returns_422(self, get_settings_mock):
+        get_settings_mock.return_value.admin_api_key = "secret-key"
+        _, client = self._make_client()
+
+        response = client.patch(
+            "/admin/users/123/tier?tier=diamond",
+            headers={"X-Admin-Key": "secret-key"},
+        )
+
+        self.assertEqual(response.status_code, 422)

@@ -18,7 +18,6 @@ def ingest() -> None:
         result = ingest_pokemon_tcg_cards(session, card_ids=trial_pool.card_ids)
         summary = build_standardized_diagnostics_summary(
             session,
-            ingestion_result=result,
             scope_key=trial_pool.key,
             scope_label=trial_pool.label,
         )

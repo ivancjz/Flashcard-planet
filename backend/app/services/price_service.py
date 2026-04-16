@@ -5,6 +5,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from backend.app.core.price_queries import build_ranked_price_subquery
 from backend.app.core.price_sources import SAMPLE_PRICE_SOURCE, get_active_price_source_filter
 from backend.app.models.asset import Asset
 from backend.app.models.price_history import PriceHistory
@@ -38,23 +39,6 @@ class PredictionComputation:
 
 def aliased_subquery(subquery, alias_name: str, rank: int):
     return select(subquery).where(subquery.c.price_rank == rank).subquery(alias_name)
-
-
-def _build_ranked_price_subquery(source_filter):
-    return (
-        select(
-            PriceHistory.asset_id,
-            PriceHistory.price,
-            PriceHistory.currency,
-            PriceHistory.source,
-            PriceHistory.captured_at,
-            func.row_number()
-            .over(partition_by=PriceHistory.asset_id, order_by=PriceHistory.captured_at.desc())
-            .label("price_rank"),
-        )
-        .where(source_filter)
-        .subquery()
-    )
 
 
 def _quantize_change(value: Decimal) -> Decimal:
@@ -135,7 +119,7 @@ def _build_asset_price_responses(db: Session, rows) -> list[AssetPriceResponse]:
 
 def get_asset_prices_by_name(db: Session, asset_name: str) -> list[AssetPriceResponse]:
     source_filter = get_active_price_source_filter(db)
-    ranked = _build_ranked_price_subquery(source_filter)
+    ranked = build_ranked_price_subquery(source_filter)
     current = aliased_subquery(ranked, "current_price", 1)
     previous = aliased_subquery(ranked, "previous_price", 2)
 
@@ -161,7 +145,7 @@ def get_asset_prices_by_name(db: Session, asset_name: str) -> list[AssetPriceRes
 
 def get_asset_price_by_external_id(db: Session, external_id: str) -> AssetPriceResponse | None:
     source_filter = get_active_price_source_filter(db)
-    ranked = _build_ranked_price_subquery(source_filter)
+    ranked = build_ranked_price_subquery(source_filter)
     current = aliased_subquery(ranked, "current_price", 1)
     previous = aliased_subquery(ranked, "previous_price", 2)
 
@@ -189,7 +173,7 @@ def get_asset_price_by_external_id(db: Session, external_id: str) -> AssetPriceR
 
 def get_top_movers(db: Session, limit: int = 10) -> list[TopMoverResponse]:
     source_filter = get_active_price_source_filter(db)
-    ranked = _build_ranked_price_subquery(source_filter)
+    ranked = build_ranked_price_subquery(source_filter)
 
     current = aliased_subquery(ranked, "current", 1)
     previous = aliased_subquery(ranked, "previous", 2)

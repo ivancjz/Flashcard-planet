@@ -14,6 +14,7 @@ from backend.app.services.alert_service import (
     create_alert,
     deactivate_alert,
     delete_alert,
+    is_tier_error,
     list_active_alerts,
     list_alert_history,
 )
@@ -31,7 +32,10 @@ def create_alert_route(
         db.commit()
     except ValueError as exc:
         db.rollback()
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        msg = str(exc)
+        if is_tier_error(msg):
+            raise HTTPException(status_code=403, detail=msg) from exc
+        raise HTTPException(status_code=404, detail=msg) from exc
     except Exception:
         db.rollback()
         raise

@@ -135,14 +135,19 @@
     const topMovers = document.getElementById("top-movers");
     if (topMovers && snapshot.top_movers) {
       const list = topMovers.querySelector(".list-shell");
+      const showMoversDetail = topMovers.dataset.showMoversDetail === "true";
       if (list) {
         list.innerHTML = snapshot.top_movers.map((item) => {
           const up = (item.percent_change_raw ?? 0) >= 0;
+          const proDetail = showMoversDetail
+            ? `<span class="list-meta">${t("\u6d41\u52a8\u6027", "Liquidity")}: ${item.liquidity_label || "—"} &nbsp;·&nbsp; 7d: ${item.sales_count_7d ?? "—"}</span>`
+            : `<span class="list-meta pro-locked" title="Upgrade to Pro">🔒 ${t("\u6d41\u52a8\u6027 + 7d \u6570\u636e", "Liquidity + 7d data")}</span>`;
           return `
           <div class="mover-row">
             <div>
               <a class="mover-name" href="/cards/${item.external_id}">${item.name}</a>
               <span class="list-meta">${t("\u53d8\u52a8", "Move")}: ${item.absolute_change}</span>
+              ${proDetail}
             </div>
             <span class="${up ? "badge-up" : "badge-down"}">${item.percent_change}</span>
           </div>`;
