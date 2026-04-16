@@ -14,7 +14,6 @@ def ingest() -> None:
         result = ingest_ebay_sold_cards(session)
         summary = build_standardized_diagnostics_summary(
             session,
-            ingestion_result=result,
             scope_key="ebay_sold_keywords",
             scope_label="Configured eBay Search Keywords",
         )

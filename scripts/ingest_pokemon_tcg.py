@@ -12,7 +12,6 @@ def ingest() -> None:
         result = ingest_pokemon_tcg_cards(session)
         summary = build_standardized_diagnostics_summary(
             session,
-            ingestion_result=result,
             scope_key="configured_cards",
             scope_label="Configured Card Universe",
         )
