@@ -513,4 +513,107 @@ def run_backfill_pass(session: Session) -> BackfillResult:
     PriceHistory (primary source) or image is missing, then re-runs them through
     the normal fetch + ingest path. Capped at settings.backfill_batch_size per run.
     """
-    return BackfillResult()
+    settings = get_settings()
+    result = BackfillResult()
+    batch_size = settings.backfill_batch_size
+
+    missing_price_ids = _query_missing_price(
+        session, limit=batch_size, primary_source=POKEMON_TCG_PRICE_SOURCE
+    )
+    missing_image_ids = _query_missing_image(session, limit=batch_size)
+
+    result.missing_price = len(missing_price_ids)
+    result.missing_image = len(missing_image_ids)
+
+    # Deduplicate: a card may appear in both lists
+    to_backfill = list(dict.fromkeys(missing_price_ids + missing_image_ids))[:batch_size]
+
+    if not to_backfill:
+        logger.info(
+            '{"event": "backfill_skipped", "reason": "no_gaps_found"}'
+        )
+        return result
+
+    logger.info(
+        '{"event": "backfill_started", "missing_price": %d, "missing_image": %d, "to_backfill": %d}',
+        result.missing_price,
+        result.missing_image,
+        len(to_backfill),
+    )
+
+    ingested_at = datetime.now(UTC).replace(microsecond=0)
+
+    with httpx.Client(timeout=20.0, headers=build_headers()) as client:
+        for card_id in to_backfill:
+            result.attempted += 1
+            had_image_before = False
+            try:
+                card = fetch_card(client, card_id)
+                chosen_price = choose_price_snapshot(card)
+
+                if chosen_price is None:
+                    result.skipped_no_price += 1
+                    logger.warning(
+                        '{"event": "backfill_card_skipped", "card_id": "%s", "reason": "no_price"}',
+                        card_id,
+                    )
+                    continue
+
+                price_source, price_field, price = chosen_price
+                asset_payload = build_asset_payload(card, price_source, price_field)
+
+                observation_result = stage_observation_match(
+                    session,
+                    provider=POKEMON_TCG_PRICE_SOURCE,
+                    external_item_id=card["id"],
+                    raw_title=card.get("name"),
+                    raw_set_name=card.get("set", {}).get("name"),
+                    raw_card_number=card.get("number"),
+                    raw_language=extract_raw_language(card),
+                    asset_payload=asset_payload,
+                )
+
+                if not observation_result.can_write_price_history or observation_result.matched_asset is None:
+                    result.errors += 1
+                    continue
+
+                asset = observation_result.matched_asset
+                had_image_before = bool(
+                    (asset.metadata_json or {}).get("images", {}).get("small")
+                )
+
+                insert_result = add_price_point(
+                    session,
+                    asset_id=asset.id,
+                    source=POKEMON_TCG_PRICE_SOURCE,
+                    currency="USD",
+                    price=price,
+                    captured_at=ingested_at,
+                )
+                if insert_result.inserted:
+                    result.price_filled += 1
+
+                # Check if image was written by observation_match updating metadata_json
+                has_image_now = bool(
+                    (asset.metadata_json or {}).get("images", {}).get("small")
+                )
+                if not had_image_before and has_image_now:
+                    result.image_filled += 1
+
+            except Exception as exc:  # noqa: BLE001
+                result.errors += 1
+                logger.warning(
+                    '{"event": "backfill_card_error", "card_id": "%s", "error": "%s"}',
+                    card_id,
+                    str(exc),
+                )
+
+    logger.info(
+        '{"event": "backfill_complete", "attempted": %d, "price_filled": %d, "image_filled": %d, "skipped_no_price": %d, "errors": %d}',
+        result.attempted,
+        result.price_filled,
+        result.image_filled,
+        result.skipped_no_price,
+        result.errors,
+    )
+    return result

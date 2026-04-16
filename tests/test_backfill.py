@@ -61,3 +61,53 @@ class BackfillQueryTests(unittest.TestCase):
 
         result = _query_missing_image(mock_session, limit=10)
         self.assertEqual(result, ["base1-6"])
+
+
+class RunBackfillPassTests(unittest.TestCase):
+    def test_returns_backfill_result_when_no_gaps(self):
+        """run_backfill_pass returns a BackfillResult with zeros when no gaps exist."""
+        from unittest.mock import MagicMock, patch
+        from backend.app.ingestion.pokemon_tcg import run_backfill_pass
+
+        mock_session = MagicMock()
+
+        with patch("backend.app.ingestion.pokemon_tcg._query_missing_price", return_value=[]) as mp, \
+             patch("backend.app.ingestion.pokemon_tcg._query_missing_image", return_value=[]) as mi:
+            result = run_backfill_pass(mock_session)
+
+        self.assertEqual(result.attempted, 0)
+        self.assertEqual(result.missing_price, 0)
+        self.assertEqual(result.missing_image, 0)
+
+    def test_returns_backfill_result_with_counts_when_gaps_exist(self):
+        """run_backfill_pass attempts re-ingestion for cards in the gap lists."""
+        from unittest.mock import MagicMock, patch
+        from backend.app.ingestion.pokemon_tcg import run_backfill_pass, BackfillResult
+
+        mock_session = MagicMock()
+        fake_card = {
+            "id": "base1-4",
+            "name": "Charizard",
+            "images": {"small": "https://example.com/charizard.png"},
+            "set": {"name": "Base Set", "id": "base1"},
+            "number": "4",
+            "tcgplayer": {"prices": {"holofoil": {"market": 350.0}}},
+        }
+
+        with patch("backend.app.ingestion.pokemon_tcg._query_missing_price", return_value=["base1-4"]), \
+             patch("backend.app.ingestion.pokemon_tcg._query_missing_image", return_value=[]), \
+             patch("backend.app.ingestion.pokemon_tcg.fetch_card", return_value=fake_card), \
+             patch("backend.app.ingestion.pokemon_tcg.stage_observation_match") as mock_obs, \
+             patch("backend.app.ingestion.pokemon_tcg.add_price_point") as mock_price:
+            obs_result = MagicMock()
+            obs_result.can_write_price_history = True
+            obs_result.matched_asset = MagicMock()
+            obs_result.matched_asset.id = "some-uuid"
+            obs_result.matched_asset.metadata_json = {"images": {"small": "https://example.com/charizard.png"}}
+            mock_obs.return_value = obs_result
+            mock_price.return_value = MagicMock(inserted=True, price_changed=True)
+
+            result = run_backfill_pass(mock_session)
+
+        self.assertEqual(result.missing_price, 1)
+        self.assertEqual(result.attempted, 1)
