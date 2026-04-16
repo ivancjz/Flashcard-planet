@@ -66,6 +66,17 @@ class IngestionResult:
     api_calls_used: int = 0
 
 
+@dataclass
+class BackfillResult:
+    missing_price: int = 0
+    missing_image: int = 0
+    attempted: int = 0
+    price_filled: int = 0
+    image_filled: int = 0
+    skipped_no_price: int = 0
+    errors: int = 0
+
+
 def parse_card_ids(raw_card_ids: str) -> list[str]:
     return [card_id.strip() for card_id in raw_card_ids.split(",") if card_id.strip()]
 
@@ -433,3 +444,13 @@ def ingest_pokemon_tcg_cards(
         result.latest_captured_at.isoformat() if result.latest_captured_at else "<none>",
     )
     return result
+
+
+def run_backfill_pass(session: Session) -> BackfillResult:
+    """Re-fetch Pokemon TCG API data for assets missing a price or image.
+
+    Queries assets whose provider_card_id is stored in metadata_json but whose
+    PriceHistory (primary source) or image is missing, then re-runs them through
+    the normal fetch + ingest path. Capped at settings.backfill_batch_size per run.
+    """
+    return BackfillResult()

@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     ingest_interval_hours: float = Field(default=24.0, gt=0)
     gap_history_threshold: int = Field(default=7, ge=1)
     gap_set_coverage_threshold: float = Field(default=0.5, gt=0, le=1)
+    backfill_batch_size: int = Field(default=100, ge=1, le=1000)
     pokemon_tcg_schedule_enabled: bool = True
     pokemon_tcg_schedule_seconds: int = 3600
 
