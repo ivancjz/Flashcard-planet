@@ -446,6 +446,66 @@ def ingest_pokemon_tcg_cards(
     return result
 
 
+def _query_missing_price(session: Session, *, limit: int, primary_source: str) -> list[str]:
+    """Return provider_card_id values for assets that have no PriceHistory row
+    for primary_source. Only assets whose metadata_json contains a provider_card_id
+    are included (i.e. cards originally ingested from Pokemon TCG API)."""
+    from backend.app.models.asset import Asset
+
+    subq = (
+        select(
+            Asset.id,
+            Asset.metadata_json["provider_card_id"].astext.label("provider_card_id"),
+        )
+        .where(
+            Asset.metadata_json.isnot(None),
+            Asset.metadata_json["provider_card_id"].astext.isnot(None),
+            Asset.metadata_json["provider_card_id"].astext != "",
+            Asset.category == "Pokemon",
+        )
+        .subquery()
+    )
+
+    rows = session.execute(
+        select(subq.c.provider_card_id)
+        .outerjoin(
+            PriceHistory,
+            (PriceHistory.asset_id == subq.c.id)
+            & (PriceHistory.source == primary_source),
+        )
+        .where(PriceHistory.id.is_(None))
+        .limit(limit)
+    ).all()
+
+    return [row.provider_card_id for row in rows]
+
+
+def _query_missing_image(session: Session, *, limit: int) -> list[str]:
+    """Return provider_card_id values for assets whose metadata_json is missing
+    a non-empty images.small URL."""
+    from backend.app.models.asset import Asset
+
+    rows = session.execute(
+        select(
+            Asset.metadata_json["provider_card_id"].astext.label("provider_card_id"),
+        )
+        .where(
+            Asset.metadata_json.isnot(None),
+            Asset.metadata_json["provider_card_id"].astext.isnot(None),
+            Asset.metadata_json["provider_card_id"].astext != "",
+            Asset.category == "Pokemon",
+            ~(
+                Asset.metadata_json.has_key("images")
+                & Asset.metadata_json["images"].has_key("small")
+                & (Asset.metadata_json["images"]["small"].astext != "")
+            ),
+        )
+        .limit(limit)
+    ).all()
+
+    return [row.provider_card_id for row in rows]
+
+
 def run_backfill_pass(session: Session) -> BackfillResult:
     """Re-fetch Pokemon TCG API data for assets missing a price or image.
 

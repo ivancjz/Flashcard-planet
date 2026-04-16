@@ -33,3 +33,31 @@ class BackfillFunctionTests(unittest.TestCase):
         self.assertEqual(r.image_filled, 0)
         self.assertEqual(r.skipped_no_price, 0)
         self.assertEqual(r.errors, 0)
+
+
+class BackfillQueryTests(unittest.TestCase):
+    def test_query_missing_price_returns_card_ids(self):
+        """_query_missing_price must return provider_card_id strings."""
+        from unittest.mock import MagicMock, patch
+        from backend.app.ingestion.pokemon_tcg import _query_missing_price
+
+        mock_session = MagicMock()
+        mock_row = MagicMock()
+        mock_row.provider_card_id = "base1-4"
+        mock_session.execute.return_value.all.return_value = [mock_row]
+
+        result = _query_missing_price(mock_session, limit=10, primary_source="pokemon_tcg_api")
+        self.assertEqual(result, ["base1-4"])
+
+    def test_query_missing_image_returns_card_ids(self):
+        """_query_missing_image must return provider_card_id strings."""
+        from unittest.mock import MagicMock
+        from backend.app.ingestion.pokemon_tcg import _query_missing_image
+
+        mock_session = MagicMock()
+        mock_row = MagicMock()
+        mock_row.provider_card_id = "base1-6"
+        mock_session.execute.return_value.all.return_value = [mock_row]
+
+        result = _query_missing_image(mock_session, limit=10)
+        self.assertEqual(result, ["base1-6"])
