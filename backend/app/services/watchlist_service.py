@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, selectinload
 
+from backend.app.core.banner import UPGRADE_URL
+from backend.app.core.permissions import Feature, can, watchlist_limit
 from backend.app.core.price_sources import get_active_price_source_filter
 from backend.app.models.alert import Alert
 from backend.app.models.asset import Asset
@@ -12,6 +14,7 @@ from backend.app.models.price_history import PriceHistory
 from backend.app.models.user import User
 from backend.app.models.watchlist import Watchlist
 from backend.app.schemas.watchlist import WatchlistCreateRequest, WatchlistItemResponse
+_TIER_ERROR_PREFIX = "[tier]"  # must match alert_service._TIER_ERROR_PREFIX
 from backend.app.services.price_service import get_prediction_state_for_asset
 
 
@@ -82,6 +85,20 @@ def build_rule_label(
 
 def add_watchlist_item(db: Session, payload: WatchlistCreateRequest) -> WatchlistUpsertResult:
     user = get_or_create_user(db, payload.discord_user_id)
+
+    # Tier: watchlist count limit
+    _cap = watchlist_limit(user.access_tier)
+    if _cap is not None:
+        _active_count: int = int(
+            db.scalar(select(func.count(Watchlist.id)).where(Watchlist.user_id == user.id)) or 0
+        )
+        if _active_count >= _cap:
+            raise ValueError(
+                f"{_TIER_ERROR_PREFIX} Free accounts are limited to {_cap} watchlist item(s). "
+                f"You have {_active_count}. "
+                f"Remove an item or upgrade to Pro for unlimited watchlists: {UPGRADE_URL}"
+            )
+
     asset = db.scalar(select(Asset).where(Asset.name.ilike(payload.asset_name)))
     if not asset:
         raise ValueError(f"No asset found with exact name '{payload.asset_name}'.")

@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from backend.app.core.config import get_settings
+from backend.app.core.permissions import Feature, alert_limit, can
 from backend.app.core.price_sources import get_active_price_source_filter
 from backend.app.models.alert import Alert
 from backend.app.models.alert_history import AlertHistory
@@ -36,6 +37,27 @@ PREDICTION_ALERT_TYPES = {
     AlertType.PREDICT_UP_PROBABILITY_ABOVE.value,
     AlertType.PREDICT_DOWN_PROBABILITY_ABOVE.value,
 }
+
+# Alert types that use threshold_percent as a trigger condition — Pro-only.
+PCT_TRIGGER_TYPES: frozenset[str] = frozenset({
+    AlertType.PRICE_UP_THRESHOLD.value,
+    AlertType.PRICE_DOWN_THRESHOLD.value,
+    AlertType.PREDICT_UP_PROBABILITY_ABOVE.value,
+    AlertType.PREDICT_DOWN_PROBABILITY_ABOVE.value,
+})
+
+# Alert types available to free-tier users.
+FREE_ALERT_TYPES: frozenset[str] = frozenset({
+    AlertType.TARGET_PRICE_HIT.value,
+    AlertType.PREDICT_SIGNAL_CHANGE.value,
+})
+
+_TIER_ERROR_PREFIX = "[tier]"
+
+
+def is_tier_error(msg: str) -> bool:
+    """Return True when a ValueError message originated from a tier gate."""
+    return msg.startswith(_TIER_ERROR_PREFIX)
 
 
 @dataclass
@@ -183,6 +205,29 @@ def format_probability_triplet(prediction_state: PredictionComputation) -> str:
 
 def create_alert(db: Session, payload: AlertCreateRequest) -> Alert:
     user = get_or_create_user(db, payload.discord_user_id)
+
+    # Gate 1: pct-trigger alert types are Pro-only.
+    if payload.alert_type in PCT_TRIGGER_TYPES and not can(user.access_tier, Feature.ALERTS_PCT_TRIGGER):
+        raise ValueError(
+            f"{_TIER_ERROR_PREFIX} Alert type '{payload.alert_type}' requires Pro. "
+            "Upgrade to unlock percentage-trigger alerts."
+        )
+
+    # Gate 2: free-tier alert count limit.
+    limit = alert_limit(user.access_tier)
+    if limit is not None:
+        current_count: int = db.scalar(
+            select(func.count(Alert.id)).where(
+                Alert.user_id == user.id,
+                Alert.is_active.is_(True),
+            )
+        ) or 0
+        if current_count >= limit:
+            raise ValueError(
+                f"{_TIER_ERROR_PREFIX} Alert limit reached ({limit} active alerts). "
+                "Upgrade to Pro for unlimited alerts."
+            )
+
     asset = db.scalar(
         select(Asset)
         .where(func.lower(Asset.name).contains(func.lower(payload.asset_name)))

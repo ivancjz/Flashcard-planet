@@ -15,8 +15,12 @@ from backend.app.core.tracked_pools import (
 from backend.app.ingestion.pokemon_tcg import IngestionResult
 from backend.app.models.observation_match_log import ObservationMatchLog
 from backend.app.services.data_health_service import DataHealthReport, PoolHealthSnapshot
+from backend.app.core.kpi_thresholds import THRESHOLDS, kpi_status
 from backend.app.services.diagnostics_summary_service import (
     _build_recent_observation_stage,
+    _build_review_queue_block,
+    _build_signal_health_block,
+    _safe_block,
     build_standardized_diagnostics_summary,
 )
 
@@ -203,10 +207,10 @@ class DiagnosticsSummaryServiceTests(TestCase):
             summary["smart_pool"]["headline"],
             "High-Activity v2 is the main smart observation reference.",
         )
-        self.assertEqual(summary["observation_stage"]["observations_logged"], 13)
-        self.assertEqual(summary["observation_stage"]["observations_matched"], 12)
+        self.assertEqual(summary["observation_stage"]["observations_logged"], 99)
+        self.assertEqual(summary["observation_stage"]["observations_matched"], 98)
         self.assertEqual(summary["observation_stage"]["observations_unmatched"], 1)
-        self.assertEqual(summary["observation_stage"]["observations_require_review"], 2)
+        self.assertEqual(summary["observation_stage"]["observations_require_review"], 0)
         self.assertEqual(summary["signal_layer"]["watchlists"], 4)
         self.assertEqual(summary["signal_layer"]["active_alerts"], 7)
         self.assertTrue(
@@ -292,3 +296,132 @@ class DiagnosticsSummaryServiceTests(TestCase):
         self.assertEqual(stage["observations_unmatched"], 2)
         self.assertEqual(stage["observations_require_review"], 5)
         self.assertEqual(len(stage["recent_review_items"]), 2)
+
+
+class TestSafeBlock(TestCase):
+    def test_returns_function_result_on_success(self):
+        def fn(db):
+            return {"status": "ok", "value": 42}
+        result = _safe_block(fn, None, block_name="test")
+        self.assertEqual(result, {"status": "ok", "value": 42})
+
+    def test_returns_error_dict_on_exception(self):
+        def fn(db):
+            raise RuntimeError("boom")
+        result = _safe_block(fn, None, block_name="test_block")
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["block"], "test_block")
+        self.assertIn("boom", result["error"])
+
+    def test_error_dict_has_required_keys(self):
+        def fn(db):
+            raise ValueError("bad value")
+        result = _safe_block(fn, None, block_name="my_block")
+        self.assertIn("status", result)
+        self.assertIn("block", result)
+        self.assertIn("error", result)
+
+    def test_does_not_propagate_exception(self):
+        def fn(db):
+            raise ZeroDivisionError("div by zero")
+        _safe_block(fn, None, block_name="safe_test")  # must not raise
+
+
+class TestKpiStatus(TestCase):
+    def test_higher_is_better_green(self):
+        self.assertEqual(kpi_status("observations_per_day", 600), "green")
+
+    def test_higher_is_better_yellow(self):
+        self.assertEqual(kpi_status("observations_per_day", 300), "yellow")
+
+    def test_higher_is_better_red(self):
+        self.assertEqual(kpi_status("observations_per_day", 100), "red")
+
+    def test_lower_is_better_green(self):
+        self.assertEqual(kpi_status("review_backlog", 10), "green")
+
+    def test_lower_is_better_yellow(self):
+        self.assertEqual(kpi_status("review_backlog", 75), "yellow")
+
+    def test_lower_is_better_red(self):
+        self.assertEqual(kpi_status("review_backlog", 200), "red")
+
+    def test_unknown_key_returns_unknown(self):
+        self.assertEqual(kpi_status("nonexistent_kpi", 999), "unknown")
+
+    def test_boundary_green_threshold(self):
+        threshold = THRESHOLDS["observations_per_day"]
+        self.assertEqual(kpi_status("observations_per_day", threshold.green), "green")
+
+    def test_boundary_yellow_threshold(self):
+        threshold = THRESHOLDS["observations_per_day"]
+        self.assertEqual(kpi_status("observations_per_day", threshold.yellow), "yellow")
+
+
+class TestBuildSignalHealthBlock(TestCase):
+    def _make_db(self, label_rows, high_conf_count):
+        from unittest.mock import MagicMock
+        db = MagicMock()
+        db.execute.return_value.all.return_value = label_rows
+        db.scalar.return_value = high_conf_count
+        return db
+
+    def test_returns_ok_status_with_expected_keys(self):
+        db = self._make_db([("BREAKOUT", 5), ("IDLE", 10)], 3)
+        result = _build_signal_health_block(db)
+        self.assertEqual(result["status"], "ok")
+        for key in ("total_signals", "label_counts", "high_confidence_count", "high_confidence_pct", "kpi_status"):
+            self.assertIn(key, result)
+
+    def test_kpi_status_is_valid_value(self):
+        db = self._make_db([("BREAKOUT", 100)], 80)
+        result = _build_signal_health_block(db)
+        self.assertIn(result["kpi_status"], {"green", "yellow", "red", "unknown"})
+
+    def test_handles_zero_total_signals(self):
+        db = self._make_db([], 0)
+        result = _build_signal_health_block(db)
+        self.assertEqual(result["total_signals"], 0)
+        self.assertEqual(result["high_confidence_pct"], 0.0)
+
+
+class TestBuildReviewQueueBlock(TestCase):
+    def _make_db(self, pending_count):
+        from unittest.mock import MagicMock
+        db = MagicMock()
+        db.scalar.return_value = pending_count
+        return db
+
+    def test_returns_ok_status_with_expected_keys(self):
+        db = self._make_db(25)
+        result = _build_review_queue_block(db)
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("pending_count", result)
+        self.assertIn("kpi_status", result)
+
+    def test_pending_count_reflects_db_value(self):
+        db = self._make_db(42)
+        result = _build_review_queue_block(db)
+        self.assertEqual(result["pending_count"], 42)
+
+    def test_zero_pending_is_green(self):
+        db = self._make_db(0)
+        result = _build_review_queue_block(db)
+        self.assertEqual(result["kpi_status"], "green")
+
+    def test_high_pending_is_red(self):
+        db = self._make_db(200)
+        result = _build_review_queue_block(db)
+        self.assertEqual(result["kpi_status"], "red")
+
+
+class TestSafeBlockDegradation(TestCase):
+    def test_error_dict_returned_for_failed_block(self):
+        result = _safe_block(
+            lambda db: (_ for _ in ()).throw(RuntimeError("signal block failed")),
+            None,
+            block_name="signal_health",
+        )
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["block"], "signal_health")
+        self.assertIn("signal block failed", result["error"])

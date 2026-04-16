@@ -7,7 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from backend.app.core.config import get_settings
-from bot.api_client import BackendClient
+from bot.api_client import BackendClient, TierError
 
 DELIVERY_STATUS_LABELS = {
     "sent": "Delivered",
@@ -710,6 +710,18 @@ async def watch(
             predict_up_probability_above=predict_up_probability_above,
             predict_down_probability_above=predict_down_probability_above,
         )
+    except TierError as exc:
+        await interaction.followup.send(
+            embed=discord.Embed(
+                title="Watchlist limit reached",
+                description=(
+                    f"{exc}\n\n"
+                    f"[Upgrade to Pro]({exc.upgrade_url}) for unlimited watchlists."
+                ),
+                color=EMBED_COLOR_WARNING,
+            )
+        )
+        return
     except Exception as exc:
         await interaction.followup.send(f"Watch setup failed: {exc}")
         return

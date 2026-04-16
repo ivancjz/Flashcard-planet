@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -7,7 +8,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.app.core.price_sources import get_configured_price_providers, get_primary_price_source
+from backend.app.core.price_sources import POKEMON_TCG_PRICE_SOURCE, get_configured_price_providers, get_primary_price_source
 from backend.app.core.tracked_pools import (
     BASE_SET_POOL_KEY,
     HIGH_ACTIVITY_TRIAL_POOL_KEY,
@@ -19,6 +20,17 @@ from backend.app.models.alert import Alert
 from backend.app.models.observation_match_log import ObservationMatchLog
 from backend.app.models.watchlist import Watchlist
 from backend.app.services.data_health_service import PoolHealthSnapshot, get_data_health_report
+
+_logger = logging.getLogger(__name__)
+
+
+def _safe_block(fn, *args, block_name: str, **kwargs) -> dict:
+    """Call fn(*args, **kwargs); return error dict if it raises."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:
+        _logger.exception("Diagnostics block %r failed", block_name)
+        return {"status": "error", "block": block_name, "error": str(exc)}
 
 
 def _to_iso(value: datetime | None) -> str | None:
@@ -151,13 +163,6 @@ def _build_recent_observation_stage(
         match_status: int(count)
         for match_status, count in grouped_rows
     }
-    recent_logs = db.execute(
-        select(ObservationMatchLog)
-        .where(ObservationMatchLog.provider == provider)
-        .where(ObservationMatchLog.created_at >= cutoff)
-        .order_by(ObservationMatchLog.created_at.desc())
-        .limit(recent_observation_limit)
-    ).scalars().all()
     review_logs = db.execute(
         select(ObservationMatchLog)
         .where(
@@ -233,14 +238,130 @@ def _serialize_ingestion_result(ingestion_result: IngestionResult | None) -> dic
     }
 
 
+def _build_signal_health_block(db: Session) -> dict:
+    from backend.app.models.asset_signal import AssetSignal
+    from backend.app.core.kpi_thresholds import kpi_status
+
+    rows = db.execute(
+        select(AssetSignal.label, func.count(AssetSignal.id)).group_by(AssetSignal.label)
+    ).all()
+    label_counts = {label: int(count) for label, count in rows}
+    total = sum(label_counts.values())
+
+    high_conf = int(
+        db.scalar(
+            select(func.count(AssetSignal.id)).where(AssetSignal.confidence >= 70)
+        ) or 0
+    )
+    high_conf_pct = round(high_conf / total * 100, 1) if total else 0.0
+
+    return {
+        "status": "ok",
+        "total_signals": total,
+        "label_counts": label_counts,
+        "high_confidence_count": high_conf,
+        "high_confidence_pct": high_conf_pct,
+        "kpi_status": kpi_status("high_conf_signal_pct", high_conf_pct),
+    }
+
+
+def _build_retry_queue_block(db: Session) -> dict:
+    from backend.app.services.backfill_retry_service import get_queue_summary
+    from backend.app.core.kpi_thresholds import kpi_status
+
+    summary = get_queue_summary(db)
+    pending = summary["total_pending"]
+    permanent = summary["total_permanent"]
+
+    pending_status = kpi_status("retry_queue_pending", pending)
+    permanent_status = kpi_status("retry_queue_permanent", permanent)
+    _rank = {"green": 0, "yellow": 1, "red": 2, "unknown": 0}
+    overall = pending_status if _rank[pending_status] >= _rank[permanent_status] else permanent_status
+
+    return {
+        "status": overall,
+        "total_pending": pending,
+        "total_permanent": permanent,
+        "by_failure_type": summary["by_failure_type"],
+        "pending_kpi": pending_status,
+        "permanent_kpi": permanent_status,
+    }
+
+
+def _build_scheduler_block(db: Session) -> dict:
+    from backend.app.services.scheduler_run_log_service import (
+        JOB_BACKFILL,
+        JOB_INGESTION,
+        JOB_RETRY,
+        JOB_SIGNALS,
+        get_last_run,
+        serialize_run,
+    )
+    return {
+        "ingestion": serialize_run(get_last_run(db, JOB_INGESTION)),
+        "backfill":  serialize_run(get_last_run(db, JOB_BACKFILL)),
+        "retry":     serialize_run(get_last_run(db, JOB_RETRY)),
+        "signals":   serialize_run(get_last_run(db, JOB_SIGNALS)),
+    }
+
+
+def _build_missing_price_block(db: Session) -> dict:
+    from sqlalchemy import exists, func
+    from backend.app.core.kpi_thresholds import kpi_status
+    from backend.app.models.asset import Asset
+    from backend.app.models.price_history import PriceHistory
+
+    total = int(db.scalar(select(func.count(Asset.id))) or 0) or 1
+    missing = int(
+        db.scalar(
+            select(func.count(Asset.id)).where(
+                ~exists(
+                    select(PriceHistory.id)
+                    .where(PriceHistory.asset_id == Asset.id)
+                    .where(PriceHistory.source == POKEMON_TCG_PRICE_SOURCE)
+                    .correlate(Asset)
+                )
+            )
+        )
+        or 0
+    )
+    pct = missing / total * 100
+    return {
+        "assets_missing_price": missing,
+        "missing_price_pct": round(pct, 2),
+        "missing_price_pct_status": kpi_status("missing_price_pct", pct),
+    }
+
+
+def _build_review_queue_block(db: Session) -> dict:
+    from backend.app.core.kpi_thresholds import kpi_status
+
+    pending = int(
+        db.scalar(
+            select(func.count(ObservationMatchLog.id)).where(
+                ObservationMatchLog.requires_review.is_(True)
+            )
+        ) or 0
+    )
+    return {
+        "status": "ok",
+        "pending_count": pending,
+        "kpi_status": kpi_status("review_backlog", pending),
+    }
+
+
 def build_standardized_diagnostics_summary(
     db: Session,
     *,
-    ingestion_result: IngestionResult | None = None,
+    ingestion_result: IngestionResult | None = None,  # deprecated: ignored, kept for caller compatibility
     recent_observation_limit: int = 5,
     scope_key: str | None = None,
     scope_label: str | None = None,
 ) -> dict[str, Any]:
+    # ingestion_result is no longer used — the "ingestion" block is now populated from
+    # scheduler_run_log via serialize_run(). The parameter is retained to avoid breaking
+    # the 5 scripts that still pass it. Remove after those scripts are updated.
+    _ = ingestion_result
     report = get_data_health_report(db, low_coverage_limit=recent_observation_limit)
     providers = get_configured_price_providers()
     primary_source = get_primary_price_source()
@@ -254,15 +375,6 @@ def build_standardized_diagnostics_summary(
         provider=primary_source,
         recent_observation_limit=recent_observation_limit,
     )
-    if ingestion_result is not None:
-        observation_stage = {
-            **observation_stage,
-            "observations_logged": ingestion_result.observations_logged,
-            "observations_matched": ingestion_result.observations_matched,
-            "observations_unmatched": ingestion_result.observations_unmatched,
-            "observations_require_review": ingestion_result.observations_require_review,
-            "match_status_counts": dict(ingestion_result.observation_match_status_counts),
-        }
 
     watchlist_count = int(db.scalar(select(func.count(Watchlist.id))) or 0)
     active_alert_count = int(
@@ -282,7 +394,7 @@ def build_standardized_diagnostics_summary(
             "configured_provider_count": len(providers),
         },
         "smart_pool": _build_smart_pool_reference(report.pool_reports),
-        "ingestion": _serialize_ingestion_result(ingestion_result),
+        "ingestion": _safe_block(_build_scheduler_block, db, block_name="ingestion"),
         "observation_stage": observation_stage,
         "health": {
             "total_assets": report.total_assets,
@@ -310,5 +422,10 @@ def build_standardized_diagnostics_summary(
             "watchlists": watchlist_count,
             "active_alerts": active_alert_count,
         },
+        "signal_health": _safe_block(_build_signal_health_block, db, block_name="signal_health"),
+        "review_queue":  _safe_block(_build_review_queue_block, db, block_name="review_queue"),
+        "backfill_retry_queue": _safe_block(_build_retry_queue_block,   db, block_name="backfill_retry_queue"),
+        "scheduler":            _safe_block(_build_scheduler_block,     db, block_name="scheduler"),
+        "missing_price":        _safe_block(_build_missing_price_block, db, block_name="missing_price"),
         "pools": [_serialize_pool(pool) for pool in report.pool_reports],
     }

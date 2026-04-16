@@ -7,7 +7,16 @@ from datetime import UTC, datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from backend.app.backstage.gap_detector import GapReport, get_gap_report
-from backend.app.ingestion.pokemon_tcg import run_backfill_pass
+from backend.app.ingestion.pokemon_tcg import backfill_single_card, run_backfill_pass
+from backend.app.services.backfill_retry_service import run_retry_pass
+from backend.app.services.scheduler_run_log_service import (
+    JOB_INGESTION,
+    JOB_RETRY,
+    JOB_SIGNALS,
+    finish_run,
+    prune_old_runs,
+    start_run,
+)
 from backend.app.core.config import get_settings
 from backend.app.core.price_sources import (
     get_configured_price_providers,
@@ -72,6 +81,8 @@ def _log_gap_report(report: GapReport) -> None:
 
 def _run_signal_sweep() -> None:
     logger.info("Signal sweep tick started.")
+    with SessionLocal() as _log_session:
+        _run_id = start_run(_log_session, JOB_SIGNALS)
     try:
         with SessionLocal() as session:
             result = sweep_signals(session)
@@ -80,8 +91,40 @@ def _run_signal_sweep() -> None:
             result.total, result.breakout, result.move, result.watch,
             result.idle, result.errors, result.duration_ms,
         )
+        with SessionLocal() as _log_session:
+            finish_run(_log_session, _run_id, status="success", records_written=result.total)
+            prune_old_runs(_log_session, JOB_SIGNALS)
     except Exception:
         logger.exception("Signal sweep job failed.")
+        with SessionLocal() as _log_session:
+            finish_run(_log_session, _run_id, status="error")
+
+
+def _run_retry_pass() -> None:
+    with SessionLocal() as _log_session:
+        _run_id = start_run(_log_session, JOB_RETRY)
+    try:
+        with SessionLocal() as session:
+            result = run_retry_pass(session, backfill_fn=backfill_single_card)
+            session.commit()
+        logger.info(
+            '{"event": "retry_pass_complete", "recovered": %d, "still_failing": %d, "newly_permanent": %d}',
+            result.recovered,
+            result.still_failing,
+            result.newly_permanent,
+        )
+        with SessionLocal() as _log_session:
+            finish_run(
+                _log_session, _run_id,
+                status="success",
+                records_written=result.recovered,
+                errors=result.still_failing,
+            )
+            prune_old_runs(_log_session, JOB_RETRY)
+    except Exception:
+        logger.exception('{"event": "retry_pass_error"}')
+        with SessionLocal() as _log_session:
+            finish_run(_log_session, _run_id, status="error")
 
 
 def _evaluate_alerts() -> None:
@@ -190,6 +233,8 @@ def _run_bulk_set_price_refresh() -> None:
 
 
 def _run_scheduled_ingestion() -> None:
+    with SessionLocal() as _log_session:
+        _run_id = start_run(_log_session, JOB_INGESTION)
     tracked_pools = get_tracked_pokemon_pools()
     implemented_providers = get_configured_provider_ingestors()
     run = ScheduledIngestionRun(started_at=datetime.now(UTC).replace(microsecond=0))
@@ -288,6 +333,15 @@ def _run_scheduled_ingestion() -> None:
             run.card_failures,
             run.errors if run.errors else "<none>",
         )
+        with SessionLocal() as _log_session:
+            finish_run(
+                _log_session, _run_id,
+                status="success" if not run.errors else "error",
+                records_written=run.records_written,
+                errors=len(run.errors),
+                error_message=run.errors[-1] if run.errors else None,
+            )
+            prune_old_runs(_log_session, JOB_INGESTION)
 
 
 def _run_ebay_ingestion() -> EbayScheduledRunSummary:
@@ -549,6 +603,16 @@ def build_scheduler() -> BackgroundScheduler:
             "interval",
             seconds=settings.signal_sweep_interval_seconds,
             id="signal-sweep",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            next_run_time=None,
+        )
+        scheduler.add_job(
+            _run_retry_pass,
+            "interval",
+            hours=6,
+            id="retry-pass",
             replace_existing=True,
             max_instances=1,
             coalesce=True,

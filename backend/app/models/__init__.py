@@ -2,9 +2,12 @@ from backend.app.models.alert import Alert
 from backend.app.models.alert_history import AlertHistory
 from backend.app.models.asset import Asset
 from backend.app.models.asset_signal import AssetSignal
+from backend.app.models.failed_backfill_queue import FailedBackfillQueue
+from backend.app.models.scheduler_run_log import SchedulerRunLog
 from backend.app.models.observation_match_log import ObservationMatchLog
 from backend.app.models.price_history import PriceHistory
+from backend.app.models.upgrade_request import UpgradeRequest
 from backend.app.models.user import User
 from backend.app.models.watchlist import Watchlist
 
-__all__ = ["Alert", "AlertHistory", "Asset", "AssetSignal", "ObservationMatchLog", "PriceHistory", "User", "Watchlist"]
+__all__ = ["Alert", "AlertHistory", "Asset", "AssetSignal", "FailedBackfillQueue", "ObservationMatchLog", "PriceHistory", "SchedulerRunLog", "UpgradeRequest", "User", "Watchlist"]
