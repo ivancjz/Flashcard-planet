@@ -27,6 +27,7 @@ from backend.app.models.asset import Asset
 from backend.app.models.asset_signal_history import AssetSignalHistory
 from backend.app.models.price_history import PriceHistory
 from backend.app.models.watchlist import Watchlist
+from backend.app.services.card_detail_service import build_card_detail
 from backend.app.services.diagnostics_summary_service import build_standardized_diagnostics_summary
 from backend.app.services.price_service import get_top_movers, get_top_value_assets
 from backend.app.services.signal_service import get_all_signals, get_daily_snapshot_signals
@@ -724,55 +725,50 @@ def cards_page(
 
 @router.get("/cards/{external_id}", response_class=HTMLResponse)
 def card_detail_page(request: Request, external_id: str) -> HTMLResponse:
+    import uuid as _uuid
+
+    username = _session_username(request)
+    session = request.scope.get("session")
+    user_id = session.get("user_id") if isinstance(session, dict) else None
+
     with SessionLocal() as db:
-        source_filter = get_active_price_source_filter(db)
-        ranked = build_ranked_price_subquery(source_filter)
-        latest = select(ranked).where(ranked.c.price_rank == 1).subquery("latest_card_price")
+        # Resolve current user to determine access tier
+        current_user = None
+        if user_id:
+            try:
+                current_user = db.get(User, _uuid.UUID(user_id))
+            except Exception:
+                current_user = None
+        access_tier = current_user.access_tier if current_user else "free"
 
-        row = db.execute(
-            select(
-                Asset,
-                latest.c.price.label("latest_price"),
-                latest.c.currency.label("currency"),
-                latest.c.captured_at.label("captured_at"),
-            )
-            .outerjoin(latest, latest.c.asset_id == Asset.id)
-            .where(
-                Asset.category == "Pokemon",
-                Asset.external_id == external_id,
-            )
+        # Look up asset by external_id (needed for tcgplayer URL + 404 check)
+        asset = db.scalars(
+            select(Asset).where(Asset.category == "Pokemon", Asset.external_id == external_id)
         ).first()
-
-        if row is None:
+        if asset is None:
             raise HTTPException(status_code=404, detail="卡牌不存在。")
 
-        asset = row.Asset
-        history_rows = db.execute(
-            select(
-                PriceHistory.price,
-                PriceHistory.currency,
-                PriceHistory.source,
-                PriceHistory.captured_at,
-            )
-            .where(
-                PriceHistory.asset_id == asset.id,
-                source_filter,
-            )
-            .order_by(PriceHistory.captured_at.desc())
-            .limit(10)
-        ).all()
+        vm = build_card_detail(db, asset.id, access_tier=access_tier)
 
-    price_history = list(reversed(history_rows))
-    image_small = _get_metadata_image_small(asset)
+    if vm is None:
+        raise HTTPException(status_code=404, detail="卡牌不存在。")
+
     tcgplayer_url = _get_metadata_tcgplayer_url(asset)
-    latest_price = Decimal(row.latest_price) if row.latest_price is not None else None
-    latest_captured_at = row.captured_at.strftime("%Y-%m-%d %H:%M UTC") if row.captured_at else "N/A"
-    price_labels = [history_row.captured_at.strftime("%Y-%m-%d") for history_row in price_history]
-    price_values = [float(history_row.price) for history_row in price_history]
+    image_small = vm.image_url
+    latest_price = vm.latest_price
+    currency = vm.currency or "USD"
+    latest_captured_at = (
+        vm.price_history[0].captured_at.strftime("%Y-%m-%d %H:%M UTC")
+        if vm.price_history
+        else "N/A"
+    )
+
+    price_labels = [pt.captured_at.strftime("%Y-%m-%d") for pt in reversed(vm.price_history)]
+    price_values = [float(pt.price) for pt in reversed(vm.price_history)]
     chart_script_tag = ""
     chart_markup = f"<p>{_lang_pair('暂无足够数据生成走势图。', 'Not enough data to render a chart yet.')}</p>"
     chart_inline_script = ""
-    if len(price_history) >= 2:
+    if len(vm.price_history) >= 2:
         chart_script_tag = (
             '<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>'
         )
@@ -834,11 +830,11 @@ def card_detail_page(request: Request, external_id: str) -> HTMLResponse:
           <td>{source}</td>
         </tr>
         """.format(
-            captured_at=escape(history_row.captured_at.strftime("%Y-%m-%d %H:%M UTC")),
-            price=escape(_format_currency(Decimal(history_row.price), history_row.currency)),
-            source=escape(history_row.source),
+            captured_at=escape(pt.captured_at.strftime("%Y-%m-%d %H:%M UTC")),
+            price=escape(_format_currency(pt.price, currency)),
+            source=escape(pt.source),
         )
-        for history_row in price_history
+        for pt in reversed(vm.price_history)
     )
     if not history_markup:
         history_markup = """
@@ -846,6 +842,20 @@ def card_detail_page(request: Request, external_id: str) -> HTMLResponse:
           <td colspan="3" class="empty-state-cell">{empty_text}</td>
         </tr>
         """.format(empty_text=_lang_pair("暂无价格历史数据。", "No price history available."))
+
+    truncated_banner = ""
+    if vm.history_truncated:
+        truncated_banner = f"""
+        <div class="progate-banner">
+          <p>
+            {_lang_pair(
+                "免费账户仅显示最近 7 天价格记录。",
+                "Free accounts show the last 7 days of price history only."
+            )}
+            <a href="/upgrade">{_lang_pair("升级至 Pro 解锁完整历史数据 →", "Upgrade to Pro for full history →")}</a>
+          </p>
+        </div>
+        """
 
     image_markup = (
         f'<div class="card-image-panel"><img src="{escape(image_small)}" alt="{escape(asset.name)}" /></div>'
@@ -869,7 +879,7 @@ def card_detail_page(request: Request, external_id: str) -> HTMLResponse:
         </p>
       </div>
       <div class="intro-note">
-        <strong>{escape(_format_currency(latest_price, row.currency or "USD"))}</strong>
+        <strong>{escape(_format_currency(latest_price, currency))}</strong>
         <p>{_lang_pair(f"最新价格采集时间：{latest_captured_at}。", f"Latest price captured at: {latest_captured_at}.")}</p>
       </div>
     </section>
@@ -888,7 +898,7 @@ def card_detail_page(request: Request, external_id: str) -> HTMLResponse:
           <div><dt>{_lang_pair("年份", "Year")}</dt><dd>{escape(str(asset.year) if asset.year is not None else "N/A")}</dd></div>
           <div><dt>{_lang_pair("版本", "Variant")}</dt><dd>{escape(asset.variant or "标准版")}</dd></div>
           <div><dt>{_lang_pair("卡牌ID", "Card ID")}</dt><dd>{escape(asset.external_id or "N/A")}</dd></div>
-          <div><dt>{_lang_pair("最新价格", "Latest price")}</dt><dd>{escape(_format_currency(latest_price, row.currency or "USD"))}</dd></div>
+          <div><dt>{_lang_pair("最新价格", "Latest price")}</dt><dd>{escape(_format_currency(latest_price, currency))}</dd></div>
         </dl>
         <div class="detail-actions">
           <a class="button button-primary" href="/cards">{_lang_pair("返回卡牌浏览", "Back to cards")}</a>
@@ -900,8 +910,9 @@ def card_detail_page(request: Request, external_id: str) -> HTMLResponse:
     <section class="module module-wide">
       <div class="module-head">
         <p class="card-kicker">{_lang_pair("价格历史", "Price history")}</p>
-        <h2>{_lang_pair("最近 10 条价格记录", "Latest 10 price records")}</h2>
+        <h2>{_lang_pair("价格记录", "Price records")}</h2>
       </div>
+      {truncated_banner}
       {chart_markup}
       <div class="table-wrap">
         <table class="data-table">
@@ -926,7 +937,7 @@ def card_detail_page(request: Request, external_id: str) -> HTMLResponse:
         current_path="/cards",
         body=body,
         page_key="card-detail",
-        username=_session_username(request),
+        username=username,
     )
 
 
