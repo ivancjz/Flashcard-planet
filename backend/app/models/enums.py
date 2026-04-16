@@ -26,3 +26,8 @@ class SignalLabel(str, Enum):
     MOVE = "MOVE"
     WATCH = "WATCH"
     IDLE = "IDLE"
+
+
+class AccessTier(str, Enum):
+    FREE = "free"
+    PRO  = "pro"
