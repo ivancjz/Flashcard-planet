@@ -65,7 +65,9 @@ def _kpi_badge(status: str, label: str = "") -> str:
 
 
 def _render_block_error(block: dict) -> str:
-    return f'<p style="color:#dc2626;">Block failed: {block.get("error", "unknown error")}</p>'
+    from html import escape
+    error_text = escape(str(block.get("error", "unknown error")))
+    return f'<p style="color:#dc2626;">Block failed: {error_text}</p>'
 
 
 def _render_diagnostics_html(summary: dict) -> str:

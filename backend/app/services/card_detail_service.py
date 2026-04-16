@@ -102,8 +102,9 @@ def build_card_detail(
     if asset is None:
         return None
 
-    history_days = PRO_HISTORY_DAYS if can(access_tier, Feature.PRICE_HISTORY_FULL) else FREE_HISTORY_DAYS
-    history_truncated = not can(access_tier, Feature.PRICE_HISTORY_FULL)
+    has_full_history = can(access_tier, Feature.PRICE_HISTORY_FULL)
+    history_days = PRO_HISTORY_DAYS if has_full_history else FREE_HISTORY_DAYS
+    history_truncated = not has_full_history
 
     source_filter = get_active_price_source_filter(db)
     cutoff = datetime.now(UTC) - timedelta(days=history_days)
@@ -140,6 +141,7 @@ def build_card_detail(
     for p in price_history:
         source_breakdown[p.source] = source_breakdown.get(p.source, 0) + 1
 
+    # AssetSignal has a unique constraint on asset_id — at most one row per asset.
     signal = db.scalars(
         select(AssetSignal).where(AssetSignal.asset_id == asset_id)
     ).first()
