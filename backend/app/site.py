@@ -2032,3 +2032,53 @@ def backstage_review_page(request: Request) -> HTMLResponse:
 @router.get("/dashboard/snapshot")
 def dashboard_snapshot(db: Session = Depends(get_database)) -> dict[str, object]:
     return build_dashboard_snapshot(db)
+
+
+@router.get("/upgrade", response_class=HTMLResponse)
+def upgrade_page(request: Request) -> HTMLResponse:
+    username = _session_username(request)
+    body = f"""
+<div class="page-hero">
+  <h1 class="page-hero__title">
+    <span data-zh="升级到 Pro">Upgrade to Pro</span>
+  </h1>
+  <p class="page-hero__subtitle">
+    <span data-zh="解锁完整的价格历史、信号置信度和流动性评分。">Unlock full price history, signal confidence, and liquidity scores.</span>
+  </p>
+</div>
+
+<section class="shell" style="max-width:640px;margin:0 auto;padding-bottom:48px;">
+  <div style="border:1px solid #e5e7eb;border-radius:12px;padding:32px;margin-bottom:24px;">
+    <h2 style="margin:0 0 16px 0;" data-zh="Pro 计划功能">Pro Plan Features</h2>
+    <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:12px;">
+      <li>&#10003;&nbsp;<span data-zh="完整价格历史（180 天）">Full price history (180 days)</span></li>
+      <li>&#10003;&nbsp;<span data-zh="信号置信度评分">Signal confidence scores</span></li>
+      <li>&#10003;&nbsp;<span data-zh="流动性评分">Liquidity scores</span></li>
+      <li>&#10003;&nbsp;<span data-zh="无限观察列表">Unlimited watchlists</span></li>
+      <li>&#10003;&nbsp;<span data-zh="无限价格提醒">Unlimited price alerts</span></li>
+      <li>&#10003;&nbsp;<span data-zh="来源比较">Source comparison</span></li>
+    </ul>
+  </div>
+
+  <div style="border:1px solid #e5e7eb;border-radius:12px;padding:32px;text-align:center;">
+    <p style="margin:0 0 8px 0;color:#6b7280;" data-zh="Pro 访问权限目前处于封闭测试阶段。">
+      Pro access is currently in closed beta.
+    </p>
+    <p style="margin:0 0 24px 0;color:#6b7280;" data-zh="请通过电子邮件联系我们加入候补名单。">
+      Contact us by email to join the waitlist.
+    </p>
+    <a
+      href="mailto:hello@flashcardplanet.com"
+      style="display:inline-block;background:#2563eb;color:white;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;"
+      data-zh="加入候补名单"
+    >Join the Waitlist</a>
+  </div>
+</section>
+"""
+    return _render_shell(
+        title="Upgrade to Pro",
+        current_path="/upgrade",
+        body=body,
+        page_key="upgrade",
+        username=username,
+    )

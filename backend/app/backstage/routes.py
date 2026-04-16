@@ -4,13 +4,17 @@ import secrets
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_database
 from backend.app.backstage.gap_detector import get_gap_report
 from backend.app.core.config import get_settings
+from backend.app.models.enums import AccessTier
+from backend.app.models.user import User
 from backend.app.services.diagnostics_summary_service import build_standardized_diagnostics_summary
 from backend.app.services.smart_pool_service import get_smart_pool_candidates
+from backend.app.services.user_service import set_user_tier
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +188,21 @@ def diagnostics_page(
 ):
     summary = build_standardized_diagnostics_summary(db)
     return HTMLResponse(_render_diagnostics_html(summary))
+
+
+@router.patch("/users/{discord_user_id}/tier")
+def admin_set_user_tier(
+    discord_user_id: str,
+    tier: AccessTier,
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    user = db.scalars(select(User).where(User.discord_user_id == discord_user_id)).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found.")
+    set_user_tier(db, user, tier)
+    db.commit()
+    return {"ok": True, "discord_user_id": discord_user_id, "tier": user.access_tier}
 
 
 @router.get("/gaps")
