@@ -1168,7 +1168,7 @@ def _render_live_card(live_signal, is_pro: bool) -> str:
         <span class="skeleton-line skeleton-line-short"></span>
       </div>
       <p class="signal-locked-copy">{_lang_pair("解锁实时标签、置信度、涨跌幅与 AI 解读", "Unlock live label, confidence, delta, and AI explanation")}</p>
-      <a class="button button-primary signal-pro-cta" href="/pro">Go Pro</a>
+      <a class="button button-primary signal-pro-cta" href="/upgrade">Go Pro</a>
     </div>"""
 
     if live_signal is None:

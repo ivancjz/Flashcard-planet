@@ -163,13 +163,6 @@ def _build_recent_observation_stage(
         match_status: int(count)
         for match_status, count in grouped_rows
     }
-    recent_logs = db.execute(
-        select(ObservationMatchLog)
-        .where(ObservationMatchLog.provider == provider)
-        .where(ObservationMatchLog.created_at >= cutoff)
-        .order_by(ObservationMatchLog.created_at.desc())
-        .limit(recent_observation_limit)
-    ).scalars().all()
     review_logs = db.execute(
         select(ObservationMatchLog)
         .where(
@@ -401,7 +394,7 @@ def build_standardized_diagnostics_summary(
             "configured_provider_count": len(providers),
         },
         "smart_pool": _build_smart_pool_reference(report.pool_reports),
-        "ingestion": _serialize_ingestion_result(ingestion_result),
+        "ingestion": _safe_block(_build_scheduler_block, db, block_name="ingestion"),
         "observation_stage": observation_stage,
         "health": {
             "total_assets": report.total_assets,
