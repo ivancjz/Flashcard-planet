@@ -30,4 +30,4 @@ class SignalLabel(str, Enum):
 
 class AccessTier(str, Enum):
     FREE = "free"
-    PRO  = "pro"
+    PRO = "pro"
