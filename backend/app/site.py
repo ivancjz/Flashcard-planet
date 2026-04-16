@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_database
 from backend.app.core.config import get_settings
+from backend.app.core.permissions import Feature, can, get_capabilities
+from backend.app.core.price_queries import build_ranked_price_subquery
 from backend.app.core.price_sources import (
     get_active_price_source_filter,
     get_configured_price_providers,
@@ -36,6 +38,18 @@ logger = logging.getLogger(__name__)
 CARDS_PER_PAGE = 50
 
 
+def _template_ctx(request, user, **kwargs) -> dict:
+    """Build a standard template context dict with user capabilities injected."""
+    caps = get_capabilities(user.access_tier) if user else frozenset()
+    return {
+        "request": request,
+        "user": user,
+        "capabilities": caps,
+        "Feature": Feature,
+        **kwargs,
+    }
+
+
 def _format_decimal(value: Decimal | None, *, suffix: str = "") -> str:
     if value is None:
         return "N/A"
@@ -53,23 +67,6 @@ def _to_iso(value: datetime | None) -> str | None:
     if value is None:
         return None
     return value.isoformat()
-
-
-def _build_ranked_price_subquery(source_filter):
-    return (
-        select(
-            PriceHistory.asset_id,
-            PriceHistory.price,
-            PriceHistory.currency,
-            PriceHistory.source,
-            PriceHistory.captured_at,
-            func.row_number()
-            .over(partition_by=PriceHistory.asset_id, order_by=PriceHistory.captured_at.desc())
-            .label("price_rank"),
-        )
-        .where(source_filter)
-        .subquery()
-    )
 
 
 def _build_cards_query_params(*, set_id: str | None, q: str | None, page: int | None = None) -> str:
@@ -520,7 +517,7 @@ def cards_page(
 ) -> HTMLResponse:
     with SessionLocal() as db:
         source_filter = get_active_price_source_filter(db)
-        ranked = _build_ranked_price_subquery(source_filter)
+        ranked = build_ranked_price_subquery(source_filter)
         latest = select(ranked).where(ranked.c.price_rank == 1).subquery("latest_card_price")
 
         set_rows = db.execute(
@@ -729,7 +726,7 @@ def cards_page(
 def card_detail_page(request: Request, external_id: str) -> HTMLResponse:
     with SessionLocal() as db:
         source_filter = get_active_price_source_filter(db)
-        ranked = _build_ranked_price_subquery(source_filter)
+        ranked = build_ranked_price_subquery(source_filter)
         latest = select(ranked).where(ranked.c.price_rank == 1).subquery("latest_card_price")
 
         row = db.execute(
@@ -953,7 +950,7 @@ def signals_page(
             except Exception:
                 current_user = None
 
-        is_pro = current_user is not None and current_user.access_tier == "pro"
+        is_pro = can(current_user.access_tier, Feature.PRICE_HISTORY_FULL) if current_user else False
 
         label_filter = label.upper() if label else None
         valid_labels = {"BREAKOUT", "MOVE", "WATCH", "IDLE"}
