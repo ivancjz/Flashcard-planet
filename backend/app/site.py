@@ -502,7 +502,7 @@ def dashboard_page(request: Request) -> HTMLResponse:
         <div class="list-shell skeleton-stack"><span></span><span></span><span></span></div>
       </article>
 
-      <article class="module" id="top-movers">
+      <article class="module" id="top-movers" data-show-movers-detail="{'true' if can(access_tier, Feature.MOVERS_DETAIL) else 'false'}">
         <div class="module-head">
           <p class="card-kicker">{_lang_pair("涨跌榜", "Movers")}</p>
           <h2>{_lang_pair("近期最大价格变动", "Largest recent price moves")}</h2>

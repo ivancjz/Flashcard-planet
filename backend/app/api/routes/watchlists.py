@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_database
+from backend.app.core.banner import UPGRADE_URL
 from backend.app.schemas.watchlist import MessageResponse, WatchlistCreateRequest, WatchlistItemResponse
+from backend.app.services.alert_service import is_tier_error
 from backend.app.services.watchlist_service import (
     add_watchlist_item,
     list_watchlist_items,
@@ -22,7 +24,13 @@ def create_watchlist_item(
         db.commit()
     except ValueError as exc:
         db.rollback()
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        msg = str(exc)
+        if is_tier_error(msg):
+            raise HTTPException(
+                status_code=403,
+                detail={"error": msg, "upgrade_url": UPGRADE_URL},
+            )
+        raise HTTPException(status_code=404, detail=msg)
     except Exception:
         db.rollback()
         raise

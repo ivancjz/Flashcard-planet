@@ -7,6 +7,14 @@ import httpx
 from backend.app.core.config import get_settings
 
 
+class TierError(Exception):
+    """Raised when the backend returns 403 due to a tier/plan limit."""
+
+    def __init__(self, message: str, upgrade_url: str = "/upgrade") -> None:
+        super().__init__(message)
+        self.upgrade_url = upgrade_url
+
+
 class BackendClient:
     def __init__(self) -> None:
         settings = get_settings()
@@ -83,6 +91,15 @@ class BackendClient:
         }
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(f"{self.base_url}/api/v1/watchlists", json=payload)
+            if response.status_code == 403:
+                detail = response.json().get("detail", {})
+                if isinstance(detail, dict):
+                    error_msg = detail.get("error", "Pro account required.")
+                    upgrade_url = detail.get("upgrade_url", "/upgrade")
+                else:
+                    error_msg = str(detail)
+                    upgrade_url = "/upgrade"
+                raise TierError(error_msg, upgrade_url)
             response.raise_for_status()
             return response.json()
 
