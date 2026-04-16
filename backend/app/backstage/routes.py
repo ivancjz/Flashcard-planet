@@ -1,9 +1,10 @@
 import logging
 import secrets
+import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Form, Header, HTTPException
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,6 +15,11 @@ from backend.app.models.enums import AccessTier
 from backend.app.models.user import User
 from backend.app.services.diagnostics_summary_service import build_standardized_diagnostics_summary
 from backend.app.services.smart_pool_service import get_smart_pool_candidates
+from backend.app.services.upgrade_service import (
+    approve_upgrade_request,
+    list_pending_requests,
+    reject_upgrade_request,
+)
 from backend.app.services.user_service import set_user_tier
 
 logger = logging.getLogger(__name__)
@@ -235,3 +241,79 @@ def admin_smart_pool(
             for candidate in candidates
         ]
     )
+
+
+@router.get("/upgrade-requests", response_class=HTMLResponse)
+def admin_upgrade_queue(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """List all pending Pro upgrade requests."""
+    requests = list_pending_requests(db)
+
+    if not requests:
+        rows_html = "<tr><td colspan='5' style='text-align:center;color:#6b7280;'>No pending requests.</td></tr>"
+    else:
+        from html import escape as _escape
+        rows_html = "".join(
+            f"""
+            <tr>
+              <td style="padding:8px 12px;">{_escape(str(r.id)[:8])}…</td>
+              <td style="padding:8px 12px;">{_escape(str(r.user_id)[:8])}…</td>
+              <td style="padding:8px 12px;">{_escape(r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else "N/A")}</td>
+              <td style="padding:8px 12px;">{_escape(r.note or "—")}</td>
+              <td style="padding:8px 12px;">
+                <form method="POST" action="/admin/upgrade-requests/{r.id}/approve" style="display:inline">
+                  <button style="background:#16a34a;color:white;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;">Approve</button>
+                </form>
+                &nbsp;
+                <form method="POST" action="/admin/upgrade-requests/{r.id}/reject" style="display:inline">
+                  <button style="background:#dc2626;color:white;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;">Reject</button>
+                </form>
+              </td>
+            </tr>
+            """
+            for r in requests
+        )
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Upgrade Requests — Admin</title>
+<style>body{{font-family:sans-serif;max-width:900px;margin:40px auto;padding:0 16px;}}
+table{{width:100%;border-collapse:collapse;}}th,td{{text-align:left;border-bottom:1px solid #e5e7eb;}}
+th{{font-size:0.85em;color:#6b7280;padding:8px 12px;}}</style></head>
+<body>
+  <h1>Upgrade Requests</h1>
+  <p><a href="/admin/diagnostics">← Diagnostics</a></p>
+  <table>
+    <thead><tr><th>Request ID</th><th>User ID</th><th>Submitted</th><th>Note</th><th>Actions</th></tr></thead>
+    <tbody>{rows_html}</tbody>
+  </table>
+</body></html>"""
+    return HTMLResponse(html)
+
+
+@router.post("/upgrade-requests/{request_id}/approve")
+def admin_approve_upgrade(
+    request_id: uuid.UUID,
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    result = approve_upgrade_request(db, request_id=request_id)
+    db.commit()
+    if not result.ok:
+        raise HTTPException(status_code=400, detail=result.error)
+    return RedirectResponse(url="/admin/upgrade-requests", status_code=303)
+
+
+@router.post("/upgrade-requests/{request_id}/reject")
+def admin_reject_upgrade(
+    request_id: uuid.UUID,
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    result = reject_upgrade_request(db, request_id=request_id)
+    db.commit()
+    if not result.ok:
+        raise HTTPException(status_code=400, detail=result.error)
+    return RedirectResponse(url="/admin/upgrade-requests", status_code=303)

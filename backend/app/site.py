@@ -13,6 +13,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from fastapi import Form
+
 from backend.app.api.deps import get_database
 from backend.app.core.config import get_settings
 from backend.app.core.permissions import Feature, can, get_capabilities
@@ -26,12 +28,19 @@ from backend.app.models.alert import Alert
 from backend.app.models.asset import Asset
 from backend.app.models.asset_signal_history import AssetSignalHistory
 from backend.app.models.price_history import PriceHistory
+from backend.app.models.user import User
 from backend.app.models.watchlist import Watchlist
 from backend.app.services.card_detail_service import build_card_detail
 from backend.app.services.diagnostics_summary_service import build_standardized_diagnostics_summary
 from backend.app.services.price_service import get_top_movers, get_top_value_assets
+from backend.app.services.pro_insights_service import build_pro_insights
 from backend.app.services.signal_service import get_all_signals, get_daily_snapshot_signals
 from backend.app.services.smart_pool_service import get_smart_pool_candidates
+from backend.app.services.upgrade_service import (
+    cancel_upgrade_request,
+    get_upgrade_status,
+    submit_upgrade_request,
+)
 
 router = APIRouter(include_in_schema=False)
 settings = get_settings()
@@ -2048,41 +2057,115 @@ def dashboard_snapshot(db: Session = Depends(get_database)) -> dict[str, object]
 @router.get("/upgrade", response_class=HTMLResponse)
 def upgrade_page(request: Request) -> HTMLResponse:
     username = _session_username(request)
-    body = f"""
+    body = """
 <div class="page-hero">
   <h1 class="page-hero__title">
-    <span data-zh="升级到 Pro">Upgrade to Pro</span>
+    Flashcard Planet <span style="background:#2563eb;color:white;padding:2px 10px;border-radius:4px;font-size:0.75em;vertical-align:middle;">Pro</span>
   </h1>
   <p class="page-hero__subtitle">
-    <span data-zh="解锁完整的价格历史、信号置信度和流动性评分。">Unlock full price history, signal confidence, and liquidity scores.</span>
+    <span data-zh="更深入的数据。更精准的信号。完整的历史记录。">Deeper data. Sharper signals. Full history.</span>
   </p>
 </div>
 
-<section class="shell" style="max-width:640px;margin:0 auto;padding-bottom:48px;">
-  <div style="border:1px solid #e5e7eb;border-radius:12px;padding:32px;margin-bottom:24px;">
-    <h2 style="margin:0 0 16px 0;" data-zh="Pro 计划功能">Pro Plan Features</h2>
-    <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:12px;">
-      <li>&#10003;&nbsp;<span data-zh="完整价格历史（180 天）">Full price history (180 days)</span></li>
-      <li>&#10003;&nbsp;<span data-zh="信号置信度评分">Signal confidence scores</span></li>
-      <li>&#10003;&nbsp;<span data-zh="流动性评分">Liquidity scores</span></li>
-      <li>&#10003;&nbsp;<span data-zh="无限观察列表">Unlimited watchlists</span></li>
-      <li>&#10003;&nbsp;<span data-zh="无限价格提醒">Unlimited price alerts</span></li>
-      <li>&#10003;&nbsp;<span data-zh="来源比较">Source comparison</span></li>
-    </ul>
+<section class="shell" style="max-width:760px;margin:0 auto;padding-bottom:48px;">
+
+  <!-- Comparison table -->
+  <div style="overflow-x:auto;margin-bottom:32px;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.95em;">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:10px 12px;border-bottom:2px solid #e5e7eb;" data-zh="功能">Feature</th>
+          <th style="text-align:center;padding:10px 12px;border-bottom:2px solid #e5e7eb;" data-zh="免费">Free</th>
+          <th style="text-align:center;padding:10px 12px;border-bottom:2px solid #e5e7eb;color:#2563eb;" data-zh="Pro">Pro</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #f3f4f6;">
+          <td style="padding:10px 12px;" data-zh="价格历史">Price history</td>
+          <td style="text-align:center;padding:10px 12px;" data-zh="7 天">7 days</td>
+          <td style="text-align:center;padding:10px 12px;font-weight:600;color:#2563eb;" data-zh="180 天">180 days</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f3f4f6;">
+          <td style="padding:10px 12px;" data-zh="信号动态">Signals feed</td>
+          <td style="text-align:center;padding:10px 12px;" data-zh="前 5 条，无置信度分数">Top 5, no scores</td>
+          <td style="text-align:center;padding:10px 12px;font-weight:600;color:#2563eb;" data-zh="完整动态 + 置信度分数">Full feed + confidence scores</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f3f4f6;">
+          <td style="padding:10px 12px;" data-zh="AI 信号解读">AI signal explanation</td>
+          <td style="text-align:center;padding:10px 12px;">&#10005;</td>
+          <td style="text-align:center;padding:10px 12px;font-weight:600;color:#2563eb;">&#10003;</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f3f4f6;">
+          <td style="padding:10px 12px;" data-zh="来源对比">Source breakdown</td>
+          <td style="text-align:center;padding:10px 12px;">&#10005;</td>
+          <td style="text-align:center;padding:10px 12px;font-weight:600;color:#2563eb;" data-zh="eBay vs TCG 拆分">eBay vs TCG split</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f3f4f6;">
+          <td style="padding:10px 12px;" data-zh="价格提醒">Alerts</td>
+          <td style="text-align:center;padding:10px 12px;" data-zh="最多 5 条">Up to 5</td>
+          <td style="text-align:center;padding:10px 12px;font-weight:600;color:#2563eb;" data-zh="无限 + 百分比触发">Unlimited + % triggers</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f3f4f6;">
+          <td style="padding:10px 12px;" data-zh="观察列表">Watchlist</td>
+          <td style="text-align:center;padding:10px 12px;" data-zh="最多 10 张卡牌">Up to 10 cards</td>
+          <td style="text-align:center;padding:10px 12px;font-weight:600;color:#2563eb;" data-zh="无限">Unlimited</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f3f4f6;">
+          <td style="padding:10px 12px;" data-zh="涨跌榜详情">Top Movers detail</td>
+          <td style="text-align:center;padding:10px 12px;" data-zh="基本列表">Basic list</td>
+          <td style="text-align:center;padding:10px 12px;font-weight:600;color:#2563eb;" data-zh="流动性 + 成交量趋势">Liquidity + volume trend</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 12px;" data-zh="Pro 洞察">Pro Insights</td>
+          <td style="text-align:center;padding:10px 12px;">&#10005;</td>
+          <td style="text-align:center;padding:10px 12px;font-weight:600;color:#2563eb;" data-zh="数据质量面板">Data quality panel</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 
-  <div style="border:1px solid #e5e7eb;border-radius:12px;padding:32px;text-align:center;">
-    <p style="margin:0 0 8px 0;color:#6b7280;" data-zh="Pro 访问权限目前处于封闭测试阶段。">
-      Pro access is currently in closed beta.
+  <!-- Request form -->
+  <div style="border:1px solid #e5e7eb;border-radius:12px;padding:32px;margin-bottom:24px;">
+    <h2 style="margin:0 0 8px 0;" data-zh="申请 Pro 访问权限">Request Pro Access</h2>
+    <p style="color:#6b7280;margin:0 0 20px 0;" data-zh="目前处于封闭测试阶段，免费开放。提交申请后我们会通过 Discord 在 24 小时内确认。">
+      Early access is free while we're in beta. We'll confirm by Discord within 24&nbsp;hours.
     </p>
-    <p style="margin:0 0 24px 0;color:#6b7280;" data-zh="请通过电子邮件联系我们加入候补名单。">
-      Contact us by email to join the waitlist.
-    </p>
-    <a
-      href="mailto:hello@flashcardplanet.com"
-      style="display:inline-block;background:#2563eb;color:white;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;"
-      data-zh="加入候补名单"
-    >Join the Waitlist</a>
+    <form method="POST" action="/upgrade/request">
+      <textarea
+        name="note"
+        placeholder="Anything you'd like to share? (optional)"
+        rows="3"
+        maxlength="500"
+        style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:16px;font-family:inherit;font-size:0.9em;"
+      ></textarea>
+      <button type="submit"
+        style="background:#2563eb;color:white;border:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:1em;cursor:pointer;"
+        data-zh="申请 Pro 访问"
+      >Request Pro Access</button>
+    </form>
+  </div>
+
+  <!-- FAQ -->
+  <div>
+    <h2 style="margin-bottom:12px;" data-zh="常见问题">Common questions</h2>
+    <details style="margin-bottom:12px;border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;">
+      <summary style="cursor:pointer;font-weight:600;" data-zh="现在的访问权限是如何运作的？">How does access work right now?</summary>
+      <p style="margin:8px 0 0 0;color:#6b7280;" data-zh="我们处于人工审核测试阶段。提交申请后我们会直接升级您的账户，暂不需要付款。">
+        We're in a manual-approval beta. Submit a request and we'll upgrade your account directly — no payment needed yet.
+      </p>
+    </details>
+    <details style="margin-bottom:12px;border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;">
+      <summary style="cursor:pointer;font-weight:600;" data-zh="Pro 会一直免费吗？">Will Pro always be free?</summary>
+      <p style="margin:8px 0 0 0;color:#6b7280;" data-zh="不会。平台功能完善后我们计划推出付费方案。早期测试用户将获得宽限期。">
+        No. We plan to introduce a paid tier once the platform is more complete. Early beta users will get a grace period.
+      </p>
+    </details>
+    <details style="border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;">
+      <summary style="cursor:pointer;font-weight:600;" data-zh="降级后我的数据会怎样？">What happens to my data if I downgrade?</summary>
+      <p style="margin:8px 0 0 0;color:#6b7280;" data-zh="您的卡牌、提醒和观察列表永远不会被删除。您只是暂时失去对扩展视图的访问权限。">
+        Your cards, alerts, and watchlist are never deleted. You'd simply lose access to extended views until you're on Pro again.
+      </p>
+    </details>
   </div>
 </section>
 """
@@ -2091,5 +2174,208 @@ def upgrade_page(request: Request) -> HTMLResponse:
         current_path="/upgrade",
         body=body,
         page_key="upgrade",
+        username=username,
+    )
+
+
+@router.post("/upgrade/request")
+def post_upgrade_request(
+    request: Request,
+    note: str = Form(default=""),
+    db: Session = Depends(get_database),
+):
+    import uuid as _uuid
+
+    session = request.scope.get("session")
+    user_id_str = session.get("user_id") if isinstance(session, dict) else None
+    if not user_id_str:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/upgrade", status_code=303)
+
+    try:
+        user_id = _uuid.UUID(user_id_str)
+    except ValueError:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/upgrade", status_code=303)
+
+    result = submit_upgrade_request(db, user_id=user_id, note=note)
+    db.commit()
+    from fastapi.responses import RedirectResponse
+    if not result.ok:
+        return RedirectResponse(url=f"/upgrade/status?msg={escape(result.error or '')}", status_code=303)
+    return RedirectResponse(url="/upgrade/status", status_code=303)
+
+
+@router.get("/upgrade/status", response_class=HTMLResponse)
+def upgrade_status_page(request: Request, msg: str | None = None) -> HTMLResponse:
+    import uuid as _uuid
+
+    username = _session_username(request)
+    session = request.scope.get("session")
+    user_id_str = session.get("user_id") if isinstance(session, dict) else None
+
+    if not user_id_str:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/upgrade", status_code=303)
+
+    with SessionLocal() as db:
+        try:
+            user_id = _uuid.UUID(user_id_str)
+        except ValueError:
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="/upgrade", status_code=303)
+        status = get_upgrade_status(db, user_id=user_id)
+
+    tier = status["tier"]
+    req_status = status.get("request_status")
+
+    if tier == "pro":
+        body = """
+        <div style="max-width:540px;margin:48px auto;text-align:center;">
+          <p style="font-size:2em;margin:0 0 12px 0;">&#10003;</p>
+          <h2 data-zh="您已升级至 Pro">You're on Pro</h2>
+          <p style="color:#6b7280;" data-zh="所有 Pro 功能已在您的账户上激活。">All Pro features are active on your account.</p>
+          <a href="/signals" style="display:inline-block;margin-top:16px;background:#2563eb;color:white;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;" data-zh="查看信号">View Signals</a>
+        </div>
+        """
+    elif req_status == "pending":
+        body = """
+        <div style="max-width:540px;margin:48px auto;text-align:center;">
+          <h2 data-zh="申请已收到">Request received</h2>
+          <p style="color:#6b7280;" data-zh="我们将审核您的申请并在 24 小时内通过 Discord 确认。">We'll review your request and confirm by Discord within 24&nbsp;hours.</p>
+          <form method="POST" action="/upgrade/cancel" style="margin-top:20px;">
+            <button type="submit"
+              style="background:transparent;border:1px solid #d1d5db;padding:8px 20px;border-radius:6px;cursor:pointer;color:#6b7280;"
+              data-zh="撤销申请"
+            >Cancel request</button>
+          </form>
+        </div>
+        """
+    elif req_status == "rejected":
+        body = f"""
+        <div style="max-width:540px;margin:48px auto;text-align:center;">
+          <h2 data-zh="申请未获批准">Request not approved</h2>
+          <p style="color:#6b7280;" data-zh="我们暂时无法批准此申请。如有疑问请通过电子邮件联系我们。">
+            We couldn't approve this request right now.
+            Reach out at <a href="mailto:hello@flashcardplanet.com">hello@flashcardplanet.com</a> if you think this is a mistake.
+          </p>
+        </div>
+        """
+    else:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/upgrade", status_code=303)
+
+    if msg:
+        body = f'<p style="text-align:center;color:#dc2626;">{escape(msg)}</p>' + body
+
+    return _render_shell(
+        title="Upgrade Status",
+        current_path="/upgrade",
+        body=body,
+        page_key="upgrade-status",
+        username=username,
+    )
+
+
+@router.post("/upgrade/cancel")
+def cancel_upgrade(request: Request, db: Session = Depends(get_database)):
+    import uuid as _uuid
+    from fastapi.responses import RedirectResponse
+
+    session = request.scope.get("session")
+    user_id_str = session.get("user_id") if isinstance(session, dict) else None
+    if not user_id_str:
+        return RedirectResponse(url="/upgrade", status_code=303)
+
+    try:
+        user_id = _uuid.UUID(user_id_str)
+    except ValueError:
+        return RedirectResponse(url="/upgrade", status_code=303)
+
+    cancel_upgrade_request(db, user_id=user_id)
+    db.commit()
+    return RedirectResponse(url="/upgrade", status_code=303)
+
+
+@router.get("/insights", response_class=HTMLResponse)
+def insights_page(request: Request) -> HTMLResponse:
+    import uuid as _uuid
+
+    username = _session_username(request)
+    session = request.scope.get("session")
+    user_id_str = session.get("user_id") if isinstance(session, dict) else None
+
+    # Resolve access tier
+    access_tier = "free"
+    if user_id_str:
+        with SessionLocal() as db:
+            try:
+                user = db.get(User, _uuid.UUID(user_id_str))
+                access_tier = user.access_tier if user else "free"
+            except Exception:
+                pass
+
+    if not can(access_tier, Feature.PRO_INSIGHTS):
+        body = f"""
+<div class="page-hero">
+  <h1 class="page-hero__title" data-zh="Pro 洞察">Pro Insights</h1>
+</div>
+<div class="progate" style="position:relative;overflow:hidden;border-radius:12px;max-width:760px;margin:0 auto;">
+  <div style="filter:blur(4px);pointer-events:none;padding:32px;">
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;">
+      {"".join(f'<div style="border:1px solid #e5e7eb;border-radius:8px;padding:20px;"><p style="margin:0;color:#9ca3af;font-size:0.85em;">Metric</p><p style="margin:4px 0 0 0;font-size:1.5em;font-weight:700;">———</p></div>' for _ in range(4))}
+    </div>
+  </div>
+  <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.75);">
+    <p style="margin:0 0 12px 0;font-weight:600;" data-zh="Pro 功能">Pro feature</p>
+    <a href="/upgrade" style="background:#2563eb;color:white;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;" data-zh="解锁 Pro 洞察">Unlock Pro Insights</a>
+  </div>
+</div>
+"""
+        return _render_shell(
+            title="Pro Insights",
+            current_path="/insights",
+            body=body,
+            page_key="insights",
+            username=username,
+        )
+
+    with SessionLocal() as db:
+        result = build_pro_insights(db)
+
+    metric_cards = "".join(
+        f"""
+        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:20px;">
+          <p style="margin:0 0 4px 0;color:#6b7280;font-size:0.85em;">{escape(m.label)}</p>
+          <p style="margin:0 0 4px 0;font-size:1.5em;font-weight:700;">{escape(m.value)}</p>
+          <span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.8em;{'background:#16a34a;color:white' if m.status == 'green' else 'background:#ca8a04;color:white' if m.status == 'yellow' else 'background:#dc2626;color:white'};">{m.status.upper()}</span>
+          <p style="margin:8px 0 0 0;font-size:0.85em;color:#6b7280;">{escape(m.description)}</p>
+        </div>
+        """
+        for m in result.metrics
+    )
+
+    body = f"""
+<div class="page-hero">
+  <h1 class="page-hero__title" data-zh="Pro 洞察">Pro Insights</h1>
+  <p class="page-hero__subtitle" style="color:#6b7280;">Generated {result.generated_at.strftime("%Y-%m-%d %H:%M UTC")}</p>
+</div>
+<section class="shell" style="max-width:760px;margin:0 auto;padding-bottom:48px;">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:32px;">
+    {metric_cards}
+  </div>
+  <div style="border:1px solid #e5e7eb;border-radius:8px;padding:20px;">
+    <h2 style="margin:0 0 12px 0;font-size:1em;" data-zh="过去 7 天每日观测量">Daily Observations — Last 7 Days</h2>
+    <p style="font-family:monospace;font-size:0.9em;color:#6b7280;">{" | ".join(str(v) for v in result.daily_observations)}</p>
+    <h2 style="margin:16px 0 12px 0;font-size:1em;" data-zh="过去 7 天每日信号数">Daily Signals — Last 7 Days</h2>
+    <p style="font-family:monospace;font-size:0.9em;color:#6b7280;">{" | ".join(str(v) for v in result.daily_signals)}</p>
+  </div>
+</section>
+"""
+    return _render_shell(
+        title="Pro Insights",
+        current_path="/insights",
+        body=body,
+        page_key="insights",
         username=username,
     )

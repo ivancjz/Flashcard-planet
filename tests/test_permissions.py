@@ -70,14 +70,21 @@ class TestCan:
 class TestFeatureEnum:
     def test_all_expected_features_exist(self):
         expected = {
+            "price_history_full",
+            "card_source_breakdown",
+            "signal_explanation",
             "signals_full_feed",
             "signals_confidence",
             "signals_ai_explanation",
-            "price_history_full",
-            "watchlist_unlimited",
+            "alerts_extended",
+            "alerts_pct_trigger",
             "alerts_unlimited",
+            "watchlist_extended",
+            "watchlist_unlimited",
+            "movers_detail",
             "liquidity_score",
             "source_comparison",
+            "pro_insights",
         }
         actual = {f.value for f in Feature}
         assert actual == expected
