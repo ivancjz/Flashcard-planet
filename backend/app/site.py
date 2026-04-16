@@ -16,8 +16,9 @@ from sqlalchemy.orm import Session
 from fastapi import Form
 
 from backend.app.api.deps import get_database
+from backend.app.core.banner import _progate_html, _upgrade_banner_html
 from backend.app.core.config import get_settings
-from backend.app.core.permissions import Feature, can, get_capabilities
+from backend.app.core.permissions import Feature, alert_limit, can, get_capabilities
 from backend.app.core.price_queries import build_ranked_price_subquery
 from backend.app.core.price_sources import (
     get_active_price_source_filter,
@@ -35,6 +36,7 @@ from backend.app.services.diagnostics_summary_service import build_standardized_
 from backend.app.services.price_service import get_top_movers, get_top_value_assets
 from backend.app.services.pro_insights_service import build_pro_insights
 from backend.app.services.signal_service import get_all_signals, get_daily_snapshot_signals
+from backend.app.services.signals_feed_service import build_signals_feed
 from backend.app.services.smart_pool_service import get_smart_pool_candidates
 from backend.app.services.upgrade_service import (
     cancel_upgrade_request,
@@ -420,6 +422,24 @@ def landing_page(request: Request) -> HTMLResponse:
 
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard_page(request: Request) -> HTMLResponse:
+    import uuid as _uuid
+
+    session = request.scope.get("session")
+    user_id = session.get("user_id") if isinstance(session, dict) else None
+    current_user = None
+    if user_id:
+        with SessionLocal() as db:
+            try:
+                current_user = db.get(User, _uuid.UUID(user_id))
+            except Exception:
+                current_user = None
+    access_tier = current_user.access_tier if current_user else "free"
+    movers_banner_html = (
+        _upgrade_banner_html("full movers detail", cta_label="Upgrade to Pro")
+        if not can(access_tier, Feature.MOVERS_DETAIL)
+        else ""
+    )
+
     body = f"""
     <section class="page-intro">
       <div>
@@ -487,6 +507,7 @@ def dashboard_page(request: Request) -> HTMLResponse:
           <h2>{_lang_pair("近期最大价格变动", "Largest recent price moves")}</h2>
         </div>
         <div class="list-shell skeleton-stack"><span></span><span></span><span></span></div>
+        {movers_banner_html}
       </article>
 
       <article class="module" id="smart-pool-module">
@@ -854,17 +875,17 @@ def card_detail_page(request: Request, external_id: str) -> HTMLResponse:
 
     truncated_banner = ""
     if vm.history_truncated:
-        truncated_banner = f"""
-        <div class="progate-banner">
-          <p>
-            {_lang_pair(
+        blurred_preview = (
+            "<p style='margin:0;font-style:italic;color:#6b7280;'>"
+            + _lang_pair(
                 "免费账户仅显示最近 7 天价格记录。",
-                "Free accounts show the last 7 days of price history only."
-            )}
-            <a href="/upgrade">{_lang_pair("升级至 Pro 解锁完整历史数据 →", "Upgrade to Pro for full history →")}</a>
-          </p>
-        </div>
-        """
+                "Free accounts show only the last 7 days of price history.",
+            )
+            + "</p>"
+        )
+        truncated_banner = _progate_html(
+            "View Full History", blurred_preview, "180-day price history"
+        )
 
     image_markup = (
         f'<div class="card-image-panel"><img src="{escape(image_small)}" alt="{escape(asset.name)}" /></div>'
@@ -970,7 +991,8 @@ def signals_page(
             except Exception:
                 current_user = None
 
-        is_pro = can(current_user.access_tier, Feature.PRICE_HISTORY_FULL) if current_user else False
+        access_tier = current_user.access_tier if current_user else "free"
+        is_pro = can(access_tier, Feature.PRICE_HISTORY_FULL)
 
         label_filter = label.upper() if label else None
         valid_labels = {"BREAKOUT", "MOVE", "WATCH", "IDLE"}
@@ -1004,6 +1026,20 @@ def signals_page(
             except Exception as exc:
                 logger.exception("signals_page: get_all_signals failed: %s", exc)
                 live_map = {}
+
+        try:
+            feed = build_signals_feed(db, access_tier, label_filter=label_filter)
+            signals_banner_html = (
+                _upgrade_banner_html(
+                    "the full signals feed",
+                    hidden_count=feed.hidden_count,
+                )
+                if feed.truncated
+                else ""
+            )
+        except Exception as exc:
+            logger.exception("signals_page: build_signals_feed failed: %s", exc)
+            signals_banner_html = ""
 
     filter_links = ""
     for lbl, zh, en in [
@@ -1072,6 +1108,7 @@ def signals_page(
       <div class="signal-rows">
         {rows_html}
       </div>
+      {signals_banner_html}
     </section>
     """
 
@@ -1397,10 +1434,44 @@ def watchlists_page(request: Request) -> HTMLResponse:
 
 @router.get("/alerts", response_class=HTMLResponse)
 def alerts_page(request: Request) -> HTMLResponse:
+    import uuid as _uuid
+
     session = request.scope.get("session")
     user_id = session.get("user_id") if isinstance(session, dict) else None
     if not user_id and get_settings().discord_client_id:
         return RedirectResponse("/auth/login", status_code=302)
+
+    # Resolve user tier for gating nudges.
+    current_user = None
+    if user_id:
+        with SessionLocal() as db:
+            try:
+                current_user = db.get(User, _uuid.UUID(user_id))
+            except Exception:
+                current_user = None
+    access_tier = current_user.access_tier if current_user else "free"
+    is_pro = can(access_tier, Feature.ALERTS_EXTENDED)
+
+    limit = alert_limit(access_tier)
+    alert_limit_nudge = ""
+    if not is_pro and limit is not None:
+        alert_limit_nudge = _upgrade_banner_html(
+            "unlimited alerts",
+            cta_label="Upgrade to Pro",
+            hidden_count=0,
+        )
+
+    # Disable pct-trigger options for free users.
+    def _opt(value: str, label: str) -> str:
+        if not is_pro and value in (
+            "PRICE_UP_THRESHOLD",
+            "PRICE_DOWN_THRESHOLD",
+            "PREDICT_UP_PROBABILITY_ABOVE",
+            "PREDICT_DOWN_PROBABILITY_ABOVE",
+        ):
+            return f'<option value="{value}" disabled>{label} (Pro only)</option>'
+        return f'<option value="{value}">{label}</option>'
+
     api_base = f"{settings.api_prefix}/alerts"
     body = f"""
     <section class="page-intro">
@@ -1424,6 +1495,7 @@ def alerts_page(request: Request) -> HTMLResponse:
           <p class="card-kicker">{_lang_pair("创建预警", "Create alert")}</p>
           <h2>{_lang_pair("新增预警规则", "Add a new alert rule")}</h2>
         </div>
+        {alert_limit_nudge}
         <form class="card-filter-form" id="alert-create-form">
           <label>
             <span>{_lang_pair("Discord 用户 ID", "Discord user ID")}</span>
@@ -1436,12 +1508,12 @@ def alerts_page(request: Request) -> HTMLResponse:
           <label>
             <span>{_lang_pair("预警类型", "Alert type")}</span>
             <select id="alert-create-type" name="alert_type">
-              <option value="PRICE_UP_THRESHOLD">PRICE_UP_THRESHOLD</option>
-              <option value="PRICE_DOWN_THRESHOLD">PRICE_DOWN_THRESHOLD</option>
-              <option value="TARGET_PRICE_HIT">TARGET_PRICE_HIT</option>
-              <option value="PREDICT_SIGNAL_CHANGE">PREDICT_SIGNAL_CHANGE</option>
-              <option value="PREDICT_UP_PROBABILITY_ABOVE">PREDICT_UP_PROBABILITY_ABOVE</option>
-              <option value="PREDICT_DOWN_PROBABILITY_ABOVE">PREDICT_DOWN_PROBABILITY_ABOVE</option>
+              {_opt("PRICE_UP_THRESHOLD", "PRICE_UP_THRESHOLD")}
+              {_opt("PRICE_DOWN_THRESHOLD", "PRICE_DOWN_THRESHOLD")}
+              {_opt("TARGET_PRICE_HIT", "TARGET_PRICE_HIT")}
+              {_opt("PREDICT_SIGNAL_CHANGE", "PREDICT_SIGNAL_CHANGE")}
+              {_opt("PREDICT_UP_PROBABILITY_ABOVE", "PREDICT_UP_PROBABILITY_ABOVE")}
+              {_opt("PREDICT_DOWN_PROBABILITY_ABOVE", "PREDICT_DOWN_PROBABILITY_ABOVE")}
             </select>
           </label>
           <label>
