@@ -2729,3 +2729,122 @@ def insights_page(request: Request) -> HTMLResponse:
         page_key="insights",
         username=username,
     )
+
+
+# ── Discord landing pages ─────────────────────────────────────────────────────
+
+def extract_utm_params(request: Request) -> dict:
+    keys = ("utm_source", "utm_medium", "utm_campaign", "utm_content", "ref", "tier", "from")
+    return {k: request.query_params[k] for k in keys if k in request.query_params}
+
+
+@router.get("/welcome-from-discord", response_class=HTMLResponse)
+def discord_welcome(request: Request) -> HTMLResponse:
+    username = _session_username(request)
+    if username:
+        import re as _re
+        ref = request.query_params.get("ref")
+        if ref and _re.fullmatch(r"[A-Za-z0-9_-]+", ref):
+            dest = f"/cards/{ref}?from=discord"
+        else:
+            dest = "/dashboard?from=discord"
+        return RedirectResponse(dest, status_code=302)
+    body = """
+    <section class="page-intro">
+      <div>
+        <p class="eyebrow">Welcome from Discord</p>
+        <h1>You found the data behind the signals.</h1>
+        <p class="lede">
+          Flashcard Planet tracks collectible prices, generates buy/sell signals, and fires alerts
+          when your watchlist moves. Everything you see in the Discord bot lives here, with charts,
+          history, and source breakdowns.
+        </p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="/auth/login">Log in with Discord</a>
+          <a class="button button-secondary" href="/signals">Browse signals</a>
+        </div>
+      </div>
+    </section>
+    """
+    return _render_shell(
+        title="Welcome from Discord",
+        current_path="/welcome-from-discord",
+        body=body,
+        page_key="discord-welcome",
+    )
+
+
+@router.get("/upgrade-from-discord", response_class=HTMLResponse)
+def discord_upgrade(request: Request) -> HTMLResponse:
+    import uuid as _uuid
+    session = request.scope.get("session")
+    user_id = session.get("user_id") if isinstance(session, dict) else None
+    if not user_id:
+        return RedirectResponse("/auth/login?next=/upgrade-from-discord", status_code=302)
+
+    with SessionLocal() as db:
+        try:
+            current_user = db.get(User, _uuid.UUID(user_id))
+        except Exception:
+            current_user = None
+
+    access_tier = current_user.access_tier if current_user else "free"
+    if access_tier == "pro":
+        return RedirectResponse("/signals?from=discord", status_code=302)
+
+    username = _session_username(request)
+    body = f"""
+    <section class="page-intro">
+      <div>
+        <p class="eyebrow">Upgrade to Pro</p>
+        <h1>Unlock the full signal feed.</h1>
+        <p class="lede">
+          Free tier shows the top 5 signals. Pro unlocks the full feed, AI explanations,
+          180-day price history, source breakdown, and unlimited alerts.
+        </p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="/pro">View Pro plans</a>
+        </div>
+      </div>
+    </section>
+    """
+    return _render_shell(
+        title="Upgrade to Pro",
+        current_path="/upgrade-from-discord",
+        body=body,
+        page_key="discord-upgrade",
+        username=username,
+    )
+
+
+@router.get("/signals/explained", response_class=HTMLResponse)
+def signals_explained(request: Request) -> HTMLResponse:
+    username = _session_username(request)
+    body = """
+    <section class="page-intro">
+      <div>
+        <p class="eyebrow">How signals work</p>
+        <h1>Market signals, explained.</h1>
+        <p class="lede">
+          A signal fires when recent price data passes a statistical threshold indicating
+          unusual movement — a BREAKOUT (sharp upward move), a MOVE (trend continuation),
+          or a WATCH (elevated activity without a directional conviction).
+        </p>
+        <p>
+          Signals are ranked by confidence score. Free users see the top 5. Pro users see the
+          full feed with AI-generated explanations and historical signal accuracy.
+        </p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="/signals">View signals</a>
+          <a class="button button-secondary" href="/upgrade-from-discord">Upgrade to Pro</a>
+        </div>
+      </div>
+    </section>
+    """
+    return _render_shell(
+        title="Signals Explained",
+        current_path="/signals/explained",
+        body=body,
+        page_key="signals-explained",
+        username=username,
+    )
