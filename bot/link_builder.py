@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from urllib.parse import urlencode
 
 from backend.app.core.config import get_settings

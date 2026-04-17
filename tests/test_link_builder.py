@@ -6,7 +6,12 @@ from urllib.parse import urlparse, parse_qs
 class TestMakeWebLink(unittest.TestCase):
     def setUp(self):
         import bot.link_builder as lb
+        self._orig_base_url = lb.BASE_URL
         lb.BASE_URL = "http://localhost:8000"
+
+    def tearDown(self):
+        import bot.link_builder as lb
+        lb.BASE_URL = self._orig_base_url
 
     def _parse(self, url: str) -> tuple[str, dict]:
         parsed = urlparse(url)
