@@ -8,6 +8,7 @@ from discord.ext import commands
 
 from backend.app.core.config import get_settings
 from bot.api_client import BackendClient, TierError
+from bot.link_builder import make_web_link
 
 DELIVERY_STATUS_LABELS = {
     "sent": "Delivered",
@@ -641,7 +642,9 @@ async def price(interaction: discord.Interaction, name: str) -> None:
         await interaction.followup.send(f"No assets found for `{name}`.")
         return
 
-    await interaction.followup.send(embed=build_price_embed(results[0], len(results)))
+    embed = build_price_embed(results[0], len(results))
+    embed.url = make_web_link("/cards", {"command_type": "slash_command", "campaign": "card_discovery"})
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="predict", description="Predict short-term price direction for a tracked asset.")
@@ -658,7 +661,9 @@ async def predict(interaction: discord.Interaction, name: str) -> None:
         await interaction.followup.send(f"No assets found for `{name}`.")
         return
 
-    await interaction.followup.send(embed=build_prediction_embed(results[0], len(results)))
+    embed = build_prediction_embed(results[0], len(results))
+    embed.url = make_web_link("/cards", {"command_type": "slash_command", "campaign": "card_discovery"})
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="history", description="Show recent real price history for a tracked asset.")
@@ -675,7 +680,9 @@ async def history(
         await interaction.followup.send(f"History lookup failed: {exc}")
         return
 
-    await interaction.followup.send(embed=build_history_embed(result, limit))
+    embed = build_history_embed(result, limit)
+    embed.url = make_web_link("/cards", {"command_type": "slash_command", "campaign": "card_discovery"})
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="watch", description="Add an asset to your watchlist.")
@@ -711,34 +718,33 @@ async def watch(
             predict_down_probability_above=predict_down_probability_above,
         )
     except TierError as exc:
-        await interaction.followup.send(
-            embed=discord.Embed(
-                title="Watchlist limit reached",
-                description=(
-                    f"{exc}\n\n"
-                    f"[Upgrade to Pro]({exc.upgrade_url}) for unlimited watchlists."
-                ),
-                color=EMBED_COLOR_WARNING,
-            )
+        embed = discord.Embed(
+            title="Watchlist limit reached",
+            description=(
+                f"{exc}\n\n"
+                f"[Upgrade to Pro]({exc.upgrade_url}) for unlimited watchlists."
+            ),
+            color=EMBED_COLOR_WARNING,
         )
+        embed.url = make_web_link("/upgrade-from-discord", {"command_type": "slash_command", "campaign": "pro_conversion"})
+        await interaction.followup.send(embed=embed)
         return
     except Exception as exc:
         await interaction.followup.send(f"Watch setup failed: {exc}")
         return
 
-    await interaction.followup.send(
-        content=result["message"],
-        embed=build_watch_embed(
-            result=result,
-            asset_name=asset_name,
-            threshold_up_percent=threshold_up_percent,
-            threshold_down_percent=threshold_down_percent,
-            target_price=target_price,
-            predict_signal_change=predict_signal_change,
-            predict_up_probability_above=predict_up_probability_above,
-            predict_down_probability_above=predict_down_probability_above,
-        ),
+    embed = build_watch_embed(
+        result=result,
+        asset_name=asset_name,
+        threshold_up_percent=threshold_up_percent,
+        threshold_down_percent=threshold_down_percent,
+        target_price=target_price,
+        predict_signal_change=predict_signal_change,
+        predict_up_probability_above=predict_up_probability_above,
+        predict_down_probability_above=predict_down_probability_above,
     )
+    embed.url = make_web_link("/dashboard", {"command_type": "slash_command", "campaign": "engagement"})
+    await interaction.followup.send(content=result["message"], embed=embed)
 
 
 @bot.tree.command(name="unwatch", description="Remove an asset from your watchlist.")
@@ -751,7 +757,9 @@ async def unwatch(interaction: discord.Interaction, asset_name: str) -> None:
         await interaction.followup.send(f"Unwatch failed: {exc}")
         return
 
-    await interaction.followup.send(content=result["message"], embed=build_unwatch_embed(asset_name))
+    embed = build_unwatch_embed(asset_name)
+    embed.url = make_web_link("/dashboard", {"command_type": "slash_command", "campaign": "engagement"})
+    await interaction.followup.send(content=result["message"], embed=embed)
 
 
 @bot.tree.command(name="watchlist", description="Show your current watchlist.")
@@ -764,10 +772,14 @@ async def watchlist(interaction: discord.Interaction) -> None:
         return
 
     if not items:
-        await interaction.followup.send(embed=build_empty_watchlist_embed())
+        embed = build_empty_watchlist_embed()
+        embed.url = make_web_link("/dashboard", {"command_type": "slash_command", "campaign": "engagement"})
+        await interaction.followup.send(embed=embed)
         return
 
-    await interaction.followup.send(embed=build_watchlist_embed(items))
+    embed = build_watchlist_embed(items)
+    embed.url = make_web_link("/dashboard", {"command_type": "slash_command", "campaign": "engagement"})
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="alerts", description="Show your active alert rules and trigger status.")
@@ -780,10 +792,14 @@ async def alerts(interaction: discord.Interaction) -> None:
         return
 
     if not items:
-        await interaction.followup.send(embed=build_empty_alerts_embed())
+        embed = build_empty_alerts_embed()
+        embed.url = make_web_link("/dashboard", {"command_type": "slash_command", "campaign": "engagement"})
+        await interaction.followup.send(embed=embed)
         return
 
-    await interaction.followup.send(embed=build_alerts_embed(items))
+    embed = build_alerts_embed(items)
+    embed.url = make_web_link("/dashboard", {"command_type": "slash_command", "campaign": "engagement"})
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="topmovers", description="Show the biggest movers from the latest tracked prices.")
@@ -802,7 +818,9 @@ async def topmovers(interaction: discord.Interaction, limit: app_commands.Range[
         )
         return
 
-    await interaction.followup.send(embed=build_topmovers_embed(movers, limit))
+    embed = build_topmovers_embed(movers, limit)
+    embed.url = make_web_link("/dashboard", {"command_type": "slash_command", "campaign": "card_discovery"})
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="topvalue", description="Show the highest-value tracked assets by latest real price.")
@@ -819,7 +837,9 @@ async def topvalue(interaction: discord.Interaction, limit: app_commands.Range[i
         await interaction.followup.send("No top value assets available yet.")
         return
 
-    await interaction.followup.send(embed=build_topvalue_embed(items, limit))
+    embed = build_topvalue_embed(items, limit)
+    embed.url = make_web_link("/dashboard", {"command_type": "slash_command", "campaign": "card_discovery"})
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="alerthistory", description="Show your recent alert trigger history.")
@@ -842,10 +862,14 @@ async def alerthistory(
         return
 
     if not items:
-        await interaction.followup.send(embed=build_empty_alert_history_embed())
+        embed = build_empty_alert_history_embed()
+        embed.url = make_web_link("/dashboard", {"command_type": "slash_command", "campaign": "engagement"})
+        await interaction.followup.send(embed=embed)
         return
 
-    await interaction.followup.send(embed=build_alert_history_embed(items, limit))
+    embed = build_alert_history_embed(items, limit)
+    embed.url = make_web_link("/dashboard", {"command_type": "slash_command", "campaign": "engagement"})
+    await interaction.followup.send(embed=embed)
 
 
 def run() -> None:
