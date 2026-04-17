@@ -65,18 +65,20 @@ class BackstageRoutesTests(TestCase):
         self.assertIn("not configured", response.json()["detail"])
 
     @patch("backend.app.backstage.routes.get_settings")
-    def test_unconfigured_admin_key_with_no_header_returns_403(self, get_settings_mock):
+    def test_unconfigured_admin_key_with_no_header_returns_401(self, get_settings_mock):
+        # No API key configured, no X-Admin-Key header, no session → 401 (no credentials)
         get_settings_mock.return_value.admin_api_key = ""
+        get_settings_mock.return_value.admin_email_set = frozenset()
 
         response = self.client.get("/admin/gaps")
 
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 401)
 
     # ------------------------------------------------------------------
     # Correct key → 200 with gap report payload
     # ------------------------------------------------------------------
 
-    @patch("backend.app.backstage.routes.get_gap_report")
+    @patch("backend.app.backstage.gap_detector.get_gap_report")
     @patch("backend.app.backstage.routes.get_settings")
     def test_correct_key_returns_gap_report_payload(self, get_settings_mock, get_gap_report_mock):
         get_settings_mock.return_value.admin_api_key = "secret-key"
@@ -97,7 +99,7 @@ class BackstageRoutesTests(TestCase):
     # Timing-safe: correct key passes, near-miss does not
     # ------------------------------------------------------------------
 
-    @patch("backend.app.backstage.routes.get_gap_report")
+    @patch("backend.app.backstage.gap_detector.get_gap_report")
     @patch("backend.app.backstage.routes.get_settings")
     def test_near_miss_key_returns_403(self, get_settings_mock, get_gap_report_mock):
         get_settings_mock.return_value.admin_api_key = "secret-key"
@@ -106,6 +108,67 @@ class BackstageRoutesTests(TestCase):
         response = self.client.get("/admin/gaps", headers={"X-Admin-Key": "secret-ke"})
 
         self.assertEqual(response.status_code, 403)
+
+    # Session email whitelist tests (auth v2)
+
+    @patch("backend.app.backstage.routes.get_settings")
+    def test_session_admin_email_grants_access(self, get_settings_mock):
+        """A session user whose email is in ADMIN_EMAILS can access admin routes."""
+        get_settings_mock.return_value.admin_api_key = ""  # API key disabled
+        get_settings_mock.return_value.admin_email_set = frozenset({"admin@example.com"})
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from starlette.middleware.sessions import SessionMiddleware
+        from backend.app.api.deps import get_database
+        from backend.app.auth import dependencies as auth_deps
+
+        app2 = FastAPI()
+        app2.add_middleware(SessionMiddleware, secret_key="test-secret")
+        app2.include_router(backstage_router)
+
+        def _fake_db():
+            yield None
+
+        app2.dependency_overrides[get_database] = _fake_db
+
+        fake_user = MagicMock()
+        fake_user.email = "admin@example.com"
+        app2.dependency_overrides[auth_deps.get_current_user] = lambda: fake_user
+
+        with patch("backend.app.backstage.gap_detector.get_gap_report", return_value=[]):
+            client2 = TestClient(app2, raise_server_exceptions=False)
+            resp = client2.get("/admin/gaps")
+            self.assertEqual(resp.status_code, 200)
+
+    @patch("backend.app.backstage.routes.get_settings")
+    def test_non_admin_session_returns_404(self, get_settings_mock):
+        """A session user NOT in ADMIN_EMAILS gets 404 (not 403, to hide backend existence)."""
+        get_settings_mock.return_value.admin_api_key = ""
+        get_settings_mock.return_value.admin_email_set = frozenset({"admin@example.com"})
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from starlette.middleware.sessions import SessionMiddleware
+        from backend.app.api.deps import get_database
+        from backend.app.auth import dependencies as auth_deps
+
+        app3 = FastAPI()
+        app3.add_middleware(SessionMiddleware, secret_key="test-secret")
+        app3.include_router(backstage_router)
+
+        def _fake_db():
+            yield None
+
+        app3.dependency_overrides[get_database] = _fake_db
+
+        fake_user = MagicMock()
+        fake_user.email = "hacker@example.com"
+        app3.dependency_overrides[auth_deps.get_current_user] = lambda: fake_user
+
+        client3 = TestClient(app3, raise_server_exceptions=False)
+        resp = client3.get("/admin/gaps")
+        self.assertEqual(resp.status_code, 404)
 
 
 class AdminSetUserTierTests(TestCase):
