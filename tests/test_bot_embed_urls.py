@@ -171,3 +171,15 @@ class TestEmbedUrls(unittest.TestCase):
         mock_link.assert_called_once()
         self.assertEqual(mock_link.call_args[0][0], "/dashboard")
         self.assertEqual(mock_link.call_args[0][1]["campaign"], "engagement")
+
+    def test_unwatch_embed_url_set(self):
+        interaction = self._make_interaction()
+        fake_result = {"message": "Watch removed"}
+        with patch("bot.main.client") as mock_client, \
+             patch("bot.main.make_web_link", return_value="http://localhost:8000/dashboard?utm_source=discord") as mock_link:
+            mock_client.delete_watch = AsyncMock(return_value=fake_result)
+            from bot.main import unwatch
+            run(unwatch.callback(interaction, asset_name="Pikachu"))
+        mock_link.assert_called_once()
+        self.assertEqual(mock_link.call_args[0][0], "/dashboard")
+        self.assertEqual(mock_link.call_args[0][1]["campaign"], "engagement")
