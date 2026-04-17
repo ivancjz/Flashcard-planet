@@ -12,6 +12,7 @@ class TestUserModelAuthV2(unittest.TestCase):
     def test_user_has_google_id_column(self):
         col = User.__table__.c["google_id"]
         self.assertTrue(col.nullable)
+        self.assertTrue(col.unique)
 
     def test_user_has_last_login_at_column(self):
         col = User.__table__.c["last_login_at"]

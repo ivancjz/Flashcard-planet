@@ -32,6 +32,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # WARNING: This downgrade will fail if any users.discord_user_id is NULL.
+    # Ensure all rows have a discord_user_id value before running alembic downgrade.
     op.drop_index("ix_users_google_id", table_name="users")
     op.drop_index("ix_users_email", table_name="users")
     op.alter_column(
