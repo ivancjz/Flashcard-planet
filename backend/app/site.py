@@ -107,6 +107,15 @@ def _get_metadata_image_small(asset: Asset) -> str | None:
     return None
 
 
+def _source_label_display(source: str) -> str:
+    return {
+        "ebay_sold": "eBay Sold",
+        "pokemon_tcg_api": "TCG API",
+        "manual_seed": "Manual",
+        "sample": "Sample",
+    }.get(source, source)
+
+
 def _get_metadata_tcgplayer_url(asset: Asset) -> str | None:
     metadata = _get_card_metadata(asset)
     value = metadata.get("tcgplayer_url")
@@ -972,6 +981,111 @@ def card_detail_page(request: Request, external_id: str) -> HTMLResponse:
         current_path="/cards",
         body=body,
         page_key="card-detail",
+        username=username,
+    )
+
+
+@router.get("/cards/{external_id}/sources", response_class=HTMLResponse)
+def card_sources_page(request: Request, external_id: str) -> HTMLResponse:
+    """Source breakdown comparison page — Free shows summary, Pro shows full table."""
+    import uuid as _uuid
+
+    username = _session_username(request)
+    session = request.scope.get("session")
+    user_id = session.get("user_id") if isinstance(session, dict) else None
+
+    with SessionLocal() as db:
+        current_user = None
+        if user_id:
+            try:
+                current_user = db.get(User, _uuid.UUID(user_id))
+            except Exception:
+                current_user = None
+        access_tier = current_user.access_tier if current_user else "free"
+
+        asset = db.scalars(
+            select(Asset).where(Asset.category == "Pokemon", Asset.external_id == external_id)
+        ).first()
+        if asset is None:
+            raise HTTPException(status_code=404, detail="卡牌不存在。")
+
+        credibility = build_credibility_indicators(db, asset_id=asset.id, access_tier=access_tier)
+
+    gate_config = get_pro_gate_config("source_comparison", access_tier)
+
+    # Summary row — always visible
+    summary_html = f"""
+    <dl class="detail-list">
+      <div>
+        <dt>{_lang_pair("样本量", "Sample size")}</dt>
+        <dd>{escape(credibility.sample_size_label)}</dd>
+      </div>
+      <div>
+        <dt>{_lang_pair("数据新鲜度", "Data freshness")}</dt>
+        <dd>{escape(credibility.data_age_label)}</dd>
+      </div>
+    </dl>"""
+
+    # Full source table — Pro only
+    if credibility.source_breakdown:
+        rows_html = "".join(
+            f"""<tr>
+              <td>{escape(_source_label_display(src))}</td>
+              <td>{int(pct * 100)}%</td>
+              <td>{int(pct * credibility.sample_size)}</td>
+            </tr>"""
+            for src, pct in sorted(
+                credibility.source_breakdown.items(), key=lambda kv: kv[1], reverse=True
+            )
+        )
+        full_table_html = f"""
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>{_lang_pair("数据源", "Source")}</th>
+                <th>{_lang_pair("占比", "Share")}</th>
+                <th>{_lang_pair("样本数", "Count")}</th>
+              </tr>
+            </thead>
+            <tbody>{rows_html}</tbody>
+          </table>
+        </div>"""
+    else:
+        full_table_html = f"<p>{_lang_pair('暂无来源数据。', 'No source data available.')}</p>"
+
+    sources_block = _progate_html_from_config(gate_config, full_table_html)
+
+    body = f"""
+    <section class="page-intro">
+      <div>
+        <p class="eyebrow">{_lang_pair("来源对比", "Source comparison")}</p>
+        <h1>{escape(asset.name)}</h1>
+        <p class="lede">
+          {_lang_pair("查看该卡牌价格数据的各来源分布。升级到 Pro 即可解锁完整来源明细。",
+          "View the source breakdown for this card's price data. Upgrade to Pro for the full table.")}
+        </p>
+      </div>
+    </section>
+
+    <section class="module module-wide">
+      <div class="module-head">
+        <p class="card-kicker">{_lang_pair("数据来源", "Data sources")}</p>
+        <h2>{_lang_pair("价格来源明细", "Price source breakdown")}</h2>
+      </div>
+      {summary_html}
+      {sources_block}
+      <div class="detail-actions" style="margin-top:1.5rem;">
+        <a class="button button-secondary" href="/cards/{escape(external_id)}">{_lang_pair("返回卡牌详情", "Back to card detail")}</a>
+      </div>
+    </section>
+    """
+
+    return _render_shell(
+        title=f"{asset.name} — Sources",
+        current_path="/cards",
+        body=body,
+        page_key="card-sources",
         username=username,
     )
 
