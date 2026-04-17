@@ -3,7 +3,7 @@ tests/test_sources_history_routes.py
 
 Route tests for Phase B2:
   - GET /cards/{external_id}/sources
-  - GET /cards/{external_id}/history
+  - GET /cards/{external_id}/history  (added in Task 4)
 """
 from __future__ import annotations
 
