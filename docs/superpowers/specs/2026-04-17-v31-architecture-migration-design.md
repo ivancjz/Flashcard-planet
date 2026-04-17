@@ -133,6 +133,29 @@ def get_pro_gate_config(feature: str, user_access: AccessLevel) -> ProGateConfig
     return strategies.get(feature, ProGateConfig(is_locked=True, upgrade_reason="Upgrade to Pro"))
 ```
 
+### Pre-Phase A Verification Checklist
+
+Before writing any new code, confirm these in the existing `services/` layer:
+
+| Method | Required signature | Check |
+|---|---|---|
+| card detail service | `get_card_detail(card_id) → obj with .sample_size, .match_confidence` | |
+| prices service | `get_history(card_id, days=N) → list` — `days` param must exist | |
+| signals service | `get_latest(limit=N) → list` — `limit` param must exist | |
+
+If a method doesn't support the required param, add it to the existing service file before building DataService. DataService wraps; it does not rewrite.
+
+### DataService Growth Note
+
+Current scope: ~4 methods. If it grows past 8 methods or domain boundaries become obvious (cards / signals / users are clearly separate), split into domain services with DataService as a facade:
+```python
+class DataService:
+    cards = CardsDataService()
+    signals = SignalsDataService()
+    users = UserDataService()
+```
+Do not pre-split now — wait for the actual pain point.
+
 **`backend/app/core/boundary_check.py`**
 
 CI lint script. Fails if new Bot/Web code imports internal services directly, bypassing DataService.
@@ -207,6 +230,14 @@ Usage:
 - `GET /cards/<card_id>/history` — standalone price history page (for Discord deep links)
 
 **CTA strategy matrix** lives entirely in `get_pro_gate_config()` in `core/permissions.py`. No hardcoded CTA strings in templates.
+
+**Urgency rendering:**
+
+| urgency | CSS class | CTA button color | Bot emoji prefix |
+|---|---|---|---|
+| `high` | `pro-gate-high` | `#FF4444`, pulse animation | 🔥 |
+| `medium` | `pro-gate-medium` | `#FF8800`, no animation | 📈 |
+| `low` | `pro-gate-low` | `#888888`, no animation | 💡 |
 
 ### Completion Criteria
 
@@ -318,6 +349,8 @@ Templates: `templates/discord/welcome.html`, `templates/discord/upgrade.html`, `
 | Layer 1 | Discord embed link click-through rate |
 | Layer 2 | Web engagement rate after Discord arrival |
 | Layer 3 | Discord → registration, Discord → Pro upgrade |
+
+**UTM data storage decision:** No custom DB table. Server access logs capture all UTM params. Parse logs or pipe to an analytics tool once baseline data exists. Building a `utm_tracking` table before having baseline numbers is premature — defer until Phase C has been live for 2+ weeks.
 
 ### Completion Criteria
 
