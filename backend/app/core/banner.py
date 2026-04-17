@@ -2,11 +2,27 @@
 Shared HTML helpers for tier-gating UI components.
 
 _upgrade_banner_html  — inline banner shown below truncated content
-_progate_html         — blur + overlay for fully gated content
+_progate_html         — blur + overlay for fully gated content (legacy, 3 strings)
+_progate_html_from_config — urgency-aware overlay driven by ProGateConfig
 """
 from __future__ import annotations
 
+from html import escape
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from backend.app.core.response_types import ProGateConfig
+
 UPGRADE_URL = "/upgrade"
+
+_URGENCY_BTN_STYLES: dict[str, str] = {
+    "high":   "background:#FF4444;color:white;text-decoration:none;"
+              "padding:8px 20px;border-radius:6px;font-size:0.9em;",
+    "medium": "background:#FF8800;color:white;text-decoration:none;"
+              "padding:8px 20px;border-radius:6px;font-size:0.9em;",
+    "low":    "background:#888888;color:white;text-decoration:none;"
+              "padding:8px 20px;border-radius:6px;font-size:0.9em;",
+}
 
 
 def _upgrade_banner_html(
@@ -67,6 +83,45 @@ def _progate_html(
        style="background:#7c3aed;color:white;text-decoration:none;
               padding:8px 20px;border-radius:6px;font-size:0.9em;">
       {cta_label}
+    </a>
+  </div>
+</div>"""
+
+
+def _progate_html_from_config(
+    config: "ProGateConfig",
+    blurred_content_html: str,
+) -> str:
+    """Urgency-aware ProGate overlay driven by ProGateConfig.
+
+    Returns blurred_content_html unchanged when config.is_locked is False.
+    """
+    if not config.is_locked:
+        return blurred_content_html
+
+    urgency = config.urgency if config.urgency in _URGENCY_BTN_STYLES else "medium"
+    btn_style = _URGENCY_BTN_STYLES[urgency]
+
+    return f"""
+<div class="progate" data-zh="升级以解锁{escape(config.feature_name)}"
+     aria-label="Pro feature: {escape(config.feature_name)}"
+     style="position:relative;overflow:hidden;border-radius:8px;">
+  <div class="progate__blur" aria-hidden="true"
+       style="filter:blur(4px);pointer-events:none;user-select:none;">
+    {blurred_content_html}
+  </div>
+  <div class="progate__overlay"
+       style="position:absolute;inset:0;display:flex;flex-direction:column;
+              align-items:center;justify-content:center;gap:12px;
+              background:rgba(255,255,255,0.55);backdrop-filter:blur(2px);">
+    <p class="progate__feature"
+       style="margin:0;font-weight:600;color:#374151;">{escape(config.feature_name)}</p>
+    <p class="progate__reason"
+       style="margin:0;color:#6b7280;font-size:0.875em;">{escape(config.upgrade_reason)}</p>
+    <a href="{UPGRADE_URL}"
+       class="btn btn--pro progate__cta progate__cta--{urgency}"
+       style="{btn_style}">
+      Unlock {escape(config.feature_name)} — Pro Only
     </a>
   </div>
 </div>"""

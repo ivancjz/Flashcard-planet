@@ -1616,3 +1616,29 @@ body[data-lang=en] .lang-sep {
     flex-direction: column;
   }
 }
+
+/* ─── ProGate urgency CTA colours ────────────────────────────────────────── */
+.progate__cta--high {
+  background: #FF4444 !important;
+  animation: progate-pulse 1.5s ease-in-out infinite;
+}
+
+.progate__cta--medium {
+  background: #FF8800 !important;
+}
+
+.progate__cta--low {
+  background: #888888 !important;
+}
+
+@keyframes progate-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.03);
+  }
+}

@@ -91,3 +91,35 @@ class TestFeatureEnum:
 
     def test_feature_is_str_enum(self):
         assert isinstance(Feature.SIGNALS_FULL_FEED, str)
+
+
+class TestGetProGateConfig:
+    def test_pro_user_returns_unlocked(self):
+        from backend.app.core.permissions import get_pro_gate_config
+        result = get_pro_gate_config("price_history", "pro")
+        assert result.is_locked is False
+
+    def test_free_user_price_history_is_locked(self):
+        from backend.app.core.permissions import get_pro_gate_config
+        result = get_pro_gate_config("price_history", "free")
+        assert result.is_locked is True
+        assert result.urgency == "medium"
+        assert "180" in result.feature_name or "History" in result.feature_name
+
+    def test_free_user_signals_full_is_high_urgency(self):
+        from backend.app.core.permissions import get_pro_gate_config
+        result = get_pro_gate_config("signals_full", "free")
+        assert result.is_locked is True
+        assert result.urgency == "high"
+
+    def test_free_user_source_comparison_is_low_urgency(self):
+        from backend.app.core.permissions import get_pro_gate_config
+        result = get_pro_gate_config("source_comparison", "free")
+        assert result.is_locked is True
+        assert result.urgency == "low"
+
+    def test_unknown_feature_returns_generic_locked_config(self):
+        from backend.app.core.permissions import get_pro_gate_config
+        result = get_pro_gate_config("nonexistent_feature", "free")
+        assert result.is_locked is True
+        assert result.upgrade_reason  # non-empty
