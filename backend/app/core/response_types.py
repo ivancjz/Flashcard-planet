@@ -7,7 +7,7 @@ _URGENCY_EMOJI = {"high": "🔥", "medium": "📈", "low": "💡"}
 _URGENCY_CSS = {"high": "pro-gate-high", "medium": "pro-gate-medium", "low": "pro-gate-low"}
 
 
-@dataclass
+@dataclass(frozen=True)
 class ProGateConfig:
     is_locked: bool
     feature_name: str = ""

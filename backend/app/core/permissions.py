@@ -133,7 +133,7 @@ _PRO_GATE_STRATEGIES: dict[str, ProGateConfig] = {
 
 def get_pro_gate_config(feature: str, access_tier: str) -> ProGateConfig:
     """Return ProGateConfig for feature+tier. Unlocked if Pro; locked with strategy if Free."""
-    if access_tier.lower() == "pro":
+    if (access_tier or "").lower() == "pro":
         return ProGateConfig(is_locked=False)
     strategy = _PRO_GATE_STRATEGIES.get(feature)
     if strategy is None:
