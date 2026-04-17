@@ -198,8 +198,15 @@ During coding:
 6. **Do not hard-code Chinese or English UI strings directly in
    templates.** Use the existing i18n mechanism (see how other templates
    handle bilingual text).
-7. **Never hard-code a tier check.** All Pro / Free gating should go
-   through the permission helper (once it exists — this is Workflow C-4).
+7. **Never hard-code a tier check.** All Pro / Free gating must go through
+   the permission helper in `backend/app/services/permissions.py`. Use the
+   `Feature` enum, `AccessTier` enum, and `can()` / `get_capabilities()` /
+   `get_pro_gate_config()` functions. Never compare `access_tier == "pro"`
+   directly in new code.
+
+   Before adding a new gated feature: add it to the `Feature` enum AND
+   update `TestFeatureEnum.test_all_expected_features_exist` in
+   `tests/test_permissions.py`, or the test will fail.
 
 After coding:
 
