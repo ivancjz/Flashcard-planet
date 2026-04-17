@@ -585,6 +585,37 @@ def build_empty_alert_history_embed() -> discord.Embed:
     )
 
 
+class ResponseTemplates:
+    @staticmethod
+    def price_alert(card_data) -> dict:
+        base_desc = f"Price moved {card_data.change}%"
+        enhancements = []
+
+        if getattr(card_data, "sample_size", None):
+            enhancements.append(f"📊 Based on {card_data.sample_size} sales")
+
+        if getattr(card_data, "match_confidence", None) is not None:
+            icon = "✅" if card_data.match_confidence >= 90 else "⚠️"
+            enhancements.append(f"{icon} {card_data.match_confidence}% confident")
+
+        if getattr(card_data, "pro_gate_config", None) and card_data.pro_gate_config.is_locked:
+            bot_cfg = card_data.pro_gate_config.to_bot_config()
+            enhancements.append(f"\n{bot_cfg['locked_message']}")
+
+        description = base_desc + ("\n" + "\n".join(enhancements) if enhancements else "")
+        return {
+            "embed": {
+                "title": f"🔥 {card_data.name} Price Alert",
+                "description": description,
+                "url": make_web_link(f"/cards/{card_data.id}", {
+                    "command_type": "price_alert",
+                    "campaign": "card_discovery",
+                    "card_id": card_data.id,
+                }),
+            }
+        }
+
+
 def get_test_guild() -> discord.Object | None:
     guild_id = settings.discord_guild_id.strip()
     if not guild_id:
