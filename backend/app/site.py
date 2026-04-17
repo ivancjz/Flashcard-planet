@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from fastapi import Form
 
 from backend.app.api.deps import get_database
-from backend.app.core.banner import _progate_html, _progate_html_from_config, _upgrade_banner_html
+from backend.app.core.banner import _progate_html_from_config, _upgrade_banner_html
 from backend.app.core.config import get_settings
 from backend.app.core.permissions import Feature, alert_limit, can, get_capabilities, get_pro_gate_config
 from backend.app.core.price_queries import build_ranked_price_subquery
