@@ -255,3 +255,21 @@ class TestCardHistoryRoute(unittest.TestCase):
         self.assertTrue(
             "Price history" in response.text or "价格历史" in response.text
         )
+
+    def test_truncated_history_shows_progate_overlay(self):
+        asset = _mock_asset()
+        vm = self._mock_vm()
+        vm.history_truncated = True
+
+        with (
+            patch("backend.app.site.SessionLocal") as mock_sl,
+            patch("backend.app.site.build_card_detail", return_value=vm),
+        ):
+            mock_db = MagicMock()
+            mock_sl.return_value.__enter__ = lambda s: mock_db
+            mock_sl.return_value.__exit__ = MagicMock(return_value=False)
+            mock_db.scalars.return_value.first.return_value = asset
+
+            response = self.client.get("/cards/xy1-001/history")
+
+        self.assertIn("progate__overlay", response.text)
