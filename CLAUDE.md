@@ -14,7 +14,7 @@ surfaces them through a Web UI and a Discord bot, and gates advanced
 features behind a Pro tier.
 
 The project is **past the MVP stage**. Core systems (ingestion, signals,
-review, bot, web UI, auth) are already built and covered by ~493 tests.
+review, bot, web UI, auth) are already built and covered by ~522 tests.
 
 **The current phase is productization + monetization, not feature
 expansion.** See `docs/plan-v3.md` for the full 12-week plan. At any point
