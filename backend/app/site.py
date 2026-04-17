@@ -1090,6 +1090,165 @@ def card_sources_page(request: Request, external_id: str) -> HTMLResponse:
     )
 
 
+@router.get("/cards/{external_id}/history", response_class=HTMLResponse)
+def card_history_page(request: Request, external_id: str) -> HTMLResponse:
+    """Standalone price history page — Discord deep-link target."""
+    import uuid as _uuid
+
+    username = _session_username(request)
+    session = request.scope.get("session")
+    user_id = session.get("user_id") if isinstance(session, dict) else None
+
+    with SessionLocal() as db:
+        current_user = None
+        if user_id:
+            try:
+                current_user = db.get(User, _uuid.UUID(user_id))
+            except Exception:
+                current_user = None
+        access_tier = current_user.access_tier if current_user else "free"
+
+        asset = db.scalars(
+            select(Asset).where(Asset.category == "Pokemon", Asset.external_id == external_id)
+        ).first()
+        if asset is None:
+            raise HTTPException(status_code=404, detail="卡牌不存在。")
+
+        vm = build_card_detail(db, asset.id, access_tier=access_tier)
+
+    if vm is None:
+        raise HTTPException(status_code=404, detail="卡牌不存在。")
+
+    currency = vm.currency or "USD"
+    price_labels = [pt.captured_at.strftime("%Y-%m-%d") for pt in reversed(vm.price_history)]
+    price_values = [float(pt.price) for pt in reversed(vm.price_history)]
+
+    chart_script_tag = ""
+    chart_markup = f"<p>{_lang_pair('暂无足够数据生成走势图。', 'Not enough data to render a chart yet.')}</p>"
+    chart_inline_script = ""
+    if len(vm.price_history) >= 2:
+        chart_script_tag = (
+            '<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>'
+        )
+        chart_markup = "<canvas id='price-chart-history'></canvas>"
+        chart_inline_script = f"""
+        <script>
+          (() => {{
+            const chartCanvas = document.getElementById("price-chart-history");
+            if (!chartCanvas || typeof Chart === "undefined") {{ return; }}
+            new Chart(chartCanvas, {{
+              type: "line",
+              data: {{
+                labels: {json.dumps(price_labels)},
+                datasets: [{{
+                  label: "价格走势 (USD)",
+                  data: {json.dumps(price_values)},
+                  borderColor: "#00e5c8",
+                  pointBackgroundColor: "#00e5c8",
+                  pointBorderColor: "#00e5c8",
+                  backgroundColor: "rgba(0,229,200,0.07)",
+                  fill: true,
+                  tension: 0.3,
+                }}],
+              }},
+              options: {{
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {{
+                  x: {{ grid: {{ color: "rgba(255,255,255,0.06)" }}, ticks: {{ color: "#3d4f66" }} }},
+                  y: {{ grid: {{ color: "rgba(255,255,255,0.06)" }}, ticks: {{ color: "#3d4f66" }} }},
+                }},
+              }},
+            }});
+          }})();
+        </script>
+        """
+
+    history_markup = "".join(
+        """
+        <tr>
+          <td>{captured_at}</td>
+          <td>{price}</td>
+          <td>{source}</td>
+        </tr>
+        """.format(
+            captured_at=escape(pt.captured_at.strftime("%Y-%m-%d %H:%M UTC")),
+            price=escape(_format_currency(pt.price, currency)),
+            source=escape(pt.source),
+        )
+        for pt in reversed(vm.price_history)
+    )
+    if not history_markup:
+        history_markup = f"""
+        <tr>
+          <td colspan="3" class="empty-state-cell">{_lang_pair("暂无价格历史数据。", "No price history available.")}</td>
+        </tr>"""
+
+    truncated_banner = ""
+    if vm.history_truncated:
+        blurred_preview = (
+            "<p style='margin:0;font-style:italic;color:#6b7280;'>"
+            + _lang_pair(
+                "免费账户仅显示最近 7 天价格记录。",
+                "Free accounts show only the last 7 days of price history.",
+            )
+            + "</p>"
+        )
+        truncated_banner = _progate_html_from_config(
+            get_pro_gate_config("price_history", access_tier),
+            blurred_preview,
+        )
+
+    body = f"""
+    <section class="page-intro">
+      <div>
+        <p class="eyebrow">{_lang_pair("价格历史", "Price history")}</p>
+        <h1>{escape(asset.name)}</h1>
+        <p class="lede">
+          {_lang_pair(f"查看 {escape(asset.name)} 的近期价格走势。",
+          f"View recent price history for {escape(asset.name)}.")}
+        </p>
+      </div>
+    </section>
+
+    <section class="module module-wide">
+      <div class="module-head">
+        <p class="card-kicker">{_lang_pair("价格历史", "Price history")}</p>
+        <h2>{_lang_pair("价格记录", "Price records")}</h2>
+      </div>
+      {truncated_banner}
+      {chart_markup}
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>{_lang_pair("日期", "Date")}</th>
+              <th>{_lang_pair("价格", "Price")}</th>
+              <th>{_lang_pair("数据源", "Source")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {history_markup}
+          </tbody>
+        </table>
+      </div>
+      <div class="detail-actions" style="margin-top:1.5rem;">
+        <a class="button button-secondary" href="/cards/{escape(external_id)}">{_lang_pair("返回卡牌详情", "Back to card detail")}</a>
+      </div>
+    </section>
+    {chart_script_tag}
+    {chart_inline_script}
+    """
+
+    return _render_shell(
+        title=f"{asset.name} — Price History",
+        current_path="/cards",
+        body=body,
+        page_key="card-history",
+        username=username,
+    )
+
+
 @router.get("/signals", response_class=HTMLResponse)
 def signals_page(
     request: Request,
