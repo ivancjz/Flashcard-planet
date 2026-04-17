@@ -13,7 +13,6 @@ class SessionHelpersTests(unittest.TestCase):
         from backend.app.auth.session import login_user
         user = MagicMock()
         user.id = "test-uuid-1234"
-        user.last_login_at = None
         req = self._make_request({})
         login_user(req, user)
         self.assertEqual(req.session["user_id"], "test-uuid-1234")
