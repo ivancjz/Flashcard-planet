@@ -150,6 +150,24 @@ class TestDiscordUpgradeRoute(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn("/signals", response.headers["location"])
 
+    def test_invalid_user_id_in_session_shows_upgrade_page(self):
+        # Malformed user_id in session falls back to free-tier upgrade page
+        signer = itsdangerous.TimestampSigner(_SESSION_SECRET)
+        payload = b64encode(json.dumps({"username": "x", "user_id": "not-a-uuid"}).encode()).decode()
+        cookie_value = signer.sign(payload).decode()
+        with patch("backend.app.site.SessionLocal") as mock_sl:
+            mock_db = MagicMock()
+            mock_sl.return_value.__enter__ = lambda s: mock_db
+            mock_sl.return_value.__exit__ = MagicMock(return_value=False)
+            mock_db.get.return_value = None
+            response = self.client.get(
+                "/upgrade-from-discord",
+                cookies={"session": cookie_value},
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"pro", response.content.lower())
+
 
 class TestSignalsExplainedRoute(unittest.TestCase):
     def setUp(self):

@@ -2742,8 +2742,12 @@ def extract_utm_params(request: Request) -> dict:
 def discord_welcome(request: Request) -> HTMLResponse:
     username = _session_username(request)
     if username:
+        import re as _re
         ref = request.query_params.get("ref")
-        dest = f"/cards/{ref}?from=discord" if ref else "/dashboard?from=discord"
+        if ref and _re.fullmatch(r"[A-Za-z0-9_-]+", ref):
+            dest = f"/cards/{ref}?from=discord"
+        else:
+            dest = "/dashboard?from=discord"
         return RedirectResponse(dest, status_code=302)
     body = """
     <section class="page-intro">
