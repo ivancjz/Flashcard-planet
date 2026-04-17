@@ -119,12 +119,15 @@ class BackendClient:
             return response.json()
 
     async def fetch_card_detail_enriched(
-        self, external_id: str, discord_user_id: str
+        self, external_id: str, discord_user_id: str | None
     ) -> dict | None:
+        params: dict = {}
+        if discord_user_id:
+            params["discord_user_id"] = discord_user_id
         async with httpx.AsyncClient(timeout=10.0) as http:
             response = await http.get(
                 f"{self.base_url}/api/v1/cards/{external_id}/enriched",
-                params={"discord_user_id": discord_user_id},
+                params=params,
             )
             if response.status_code == 404:
                 return None
