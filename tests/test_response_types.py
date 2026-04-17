@@ -1,7 +1,5 @@
-import pytest
 from backend.app.core.response_types import ProGateConfig, CardDetailResponse, SignalsResponse
 from decimal import Decimal
-from datetime import datetime, timezone
 
 
 class TestProGateConfig:
