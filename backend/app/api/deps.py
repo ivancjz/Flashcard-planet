@@ -37,10 +37,18 @@ def get_optional_user(
     db: Session = Depends(get_database),
 ) -> User | None:
     """Returns the current user from a JWT bearer token or session cookie, or None."""
-    # 1. Bearer token (API clients)
+    # 1. Bearer token (API clients / bot)
     if credentials and credentials.credentials:
         return _user_from_token(credentials.credentials, db)
-    # 2. Session cookie (web UI)
+    # 2. Session cookie — new: user_id stored directly
+    user_id_str = request.session.get("user_id")
+    if user_id_str:
+        try:
+            user_id = uuid.UUID(user_id_str)
+        except ValueError:
+            return None
+        return db.scalars(select(User).where(User.id == user_id)).first()
+    # 3. Legacy fallback: jwt stored in session (for any existing sessions)
     jwt = request.session.get("jwt")
     if jwt:
         return _user_from_token(jwt, db)

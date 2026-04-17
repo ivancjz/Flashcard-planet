@@ -89,6 +89,13 @@ class Settings(BaseSettings):
     discord_client_secret: str = ""
     discord_redirect_uri: str = ""   # e.g. https://yourdomain.com/auth/callback
     jwt_expire_days: int = Field(default=30, ge=1)
+    # Auth v2
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    resend_api_key: str = ""
+    magic_link_secret: str = Field(default="change-me-magic-link-secret")
+    admin_emails: str = ""          # comma-separated email whitelist
+    app_url: str = Field(default="http://localhost:8000")
     signal_sweep_interval_seconds: int = Field(default=900, ge=60)
     ingest_schedule_enabled: bool = True
     ingest_interval_hours: float = Field(default=24.0, gt=0)
@@ -128,6 +135,15 @@ class Settings(BaseSettings):
     @property
     def bulk_set_id_list(self) -> list[str]:
         return [s.strip() for s in self.pokemon_tcg_bulk_set_ids.split(",") if s.strip()]
+
+    @property
+    def admin_email_set(self) -> frozenset[str]:
+        """Normalised set of admin emails from ADMIN_EMAILS env var."""
+        return frozenset(
+            e.strip().lower()
+            for e in self.admin_emails.split(",")
+            if e.strip()
+        )
 
 
 @lru_cache

@@ -2,14 +2,15 @@ import logging
 import secrets
 import uuid
 
-from fastapi import APIRouter, Depends, Form, Header, HTTPException
+from fastapi import APIRouter, Depends, Form, Header, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_database
-from backend.app.backstage.gap_detector import get_gap_report
+from backend.app.auth.dependencies import get_current_user as get_session_user
+from backend.app.backstage import gap_detector as _gap_detector
 from backend.app.core.config import get_settings
 from backend.app.models.enums import AccessTier
 from backend.app.models.user import User
@@ -27,35 +28,35 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-def require_admin_key(x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")) -> None:
-    """Enforce admin API key authentication for protected routes.
+def require_admin_key(
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    session_user=Depends(get_session_user),
+) -> None:
+    """Allow access via X-Admin-Key header OR session user in ADMIN_EMAILS whitelist."""
+    settings = get_settings()
 
-    Returns:
-        401 — X-Admin-Key header is absent (no credentials provided).
-        403 — X-Admin-Key header is present but incorrect.
+    # Path 1: API key (programmatic access, bot scripts)
+    if x_admin_key:
+        expected = settings.admin_api_key
+        if not expected:
+            raise HTTPException(status_code=403, detail="Admin key not configured on this server.")
+        if not secrets.compare_digest(x_admin_key, expected):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        return
 
-    If ADMIN_API_KEY is not configured (empty string) the endpoint is
-    inaccessible to everyone. A warning is logged at startup so the
-    operator knows the route is locked.
-    """
-    expected_key = get_settings().admin_api_key
+    # Path 2: Session user in email whitelist (web UI admin)
+    if session_user is not None:
+        if session_user.email and session_user.email.lower() in settings.admin_email_set:
+            return
+        # Authenticated but not admin — 404 to hide backend existence
+        raise HTTPException(status_code=404)
 
-    if not expected_key:
-        logger.warning(
-            "ADMIN_API_KEY is not configured. "
-            "All requests to admin endpoints will be rejected until it is set."
-        )
-        raise HTTPException(status_code=403, detail="Admin key not configured on this server.")
-
-    if not x_admin_key:
-        raise HTTPException(
-            status_code=401,
-            detail="Missing X-Admin-Key header.",
-            headers={"WWW-Authenticate": "ApiKey"},
-        )
-
-    if not secrets.compare_digest(x_admin_key, expected_key):
-        raise HTTPException(status_code=403, detail="Forbidden")
+    # Neither credential valid — 401 (no credentials provided)
+    raise HTTPException(
+        status_code=401,
+        detail="Missing X-Admin-Key header.",
+        headers={"WWW-Authenticate": "ApiKey"},
+    )
 
 
 _KPI_COLORS = {
@@ -330,7 +331,7 @@ def admin_gaps(
     _: None = Depends(require_admin_key),
     db: Session = Depends(get_database),
 ):
-    return jsonable_encoder(get_gap_report(db))
+    return jsonable_encoder(_gap_detector.get_gap_report(db))
 
 
 @router.get("/smart-pool")

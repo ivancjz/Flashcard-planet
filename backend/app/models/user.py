@@ -15,13 +15,16 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    discord_user_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
+    email: Mapped[str | None] = mapped_column(String(254), unique=True, nullable=True, index=True)
+    google_id: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True, index=True)
+    discord_user_id: Mapped[str | None] = mapped_column(String(32), unique=True, nullable=True, index=True)
     username: Mapped[str | None] = mapped_column(String(128))
     discriminator: Mapped[str | None] = mapped_column(String(16))
     global_name: Mapped[str | None] = mapped_column(String(128))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     access_tier: Mapped[str] = mapped_column(String(16), nullable=False, server_default="free", default="free")
     tier_changed_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
