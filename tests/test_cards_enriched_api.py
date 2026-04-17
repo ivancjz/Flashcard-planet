@@ -49,9 +49,9 @@ class CardsEnrichedEndpointTests(TestCase):
             ),
         )
 
-        with patch("backend.app.api.routes.cards._resolve_asset_id", return_value=asset_id), \
-             patch("backend.app.api.routes.cards._get_access_tier", return_value="free"), \
-             patch("backend.app.api.routes.cards.DataService.get_card_detail", return_value=fake_response):
+        with patch("backend.app.core.data_service.DataService.resolve_asset_id", return_value=asset_id), \
+             patch("backend.app.core.data_service.DataService.get_access_tier_for_discord_user", return_value="free"), \
+             patch("backend.app.core.data_service.DataService.get_card_detail", return_value=fake_response):
             response = self.client.get("/api/v1/cards/base1-4/enriched?discord_user_id=123")
 
         self.assertEqual(response.status_code, 200)
@@ -62,7 +62,7 @@ class CardsEnrichedEndpointTests(TestCase):
         self.assertEqual(data["pro_gate"]["urgency"], "medium")
 
     def test_returns_404_for_unknown_card(self):
-        with patch("backend.app.api.routes.cards._resolve_asset_id", return_value=None):
+        with patch("backend.app.core.data_service.DataService.resolve_asset_id", return_value=None):
             response = self.client.get("/api/v1/cards/unknown-card/enriched?discord_user_id=123")
 
         self.assertEqual(response.status_code, 404)
@@ -83,9 +83,9 @@ class CardsEnrichedEndpointTests(TestCase):
             pro_gate_config=None,
         )
 
-        with patch("backend.app.api.routes.cards._resolve_asset_id", return_value=uuid.uuid4()), \
-             patch("backend.app.api.routes.cards._get_access_tier", return_value="pro"), \
-             patch("backend.app.api.routes.cards.DataService.get_card_detail", return_value=fake_response):
+        with patch("backend.app.core.data_service.DataService.resolve_asset_id", return_value=uuid.uuid4()), \
+             patch("backend.app.core.data_service.DataService.get_access_tier_for_discord_user", return_value="pro"), \
+             patch("backend.app.core.data_service.DataService.get_card_detail", return_value=fake_response):
             response = self.client.get("/api/v1/cards/test-1/enriched?discord_user_id=456")
 
         self.assertEqual(response.status_code, 200)

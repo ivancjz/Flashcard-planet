@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Any
 
 _URGENCY_EMOJI = {"high": "🔥", "medium": "📈", "low": "💡"}
 _URGENCY_CSS = {"high": "pro-gate-high", "medium": "pro-gate-medium", "low": "pro-gate-low"}
@@ -36,12 +37,12 @@ class ProGateConfig:
         }
 
 
-@dataclass
+@dataclass(frozen=True)
 class CardDetailResponse:
     card_name: str
     external_id: str
     current_price: Decimal | None
-    price_history: list
+    price_history: list[Any]
     sample_size: int
     match_confidence_avg: Decimal | None
     data_age: str
@@ -50,7 +51,7 @@ class CardDetailResponse:
     pro_gate_config: ProGateConfig | None
 
 
-@dataclass
+@dataclass(frozen=True)
 class SignalsResponse:
     signals: list
     total_eligible: int

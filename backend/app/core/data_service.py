@@ -77,7 +77,26 @@ class DataService:
 
         return SignalsResponse(
             signals=result.rows,
+            # SignalsFeedResult doesn't expose total_eligible; reconstruct from rows + hidden_count.
+            # Valid because hidden_count tracks only cap-truncation, not label-filter truncation.
+            # If SignalsFeedResult ever filters before cap, add total_eligible as a field there instead.
             total_eligible=len(result.rows) + result.hidden_count,
             access_tier=access_tier,
             pro_gate_config=gate,
         )
+
+    @staticmethod
+    def resolve_asset_id(db: Session, external_id: str) -> uuid.UUID | None:
+        from sqlalchemy import select
+        from backend.app.models.asset import Asset  # boundary-ok: DataService owns model access
+        asset = db.scalars(select(Asset).where(Asset.external_id == external_id)).first()
+        return asset.id if asset else None
+
+    @staticmethod
+    def get_access_tier_for_discord_user(db: Session, discord_user_id: str | None) -> str:
+        if not discord_user_id:
+            return "free"
+        from sqlalchemy import select
+        from backend.app.models.user import User  # boundary-ok: DataService owns model access
+        user = db.scalars(select(User).where(User.discord_user_id == discord_user_id)).first()
+        return user.access_tier if user else "free"
