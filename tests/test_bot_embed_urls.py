@@ -152,3 +152,22 @@ class TestEmbedUrls(unittest.TestCase):
         mock_link.assert_called_once()
         self.assertEqual(mock_link.call_args[0][0], "/dashboard")
         self.assertEqual(mock_link.call_args[0][1]["campaign"], "engagement")
+
+    def test_watch_success_embed_url_set(self):
+        interaction = self._make_interaction()
+        fake_result = {
+            "message": "Watch created",
+            "created_watchlist": True,
+            "added_rule_labels": [],
+        }
+        with patch("bot.main.client") as mock_client, \
+             patch("bot.main.make_web_link", return_value="http://localhost:8000/dashboard?utm_source=discord") as mock_link:
+            mock_client.create_watch = AsyncMock(return_value=fake_result)
+            from bot.main import watch
+            run(watch.callback(interaction, asset_name="Pikachu",
+                               threshold_up_percent=None, threshold_down_percent=None,
+                               target_price=None, predict_signal_change=None,
+                               predict_up_probability_above=None, predict_down_probability_above=None))
+        mock_link.assert_called_once()
+        self.assertEqual(mock_link.call_args[0][0], "/dashboard")
+        self.assertEqual(mock_link.call_args[0][1]["campaign"], "engagement")
