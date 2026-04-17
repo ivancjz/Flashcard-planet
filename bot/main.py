@@ -588,7 +588,7 @@ def build_empty_alert_history_embed() -> discord.Embed:
 class ResponseTemplates:
     @staticmethod
     def price_alert(card_data) -> dict:
-        base_desc = f"Price moved {card_data.change}%"
+        base_desc = f"Price moved {card_data.change:.2f}%"
         enhancements = []
 
         if getattr(card_data, "sample_size", None):

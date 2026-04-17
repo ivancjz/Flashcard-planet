@@ -101,3 +101,20 @@ class TestResponseTemplatesPriceAlert(unittest.TestCase):
         self.assertEqual(args[0][1]["command_type"], "price_alert")
         self.assertEqual(args[0][1]["card_id"], "pika-001")
         self.assertEqual(result["embed"]["url"], "http://test/cards/pika-001?utm_source=discord")
+
+    def test_match_confidence_zero_shows_warning(self):
+        from bot.main import ResponseTemplates
+        result = ResponseTemplates.price_alert(_make_card_data(match_confidence=0))
+        self.assertIn("⚠️", result["embed"]["description"])
+        self.assertIn("0", result["embed"]["description"])
+
+    def test_match_confidence_90_boundary_shows_checkmark(self):
+        from bot.main import ResponseTemplates
+        result = ResponseTemplates.price_alert(_make_card_data(match_confidence=90))
+        self.assertIn("✅", result["embed"]["description"])
+
+    def test_sample_size_zero_omitted(self):
+        # sample_size=0 is falsy — treated as "no data", not shown
+        from bot.main import ResponseTemplates
+        result = ResponseTemplates.price_alert(_make_card_data(sample_size=0))
+        self.assertNotIn("sales", result["embed"]["description"])
