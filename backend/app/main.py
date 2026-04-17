@@ -9,6 +9,9 @@ from starlette.middleware.sessions import SessionMiddleware
 import uvicorn
 
 from backend.app.api.router import api_router
+from backend.app.auth.magic_link import router as magic_link_router
+from backend.app.auth.google_oauth import router as google_oauth_router
+from backend.app.api.routes.auth import web_router as discord_web_router
 from backend.app.core.config import get_settings
 from backend.app.db.init_db import init_db
 from backend.app.scheduler import build_scheduler
@@ -40,6 +43,9 @@ app.mount(
     name="static",
 )
 app.include_router(site_router)
+app.include_router(magic_link_router)
+app.include_router(google_oauth_router)
+app.include_router(discord_web_router)
 app.include_router(api_router)
 
 
