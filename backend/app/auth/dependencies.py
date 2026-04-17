@@ -17,7 +17,10 @@ def get_current_user(
     db: Session = Depends(get_database),
 ) -> User | None:
     """Returns the session user or None (no exception raised)."""
-    user_id_str = get_session_user_id(request)
+    try:
+        user_id_str = get_session_user_id(request)
+    except AssertionError:
+        return None
     if not user_id_str:
         return None
     try:

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_database
+from backend.app.auth.dependencies import get_current_user as get_session_user
 from backend.app.backstage import gap_detector as _gap_detector
 from backend.app.core.config import get_settings
 from backend.app.models.enums import AccessTier
@@ -28,13 +29,10 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 def require_admin_key(
-    request: Request,
     x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
-    db: Session = Depends(get_database),
+    session_user=Depends(get_session_user),
 ) -> None:
     """Allow access via X-Admin-Key header OR session user in ADMIN_EMAILS whitelist."""
-    from backend.app.auth.dependencies import get_current_user as _get_session_user
-
     settings = get_settings()
 
     # Path 1: API key (programmatic access, bot scripts)
@@ -46,33 +44,14 @@ def require_admin_key(
             raise HTTPException(status_code=403, detail="Forbidden")
         return
 
-    # Path 2: Session user in email whitelist (web UI admin).
-    # We resolve get_current_user through FastAPI's dependency system by looking it
-    # up on the app's dependency_overrides, so test overrides are respected.
-    # Falls back to calling the function directly for production use.
-    # AssertionError is raised by Starlette when SessionMiddleware is absent.
-    try:
-        app = request.app
-        resolver = app.dependency_overrides.get(_get_session_user, _get_session_user)
-        import inspect
-        sig = inspect.signature(resolver)
-        params = sig.parameters
-        # Call with only the args the resolver accepts
-        if "request" in params and "db" in params:
-            user = resolver(request, db)
-        elif "request" in params:
-            user = resolver(request)
-        else:
-            user = resolver()
-    except AssertionError:
-        user = None
-    if user is not None:
-        # User is authenticated — check whitelist. Return 404 to hide backend existence.
-        if user.email and user.email.lower() in settings.admin_email_set:
+    # Path 2: Session user in email whitelist (web UI admin)
+    if session_user is not None:
+        if session_user.email and session_user.email.lower() in settings.admin_email_set:
             return
+        # Authenticated but not admin — 404 to hide backend existence
         raise HTTPException(status_code=404)
 
-    # No credentials provided at all
+    # Neither credential valid — 401 (no credentials provided)
     raise HTTPException(
         status_code=401,
         detail="Missing X-Admin-Key header.",
