@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from enum import Enum
 
+from backend.app.core.response_types import ProGateConfig
+
 
 class Feature(str, Enum):
     # ── Price history ────────────────────────────────────────────────────
@@ -105,3 +107,35 @@ def signals_limit(access_tier: str) -> int | None:
 def history_days(access_tier: str) -> int:
     """Return price history window in days for tier."""
     return PRO_HISTORY_DAYS if can(access_tier, Feature.PRICE_HISTORY_FULL) else FREE_HISTORY_DAYS
+
+
+_PRO_GATE_STRATEGIES: dict[str, ProGateConfig] = {
+    "price_history": ProGateConfig(
+        is_locked=True,
+        feature_name="Extended Price History (180 days)",
+        upgrade_reason="See long-term price patterns",
+        urgency="medium",
+    ),
+    "signals_full": ProGateConfig(
+        is_locked=True,
+        feature_name="Unlimited Signals + AI Explanation",
+        upgrade_reason="Get all market signals",
+        urgency="high",
+    ),
+    "source_comparison": ProGateConfig(
+        is_locked=True,
+        feature_name="Detailed eBay vs TCG Comparison",
+        upgrade_reason="Compare all price sources",
+        urgency="low",
+    ),
+}
+
+
+def get_pro_gate_config(feature: str, access_tier: str) -> ProGateConfig:
+    """Return ProGateConfig for feature+tier. Unlocked if Pro; locked with strategy if Free."""
+    if access_tier.lower() == "pro":
+        return ProGateConfig(is_locked=False)
+    strategy = _PRO_GATE_STRATEGIES.get(feature)
+    if strategy is None:
+        return ProGateConfig(is_locked=True, upgrade_reason="Upgrade to Pro for full access")
+    return strategy
