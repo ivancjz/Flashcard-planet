@@ -1,10 +1,10 @@
-import importlib
+import importlib.util
 import logging
-from pathlib import Path
 import pkgutil
+import subprocess
+import sys
+from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
 from sqlalchemy import inspect
 
 from backend.app.db.base import Base
@@ -13,29 +13,39 @@ from backend.app.db.session import engine
 logger = logging.getLogger(__name__)
 
 _ALEMBIC_INI = Path(__file__).resolve().parents[3] / "alembic.ini"
+_VERSIONS_DIR = Path(__file__).resolve().parents[3] / "migrations" / "versions"
 
 
-def _alembic_cfg() -> Config:
-    return Config(str(_ALEMBIC_INI))
-
-
-def _alembic_head_revision(cfg: Config) -> str:
-    modules = command._load_revision_modules(cfg)
-    referenced_revisions = {
-        referenced_revision
-        for module in modules
-        for referenced_revision in command._normalize_down_revisions(
-            getattr(module, "down_revision", None)
+def _run_alembic(*args: str) -> None:
+    cmd = [sys.executable, "-m", "alembic", "--config", str(_ALEMBIC_INI), *args]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.stdout:
+        logger.info("alembic stdout: %s", result.stdout.strip())
+    if result.stderr:
+        logger.info("alembic stderr: %s", result.stderr.strip())
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"alembic {' '.join(args)} failed (exit {result.returncode}):\n{result.stderr}"
         )
-    }
-    head_revisions = sorted(
-        getattr(module, "revision", "")
-        for module in modules
-        if getattr(module, "revision", "") not in referenced_revisions
-    )
-    if not head_revisions:
-        raise RuntimeError("Could not determine Alembic head revision from local migration files.")
-    return head_revisions[-1]
+
+
+def _alembic_head_revision() -> str:
+    revisions: dict[str, str | None] = {}
+    for path in sorted(_VERSIONS_DIR.glob("*.py")):
+        if path.name.startswith("__"):
+            continue
+        spec = importlib.util.spec_from_file_location(path.stem, path)
+        mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        rev = getattr(mod, "revision", None)
+        down = getattr(mod, "down_revision", None)
+        if rev:
+            revisions[rev] = down
+    referenced = set(revisions.values()) - {None}
+    heads = [r for r in revisions if r not in referenced]
+    if not heads:
+        raise RuntimeError("Could not determine Alembic head revision from migration files.")
+    return sorted(heads)[-1]
 
 
 def _expected_model_tables() -> set[str]:
@@ -79,8 +89,7 @@ def init_db() -> None:
       any newer migrations that exist beyond that schema.
     - Already-managed database: runs upgrade head (no-op if already current).
     """
-    cfg = _alembic_cfg()
-    head_revision = _alembic_head_revision(cfg)
+    head_revision = _alembic_head_revision()
 
     with engine.connect() as conn:
         inspector = inspect(conn)
@@ -98,15 +107,12 @@ def init_db() -> None:
             logger.info(
                 "Pre-Alembic database detected with full current schema. Stamping at head."
             )
-            command.stamp(cfg, "head")
+            _run_alembic("stamp", "head")
         else:
-            # Database was bootstrapped before Alembic was added, but it does
-            # not yet match the current head schema. Stamp the initial revision
-            # and let later migrations bring it forward.
             logger.info(
                 "Pre-Alembic database detected with partial schema. Stamping at initial revision 0001."
             )
-            command.stamp(cfg, "0001")
+            _run_alembic("stamp", "0001")
     elif has_schema:
         if schema_matches_head and current_revision != head_revision:
             logger.info(
@@ -114,7 +120,7 @@ def init_db() -> None:
                 current_revision,
                 head_revision,
             )
-            command.stamp(cfg, "head")
+            _run_alembic("stamp", "head")
 
     logger.info("Running Alembic migrations (upgrade head).")
-    command.upgrade(cfg, "head")
+    _run_alembic("upgrade", "head")

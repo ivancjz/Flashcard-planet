@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 
 def _connect_ctx() -> MagicMock:
@@ -45,8 +45,7 @@ def test_init_db_stamps_head_for_full_create_all_schema_without_alembic_version(
     with (
         patch("backend.app.db.init_db.engine") as mock_engine,
         patch("backend.app.db.init_db.inspect") as mock_inspect,
-        patch("backend.app.db.init_db.command.stamp") as mock_stamp,
-        patch("backend.app.db.init_db.command.upgrade") as mock_upgrade,
+        patch("backend.app.db.init_db._run_alembic") as mock_run,
     ):
         ctx = _connect_ctx()
         _set_version(ctx, None)
@@ -58,20 +57,17 @@ def test_init_db_stamps_head_for_full_create_all_schema_without_alembic_version(
 
         init_db()
 
-    mock_stamp.assert_called_once()
-    stamp_args = mock_stamp.call_args[0]
-    assert stamp_args[1] == "head"
-    mock_upgrade.assert_called_once()
-    upgrade_args = mock_upgrade.call_args[0]
-    assert upgrade_args[1] == "head"
+    calls = mock_run.call_args_list
+    assert calls[0] == call("stamp", "head")
+    assert calls[1] == call("upgrade", "head")
+    assert len(calls) == 2
 
 
 def test_init_db_stamps_0001_for_partial_pre_alembic_schema() -> None:
     with (
         patch("backend.app.db.init_db.engine") as mock_engine,
         patch("backend.app.db.init_db.inspect") as mock_inspect,
-        patch("backend.app.db.init_db.command.stamp") as mock_stamp,
-        patch("backend.app.db.init_db.command.upgrade") as mock_upgrade,
+        patch("backend.app.db.init_db._run_alembic") as mock_run,
     ):
         ctx = _connect_ctx()
         _set_version(ctx, None)
@@ -83,10 +79,10 @@ def test_init_db_stamps_0001_for_partial_pre_alembic_schema() -> None:
 
         init_db()
 
-    mock_stamp.assert_called_once()
-    stamp_args = mock_stamp.call_args[0]
-    assert stamp_args[1] == "0001"
-    mock_upgrade.assert_called_once()
+    calls = mock_run.call_args_list
+    assert calls[0] == call("stamp", "0001")
+    assert calls[1] == call("upgrade", "head")
+    assert len(calls) == 2
 
 
 def test_init_db_restamps_head_when_full_schema_is_wrongly_marked_0001() -> None:
@@ -98,8 +94,7 @@ def test_init_db_restamps_head_when_full_schema_is_wrongly_marked_0001() -> None
     with (
         patch("backend.app.db.init_db.engine") as mock_engine,
         patch("backend.app.db.init_db.inspect") as mock_inspect,
-        patch("backend.app.db.init_db.command.stamp") as mock_stamp,
-        patch("backend.app.db.init_db.command.upgrade") as mock_upgrade,
+        patch("backend.app.db.init_db._run_alembic") as mock_run,
     ):
         ctx = _connect_ctx()
         _set_version(ctx, "0001")
@@ -111,10 +106,10 @@ def test_init_db_restamps_head_when_full_schema_is_wrongly_marked_0001() -> None
 
         init_db()
 
-    mock_stamp.assert_called_once()
-    stamp_args = mock_stamp.call_args[0]
-    assert stamp_args[1] == "head"
-    mock_upgrade.assert_called_once()
+    calls = mock_run.call_args_list
+    assert calls[0] == call("stamp", "head")
+    assert calls[1] == call("upgrade", "head")
+    assert len(calls) == 2
 
 
 def test_init_db_does_not_restamp_head_when_head_only_table_columns_are_missing() -> None:
@@ -126,8 +121,7 @@ def test_init_db_does_not_restamp_head_when_head_only_table_columns_are_missing(
     with (
         patch("backend.app.db.init_db.engine") as mock_engine,
         patch("backend.app.db.init_db.inspect") as mock_inspect,
-        patch("backend.app.db.init_db.command.stamp") as mock_stamp,
-        patch("backend.app.db.init_db.command.upgrade") as mock_upgrade,
+        patch("backend.app.db.init_db._run_alembic") as mock_run,
     ):
         ctx = _connect_ctx()
         _set_version(ctx, "0001")
@@ -139,8 +133,8 @@ def test_init_db_does_not_restamp_head_when_head_only_table_columns_are_missing(
 
         init_db()
 
-    mock_stamp.assert_not_called()
-    mock_upgrade.assert_called_once()
+    calls = mock_run.call_args_list
+    assert calls == [call("upgrade", "head")]
 
 
 def load_tests(
