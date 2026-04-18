@@ -14,9 +14,11 @@ from backend.app.services.alert_service import (
     AlertEvaluationResult,
     PricePoint,
     TriggeredAlertNotification,
+    build_alert_notification_embed,
     evaluate_active_alerts,
     process_alert_notifications,
 )
+from backend.app.services.card_credibility_service import CredibilityIndicators
 from backend.app.services.liquidity_service import AssetSignalSnapshot
 from backend.app.services.price_service import PredictionComputation
 
@@ -148,6 +150,10 @@ class AlertServiceTests(TestCase):
             patch(
                 "backend.app.services.alert_service.get_reference_price_row",
                 return_value=make_price_point("95.00"),
+            ),
+            patch(
+                "backend.app.services.alert_service.build_credibility_indicators",
+                return_value=None,
             ),
             patch(
                 "backend.app.services.alert_service.get_asset_signal_snapshots",
@@ -356,3 +362,156 @@ class AlertServiceTests(TestCase):
         self.assertTrue(alert.is_armed)
         self.assertIsNone(alert.last_triggered_at)
         self.assertTrue(session.commit_called)
+
+
+def _make_credibility(
+    *,
+    sample_size: int = 47,
+    match_confidence: float | None = 0.94,
+    confidence_status: str = "green",
+) -> CredibilityIndicators:
+    return CredibilityIndicators(
+        sample_size=sample_size,
+        data_age_hours=2.5,
+        source_breakdown=None,
+        match_confidence=match_confidence,
+        data_age_label="Updated 2h ago",
+        sample_size_label=f"Based on {sample_size} sales" if sample_size > 0 else "No sales data",
+        confidence_status=confidence_status,
+    )
+
+
+class AlertEmbedCredibilityTests(TestCase):
+    """Verify credibility enrichment in build_alert_notification_embed and evaluate_active_alerts."""
+
+    def _price_up_embed(self, *, access_tier: str = "free", credibility: CredibilityIndicators | None = None) -> dict:
+        alert = make_alert(
+            alert_type=AlertType.PRICE_UP_THRESHOLD.value,
+            direction=AlertDirection.ABOVE.value,
+            threshold_percent="5.00",
+        )
+        return build_alert_notification_embed(
+            alert,
+            make_price_point("110.00"),
+            None,
+            previous_price=make_price_point("100.00"),
+            credibility=credibility,
+            access_tier=access_tier,
+        )
+
+    def _field_names(self, embed: dict) -> list[str]:
+        return [f["name"] for f in embed["fields"]]
+
+    def _field_values_joined(self, embed: dict) -> str:
+        return " ".join(f["value"] for f in embed["fields"])
+
+    def test_price_up_embed_includes_sample_size_when_available(self):
+        embed = self._price_up_embed(credibility=_make_credibility(match_confidence=None), access_tier="pro")
+        self.assertIn("Data quality", self._field_names(embed))
+        self.assertIn("47", self._field_values_joined(embed))
+
+    def test_price_up_embed_skips_sample_size_when_zero(self):
+        embed = self._price_up_embed(
+            credibility=_make_credibility(sample_size=0, match_confidence=None),
+            access_tier="pro",
+        )
+        self.assertNotIn("Data quality", self._field_names(embed))
+
+    def test_match_confidence_green_shows_checkmark(self):
+        embed = self._price_up_embed(
+            credibility=_make_credibility(match_confidence=0.94, confidence_status="green"),
+            access_tier="pro",
+        )
+        values = self._field_values_joined(embed)
+        self.assertIn("✅", values)
+        self.assertIn("94%", values)
+
+    def test_match_confidence_non_green_shows_warning(self):
+        embed = self._price_up_embed(
+            credibility=_make_credibility(match_confidence=0.72, confidence_status="yellow"),
+            access_tier="pro",
+        )
+        values = self._field_values_joined(embed)
+        self.assertIn("⚠️", values)
+        self.assertIn("72%", values)
+
+    def test_free_tier_embed_includes_pro_gate_nudge(self):
+        embed = self._price_up_embed(credibility=_make_credibility(), access_tier="free")
+        self.assertIn("Pro Only", self._field_values_joined(embed))
+
+    def test_pro_tier_embed_has_no_pro_gate_nudge(self):
+        embed = self._price_up_embed(credibility=_make_credibility(), access_tier="pro")
+        self.assertNotIn("Pro Only", self._field_values_joined(embed))
+
+    def test_embed_graceful_when_credibility_is_none(self):
+        embed = self._price_up_embed(credibility=None, access_tier="free")
+        self.assertIn("title", embed)
+        self.assertNotIn("Data quality", self._field_names(embed))
+        self.assertNotIn("Match confidence", self._field_names(embed))
+        self.assertNotIn("Pro Only", self._field_values_joined(embed))
+
+    def test_prediction_embed_not_enriched(self):
+        alert = make_alert(
+            alert_type=AlertType.PREDICT_SIGNAL_CHANGE.value,
+            last_observed_signal="Flat",
+        )
+        session = FakeSession([alert])
+        with (
+            patch(
+                "backend.app.services.alert_service.get_recent_real_price_rows",
+                return_value=[make_price_point("102.00"), make_price_point("100.00")],
+            ),
+            patch(
+                "backend.app.services.alert_service.get_reference_price_row",
+                return_value=make_price_point("99.00"),
+            ),
+            patch(
+                "backend.app.services.alert_service.get_prediction_state_for_asset",
+                return_value=make_prediction("Up", up="68.00", down="10.00", flat="22.00"),
+            ),
+            patch(
+                "backend.app.services.alert_service.build_credibility_indicators",
+            ) as mock_cred,
+        ):
+            result = evaluate_active_alerts(session)
+
+        self.assertEqual(result.triggered_alerts, 1)
+        mock_cred.assert_not_called()
+
+    def test_credibility_not_fetched_twice_for_same_asset(self):
+        alert1 = make_alert(
+            alert_type=AlertType.PRICE_UP_THRESHOLD.value,
+            threshold_percent="5.00",
+        )
+        alert2 = make_alert(
+            alert_type=AlertType.PRICE_UP_THRESHOLD.value,
+            threshold_percent="3.00",
+        )
+        alert2.asset_id = alert1.asset_id
+        alert2.asset = alert1.asset
+        alert1.user.access_tier = "free"
+        alert2.user.access_tier = "free"
+
+        session = FakeSession([alert1, alert2])
+        with (
+            patch(
+                "backend.app.services.alert_service.get_recent_real_price_rows",
+                return_value=[make_price_point("110.00"), make_price_point("100.00")],
+            ),
+            patch(
+                "backend.app.services.alert_service.get_reference_price_row",
+                return_value=make_price_point("95.00"),
+            ),
+            patch(
+                "backend.app.services.alert_service.get_asset_signal_snapshots",
+                return_value={},
+            ),
+            patch(
+                "backend.app.services.alert_service.build_credibility_indicators",
+                return_value=_make_credibility(),
+            ) as mock_cred,
+        ):
+            result = evaluate_active_alerts(session)
+
+        self.assertEqual(result.triggered_alerts, 2)
+        self.assertEqual(mock_cred.call_count, 1)
