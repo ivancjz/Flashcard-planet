@@ -203,25 +203,64 @@ appeared (ST-2 only).
 - ✅ All existing tests still pass — suite is 531 tests (up from 522;
   +9 from ST-2)
 
+### I18N infrastructure — status and decisions
+
+**Discovery note.** Original A-4 gap 1 was assumed to require writing
+translations. Research revealed the `site.js` toggle mechanism already
+existed and worked for all 234 `_lang_pair()` call sites; only 3 pages
+with inline JS remained disconnected. The work scope shrunk from "design
+a translation system" to "wrap ~57 JS strings with `t()`". I18N-1b
+completed the most user-facing 28 of those.
+
+#### I18N-1a — Expose `t()` globally ✅ Done (2026-04-18)
+
+Added `window.t = t` inside the `site.js` IIFE, right after the `t()`
+definition. Allows inline `<script>` blocks in any page to call `t()`
+without a separate import. No behavior change for existing
+`_lang_pair()` content. Commit `c09539e`.
+
+#### I18N-1b — `alerts_page()` inline JS ✅ Done (2026-04-18)
+
+All 28 Chinese-only string literals in `alerts_page()` wired through
+`t()`. Status labels, loading states, error messages, action buttons,
+and result counts all respond to the language toggle. Commit `d3e2437`.
+
+#### I18N-1c — `watchlists_page()` inline JS ⬜ Deferred
+
+~14 string sites. Deferred to keep review surface small and allow
+focused translation work per page.
+
+#### I18N-1d — `backstage_review_page()` inline JS ⬜ Deferred
+
+~14 string sites. Admin-only page; lower urgency than user-facing pages.
+Deferred alongside I18N-1c.
+
+---
+
 ### Phase 2 — Frontend polish ← active
 
 Four candidates. Pick one to start; they are independent of each other.
 
-#### A-4 Alerts page — three concrete gaps ⬜ Not started
+#### A-4 Alerts page — one gap done, two remaining 🚧 Partial
 
-From source inspection of `site.py:1714-1980`:
+**Completed:**
+- **Gap 1 — Status labels** ✅ Done (2026-04-18, shipped as I18N-1b).
+  All 28 inline JS strings in `alerts_page()` replaced with `t(zh, en)`
+  calls. Translations: `"已停用"` → `"Disabled"`, `"已启用"` → `"Active"`,
+  `"等待重置"` → `"Waiting to rearm"`. Validation failure message
+  `"出错了。"` promoted to `"Please fill out all fields."` (all other
+  `"出错了。"` sites map to `"Something went wrong."`). See commit
+  `d3e2437` for full translation notes.
 
-1. **Status labels need an English/bilingual vocabulary.** Current
-   labels are Chinese-only: `"已停用"`, `"已启用"`, `"等待重置"`. The
-   plan called for `TRIGGERED / ACTIVE / PAUSED`. Labels should go
-   through the existing `_lang_pair` bilingual mechanism.
-2. **Alert type dropdown shows raw enum names.** `PRICE_UP_THRESHOLD`,
-   `TARGET_PRICE_HIT`, etc. Needs human-friendly display labels.
-3. **Lookup field still keyed on `discord_user_id`.** After Auth v2
-   shipped, this should default to the logged-in session user rather
-   than requiring manual Discord ID entry.
+**Remaining:**
+- **Gap 2 — Alert type dropdown shows raw enum names.**
+  `PRICE_UP_THRESHOLD`, `TARGET_PRICE_HIT`, etc. Needs human-friendly
+  display labels.
+- **Gap 3 — Lookup field still keyed on `discord_user_id`.** After
+  Auth v2 shipped, this should default to the logged-in session user
+  rather than requiring manual Discord ID entry.
 
-Rough effort: S each, total S–M.
+Rough effort for remaining gaps: S each.
 
 #### A-1 Dashboard — needs deeper audit ❓ Unconfirmed
 
