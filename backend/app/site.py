@@ -1873,32 +1873,32 @@ def alerts_page(request: Request) -> HTMLResponse:
 
         const formatStatus = (item) => {{
           if (!item.is_active) {{
-            return "已停用";
+            return t("已停用", "Disabled");
           }}
-          return item.is_armed ? "已启用" : "等待重置";
+          return item.is_armed ? t("已启用", "Active") : t("等待重置", "Waiting to rearm");
         }};
 
         const loadAlerts = async (userId) => {{
           if (!userId) {{
-            lookupStatus.textContent = "请输入 Discord 用户 ID。";
+            lookupStatus.textContent = t("请输入 Discord 用户 ID。", "Enter a Discord user ID.");
             return;
           }}
-          lookupStatus.textContent = "查询中...";
-          renderEmpty("正在加载...");
+          lookupStatus.textContent = t("查询中...", "Searching...");
+          renderEmpty(t("正在加载...", "Loading..."));
           try {{
             const res = await fetch(`${{apiBase}}/${{encodeURIComponent(userId)}}`);
             if (!res.ok) {{
-              lookupStatus.textContent = "出错了。";
-              renderEmpty("出错了。");
+              lookupStatus.textContent = t("出错了。", "Something went wrong.");
+              renderEmpty(t("出错了。", "Something went wrong."));
               return;
             }}
             const items = await res.json();
             if (!items.length) {{
-              lookupStatus.textContent = "未找到预警。";
-              renderEmpty("未找到预警。");
+              lookupStatus.textContent = t("未找到预警。", "No alerts found.");
+              renderEmpty(t("未找到预警。", "No alerts found."));
               return;
             }}
-            lookupStatus.textContent = `共找到 ${{items.length}} 条预警。`;
+            lookupStatus.textContent = t("共找到 " + items.length + " 条预警。", `Found ${{items.length}} ${{items.length === 1 ? "alert" : "alerts"}}.`);
             resultsBody.innerHTML = "";
             items.forEach((item) => {{
               const row = document.createElement("tr");
@@ -1908,8 +1908,8 @@ def alerts_page(request: Request) -> HTMLResponse:
                 <td>${{escapeHtml(String(formatThreshold(item)))}}</td>
                 <td>${{escapeHtml(formatStatus(item))}}</td>
                 <td>
-                  <button class="button button-secondary" type="button" data-action="delete">删除</button>
-                  <button class="button button-secondary" type="button" data-action="disable">停用</button>
+                  <button class="button button-secondary" type="button" data-action="delete">${{t("删除", "Delete")}}</button>
+                  <button class="button button-secondary" type="button" data-action="disable">${{t("停用", "Disable")}}</button>
                 </td>
               `;
 
@@ -1926,18 +1926,18 @@ def alerts_page(request: Request) -> HTMLResponse:
                   if (!res.ok) {{
                     deleteButton.disabled = false;
                     disableButton.disabled = false;
-                    lookupStatus.textContent = "出错了。";
+                    lookupStatus.textContent = t("出错了。", "Something went wrong.");
                     return;
                   }}
                   row.remove();
-                  lookupStatus.textContent = "已删除。";
+                  lookupStatus.textContent = t("已删除。", "Deleted.");
                   if (!resultsBody.children.length) {{
-                    renderEmpty("暂无查询结果。");
+                    renderEmpty(t("暂无查询结果。", "No results."));
                   }}
                 }} catch (err) {{
                   deleteButton.disabled = false;
                   disableButton.disabled = false;
-                  lookupStatus.textContent = "出错了。";
+                  lookupStatus.textContent = t("出错了。", "Something went wrong.");
                 }}
               }});
 
@@ -1951,23 +1951,23 @@ def alerts_page(request: Request) -> HTMLResponse:
                   if (!res.ok) {{
                     deleteButton.disabled = false;
                     disableButton.disabled = false;
-                    lookupStatus.textContent = "出错了。";
+                    lookupStatus.textContent = t("出错了。", "Something went wrong.");
                     return;
                   }}
-                  row.children[3].textContent = "已停用";
-                  disableButton.textContent = "已停用";
+                  row.children[3].textContent = t("已停用", "Disabled");
+                  disableButton.textContent = t("已停用", "Disabled");
                 }} catch (err) {{
                   deleteButton.disabled = false;
                   disableButton.disabled = false;
-                  lookupStatus.textContent = "出错了。";
+                  lookupStatus.textContent = t("出错了。", "Something went wrong.");
                 }}
               }});
 
               resultsBody.appendChild(row);
             }});
           }} catch (err) {{
-            lookupStatus.textContent = "出错了。";
-            renderEmpty("出错了。");
+            lookupStatus.textContent = t("出错了。", "Something went wrong.");
+            renderEmpty(t("出错了。", "Something went wrong."));
           }}
         }};
 
@@ -1986,11 +1986,11 @@ def alerts_page(request: Request) -> HTMLResponse:
           const thresholdValue = document.getElementById("alert-create-threshold").value.trim();
 
           if (!discordUserId || !assetName || !alertType || !thresholdValue) {{
-            createStatus.textContent = "出错了。";
+            createStatus.textContent = t("出错了。", "Please fill out all fields.");
             return;
           }}
 
-          createStatus.textContent = "提交中...";
+          createStatus.textContent = t("提交中...", "Submitting...");
           try {{
             const res = await fetch(apiBase, {{
               method: "POST",
@@ -2002,12 +2002,12 @@ def alerts_page(request: Request) -> HTMLResponse:
                 threshold: Number(thresholdValue),
               }}),
             }});
-            createStatus.textContent = res.ok ? "已创建。" : "出错了。";
+            createStatus.textContent = res.ok ? t("已创建。", "Created.") : t("出错了。", "Something went wrong.");
             if (res.ok && lookupInput.value.trim() === discordUserId) {{
               loadAlerts(discordUserId);
             }}
           }} catch (err) {{
-            createStatus.textContent = "出错了。";
+            createStatus.textContent = t("出错了。", "Something went wrong.");
           }}
         }});
       }})();
