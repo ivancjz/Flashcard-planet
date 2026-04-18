@@ -265,7 +265,52 @@ A task is done when:
 
 ---
 
-## 12. Useful references
+## 12. Git discipline
+
+**Never commit without explicit authorization.** Saying "I'll commit
+this" in a report is not authorization — wait for the user to say
+"commit it" or equivalent. If the user's instruction is ambiguous,
+ask.
+
+**One logical change per commit.** When authorized to commit, prefer
+separate commits for:
+- Implementation code
+- Tests
+- Documentation updates
+- Configuration / chore changes
+
+Do not squash them unless the user asks. Split history is cheaper to
+review and cheaper to revert.
+
+**Before any `git add` or `git commit`, run `git status` and show the
+output.** This lets the user confirm which files will be included.
+
+**Never stage files the user did not mention.** If `git status` shows
+unexpected untracked or modified files, flag them in the summary — do
+not silently add them, do not silently omit them.
+
+**Files that must never be committed:**
+- `.claude/` — agent local state
+- `logs/` and `*.log` — runtime logs
+- `.pycache_tmp/` — build caches
+- Any file matching `.gitignore` patterns
+
+If you see a tracked file that should be ignored, do not auto-fix it.
+Surface it to the user.
+
+**Suggested commit message style:**
+- `feat(scope): short description` — new user-visible behaviour
+- `test(scope): ...` — test additions
+- `docs: ...` — documentation only
+- `chore: ...` — non-functional maintenance
+- `fix(scope): ...` — bug fix
+
+Include `Co-Authored-By: Claude <noreply@anthropic.com>` in commits
+where Claude did the bulk of the work.
+
+---
+
+## 13. Useful references
 
 - Full 12-week plan: `docs/plan-v3.md`
 - Architecture notes: `docs/architecture.md`
