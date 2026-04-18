@@ -31,6 +31,7 @@
   function t(zh, en) {
     return getLang() === "en" ? en : zh;
   }
+  window.t = t;
 
   // Helpers
   function formatTimestamp(value) {
