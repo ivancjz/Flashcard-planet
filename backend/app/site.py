@@ -582,7 +582,7 @@ def cards_page(
             if row.set_id and row.set_name
         ]
 
-        filters = [Asset.category == "Pokemon", Asset.external_id.is_not(None)]
+        filters = [Asset.game == Game.POKEMON.value, Asset.external_id.is_not(None)]
         if set_id:
             filters.append(Asset.metadata_json["set_id"].astext == set_id)
         if q:
