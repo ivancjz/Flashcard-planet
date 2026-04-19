@@ -285,7 +285,8 @@ def derive_variant(card: dict[str, Any]) -> str | None:
 def build_asset_payload(card: dict[str, Any]) -> dict[str, Any]:
     return {
         "asset_class": "TCG",
-        "category": "Pokemon",
+        "category": "Pokemon",  # dual-write: keep until TASK-001c
+        "game": "pokemon",
         "name": card["name"],
         "set_name": (card.get("set") or {}).get("name"),
         "card_number": card.get("number"),
