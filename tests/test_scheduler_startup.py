@@ -3,6 +3,9 @@ tests/test_scheduler_startup.py
 
 Covers:
   a. prepare_scheduler_for_startup() resumes all 4 jobs with correct stagger
+     Jobs in _STARTUP_DELAY: scheduled-ingestion (120s), bulk-set-price-refresh (300s),
+     signal-sweep (600s), alert-heartbeat (720s).
+     Note: retry-pass is intentionally omitted from _STARTUP_DELAY.
   b. Missing jobs log a warning rather than crashing
   c. _run_signal_sweep writes signal breakdown into meta_json on success
   d. _run_signal_sweep records status='error' when sweep_signals raises
@@ -35,7 +38,7 @@ class TestPrepareSchedulerForStartup(unittest.TestCase):
             "scheduled-ingestion",
             "bulk-set-price-refresh",
             "signal-sweep",
-            "retry-pass",
+            "alert-heartbeat",
         ]
         scheduler = self._make_scheduler(all_jobs)
         self._call(scheduler)
@@ -48,7 +51,7 @@ class TestPrepareSchedulerForStartup(unittest.TestCase):
             "scheduled-ingestion",
             "bulk-set-price-refresh",
             "signal-sweep",
-            "retry-pass",
+            "alert-heartbeat",
         ]
         now = datetime(2026, 4, 19, 12, 0, 0, tzinfo=UTC)
         scheduler = self._make_scheduler(all_jobs)
@@ -64,7 +67,7 @@ class TestPrepareSchedulerForStartup(unittest.TestCase):
             run_times["scheduled-ingestion"],
             run_times["bulk-set-price-refresh"],
             run_times["signal-sweep"],
-            run_times["retry-pass"],
+            run_times["alert-heartbeat"],
         ]
         for i in range(len(ordered) - 1):
             self.assertLess(ordered[i], ordered[i + 1])
@@ -74,7 +77,7 @@ class TestPrepareSchedulerForStartup(unittest.TestCase):
             "scheduled-ingestion",
             "bulk-set-price-refresh",
             "signal-sweep",
-            "retry-pass",
+            "alert-heartbeat",
         ]
         now = datetime(2026, 4, 19, 12, 0, 0, tzinfo=UTC)
         scheduler = self._make_scheduler(all_jobs)
@@ -89,9 +92,9 @@ class TestPrepareSchedulerForStartup(unittest.TestCase):
             run_times["signal-sweep"],
             run_times["bulk-set-price-refresh"],
         )
-        # retry-pass is last
+        # alert-heartbeat is last (receives first sweep result before sending)
         self.assertGreater(
-            run_times["retry-pass"],
+            run_times["alert-heartbeat"],
             run_times["signal-sweep"],
         )
 
@@ -107,17 +110,17 @@ class TestPrepareSchedulerForStartup(unittest.TestCase):
                 return
         self.fail("signal-sweep was not modified")
 
-    def test_retry_pass_first_run_is_15_minutes_after_now(self):
+    def test_alert_heartbeat_first_run_is_12_minutes_after_now(self):
         now = datetime(2026, 4, 19, 12, 0, 0, tzinfo=UTC)
-        scheduler = self._make_scheduler(["retry-pass"])
+        scheduler = self._make_scheduler(["alert-heartbeat"])
         self._call(scheduler, now=now)
 
         for c in scheduler.modify_job.call_args_list:
-            if c.args[0] == "retry-pass":
-                expected = now + timedelta(seconds=900)
+            if c.args[0] == "alert-heartbeat":
+                expected = now + timedelta(seconds=720)
                 self.assertEqual(c.kwargs["next_run_time"], expected)
                 return
-        self.fail("retry-pass was not modified")
+        self.fail("alert-heartbeat was not modified")
 
     def test_missing_job_does_not_raise(self):
         # Only ingestion registered, the other three are absent
@@ -132,7 +135,7 @@ class TestPrepareSchedulerForStartup(unittest.TestCase):
         with self.assertLogs("backend.app.backstage.scheduler", level="WARNING") as cm:
             self._call(scheduler)
         missing_warnings = [m for m in cm.output if "not found" in m]
-        # bulk, signal-sweep, retry-pass are all absent
+        # bulk-set-price-refresh, signal-sweep, alert-heartbeat are all absent
         self.assertGreaterEqual(len(missing_warnings), 3)
 
     def test_no_jobs_registered_does_not_raise(self):

@@ -19,6 +19,7 @@ import httpx
 
 from backend.app.core.config import settings
 from backend.app.ingestion.ebay.models import EbayListing
+from backend.app.models.game import GAME_CONFIG, Game
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,6 @@ _FINDING_API_URL = "https://svcs.ebay.com/services/search/FindingService/v1"
 _OAUTH_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 _BROWSE_API_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
 _FINDING_XML_NS = "{urn:ebay:apis:eBLBaseComponents}"
-_POKEMON_CATEGORY_ID = "2536"
 
 
 def _parse_iso(value: str) -> datetime | None:
@@ -138,12 +138,14 @@ class RealEbayClient:
     Fallback: Browse API (ending-soon active listings, JSON).
     """
 
-    async def fetch_sold_listings(self, category: str, limit: int = 100) -> list[EbayListing]:
+    async def fetch_sold_listings(self, game: Game, limit: int = 100) -> list[EbayListing]:
         if not settings.ebay_app_id or not settings.ebay_cert_id:
             logger.warning("ebay_real_client_skipped: missing ebay_app_id or ebay_cert_id")
             return []
 
-        keywords = settings.ebay_search_keywords or "Pokemon card"
+        meta = GAME_CONFIG[game]
+        keywords = " ".join(meta.ebay_search_terms) or settings.ebay_search_keywords or "trading card"
+        category_id = meta.ebay_category_id  # None = keyword-only search
 
         async with httpx.AsyncClient(timeout=20.0) as client:
             # OAuth token (needed for Browse fallback)
@@ -156,22 +158,20 @@ class RealEbayClient:
             # --- Primary: Finding API (real sold prices) ---
             listings: list[EbayListing] = []
             try:
-                resp = await client.get(
-                    _FINDING_API_URL,
-                    params={
-                        "OPERATION-NAME": "findCompletedItems",
-                        "SERVICE-VERSION": "1.0.0",
-                        "SECURITY-APPNAME": settings.ebay_app_id,
-                        "RESPONSE-DATA-FORMAT": "XML",
-                        "keywords": keywords,
-                        "categoryId": _POKEMON_CATEGORY_ID,
-                        "itemFilter(0).name": "SoldItemsOnly",
-                        "itemFilter(0).value": "true",
-                        "sortOrder": "EndTimeSoonest",
-                        "paginationInput.entriesPerPage": str(min(limit, 100)),
-                    },
-                    timeout=20.0,
-                )
+                params: dict = {
+                    "OPERATION-NAME": "findCompletedItems",
+                    "SERVICE-VERSION": "1.0.0",
+                    "SECURITY-APPNAME": settings.ebay_app_id,
+                    "RESPONSE-DATA-FORMAT": "XML",
+                    "keywords": keywords,
+                    "itemFilter(0).name": "SoldItemsOnly",
+                    "itemFilter(0).value": "true",
+                    "sortOrder": "EndTimeSoonest",
+                    "paginationInput.entriesPerPage": str(min(limit, 100)),
+                }
+                if category_id is not None:
+                    params["categoryId"] = category_id
+                resp = await client.get(_FINDING_API_URL, params=params, timeout=20.0)
                 if "10001" in resp.text:
                     logger.warning("ebay_finding_quota_hit")
                 elif resp.status_code == 200:
@@ -182,19 +182,21 @@ class RealEbayClient:
             # --- Fallback: Browse API ---
             if not listings:
                 try:
+                    browse_params: dict = {
+                        "q": keywords,
+                        "filter": "buyingOptions:{FIXED_PRICE}",
+                        "sort": "endingSoonest",
+                        "limit": str(min(limit, 200)),
+                    }
+                    if category_id is not None:
+                        browse_params["category_ids"] = category_id
                     resp = await client.get(
                         _BROWSE_API_URL,
                         headers={
                             "Authorization": f"Bearer {token}",
                             "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
                         },
-                        params={
-                            "q": keywords,
-                            "category_ids": _POKEMON_CATEGORY_ID,
-                            "filter": "buyingOptions:{FIXED_PRICE}",
-                            "sort": "endingSoonest",
-                            "limit": str(min(limit, 200)),
-                        },
+                        params=browse_params,
                         timeout=20.0,
                     )
                     resp.raise_for_status()

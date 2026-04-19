@@ -343,6 +343,7 @@ def list_watchlist_items(db: Session, discord_user_id: str) -> list[WatchlistIte
                 asset_id=watchlist.asset.id,
                 name=watchlist.asset.name,
                 category=watchlist.asset.category,
+                game=watchlist.asset.game,
                 added_at=watchlist.created_at,
                 threshold_up_percent=threshold_up_percent,
                 threshold_down_percent=threshold_down_percent,

@@ -17,7 +17,7 @@ class Asset(Base):
     __table_args__ = (
         UniqueConstraint(
             "asset_class",
-            "category",
+            "game",
             "name",
             "set_name",
             "card_number",
@@ -32,7 +32,7 @@ class Asset(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_class: Mapped[str] = mapped_column(String(32), nullable=False, default=AssetClass.TCG.value)
-    category: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    category: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     set_name: Mapped[str | None] = mapped_column(String(255))
     card_number: Mapped[str | None] = mapped_column(String(64))
@@ -41,6 +41,7 @@ class Asset(Base):
     variant: Mapped[str | None] = mapped_column(String(128))
     grade_company: Mapped[str | None] = mapped_column(String(32))
     grade_score: Mapped[float | None] = mapped_column(Numeric(4, 1))
+    game: Mapped[str] = mapped_column(String(32), nullable=False, default="pokemon")
     external_id: Mapped[str | None] = mapped_column(String(128), unique=True)
     metadata_json: Mapped[dict | None] = mapped_column("metadata", JSONB)
     notes: Mapped[str | None] = mapped_column(Text)

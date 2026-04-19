@@ -4,10 +4,11 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from backend.app.ingestion.ebay.models import EbayListing
+from backend.app.models.game import Game
 
 
 class StubEbayClient:
-    async def fetch_sold_listings(self, category: str, limit: int = 100) -> list[EbayListing]:
+    async def fetch_sold_listings(self, game: Game, limit: int = 100) -> list[EbayListing]:
         now = datetime.now(UTC).replace(microsecond=0)
         titles = [
             "Pokemon Charizard ex SAR 199/165 SV151 PSA 10 Graded Card NM",

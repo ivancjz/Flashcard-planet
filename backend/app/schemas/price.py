@@ -26,7 +26,8 @@ class AssetPriceResponse(LiquiditySummaryResponse, AlertConfidenceResponse):
 
     asset_id: UUID
     asset_class: str
-    category: str
+    category: str | None = None
+    game: str = "pokemon"
     name: str
     set_name: str | None = None
     external_id: str | None = None
@@ -48,7 +49,8 @@ class AssetPriceResponse(LiquiditySummaryResponse, AlertConfidenceResponse):
 class TopMoverResponse(LiquiditySummaryResponse, AlertConfidenceResponse):
     asset_id: UUID
     name: str
-    category: str
+    category: str | None = None
+    game: str = "pokemon"
     set_name: str | None = None
     external_id: str | None = None
     latest_price: Decimal
@@ -60,7 +62,8 @@ class TopMoverResponse(LiquiditySummaryResponse, AlertConfidenceResponse):
 class TopValueResponse(BaseModel):
     asset_id: UUID
     name: str
-    category: str
+    category: str | None = None
+    game: str = "pokemon"
     set_name: str | None = None
     external_id: str | None = None
     latest_price: Decimal
@@ -72,7 +75,8 @@ class TopValueResponse(BaseModel):
 class PricePredictionResponse(BaseModel):
     asset_id: UUID
     name: str
-    category: str
+    category: str | None = None
+    game: str = "pokemon"
     set_name: str | None = None
     current_price: Decimal
     currency: str
@@ -100,7 +104,8 @@ class PriceHistoryPointResponse(BaseModel):
 class AssetHistoryResponse(LiquiditySummaryResponse, AlertConfidenceResponse):
     asset_id: UUID
     name: str
-    category: str
+    category: str | None = None
+    game: str = "pokemon"
     set_name: str | None = None
     current_price: Decimal
     currency: str

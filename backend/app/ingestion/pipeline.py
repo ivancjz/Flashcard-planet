@@ -38,6 +38,7 @@ from backend.app.ingestion.metrics import (
 )
 from backend.app.ingestion.staging import repository as staging_repo
 from backend.app.models.asset import Asset
+from backend.app.models.game import Game
 from backend.app.models.human_review import HumanReviewQueue
 from backend.app.models.price_history import PriceHistory
 from backend.app.models.raw_listing import RawListing, RawListingStatus
@@ -298,7 +299,7 @@ async def run_batch(db: Session) -> BatchResult:
     t = time.monotonic()
     client = _get_client()
     try:
-        listings = await client.fetch_sold_listings(category=POKEMON_CATEGORY, limit=BATCH_SIZE)
+        listings = await client.fetch_sold_listings(game=Game.POKEMON, limit=BATCH_SIZE)
     except Exception as exc:
         INGESTION_ERRORS_TOTAL.labels(stage="fetch", error_type=type(exc).__name__).inc()
         _log_json(logging.ERROR, "fetch_failed", error=str(exc))

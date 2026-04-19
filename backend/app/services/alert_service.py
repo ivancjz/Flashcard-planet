@@ -305,6 +305,7 @@ def list_active_alerts(db: Session, discord_user_id: str) -> list[AlertItemRespo
                 asset_id=alert.asset.id,
                 asset_name=alert.asset.name,
                 category=alert.asset.category,
+                game=alert.asset.game,
                 alert_type=alert.alert_type,
                 direction=alert.direction,
                 threshold_percent=alert.threshold_percent,

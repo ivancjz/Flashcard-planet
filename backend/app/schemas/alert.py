@@ -22,7 +22,8 @@ class AlertItemResponse(BaseModel):
     alert_id: UUID
     asset_id: UUID
     asset_name: str
-    category: str
+    category: str | None = None
+    game: str = "pokemon"
     alert_type: str
     direction: str | None = None
     threshold_percent: Decimal | None = None
