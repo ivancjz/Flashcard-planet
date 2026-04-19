@@ -201,6 +201,7 @@ def build_asset_payload(card: dict[str, Any], price_source: str, price_field: st
     return {
         "asset_class": "TCG",
         "category": "Pokemon",
+        "game": "pokemon",
         "name": card["name"],
         "set_name": card.get("set", {}).get("name"),
         "card_number": card.get("number"),
@@ -505,6 +506,7 @@ def _query_missing_price(session: Session, *, limit: int, primary_source: str) -
     for primary_source. Only assets whose metadata_json contains a provider_card_id
     are included (i.e. cards originally ingested from Pokemon TCG API)."""
     from backend.app.models.asset import Asset
+    from backend.app.models.game import Game
 
     subq = (
         select(
@@ -515,7 +517,7 @@ def _query_missing_price(session: Session, *, limit: int, primary_source: str) -
             Asset.metadata_json.isnot(None),
             Asset.metadata_json["provider_card_id"].astext.isnot(None),
             Asset.metadata_json["provider_card_id"].astext != "",
-            Asset.category == "Pokemon",
+            Asset.game == Game.POKEMON.value,
         )
         .subquery()
     )
