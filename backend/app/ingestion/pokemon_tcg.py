@@ -540,6 +540,7 @@ def _query_missing_image(session: Session, *, limit: int) -> list[str]:
     """Return provider_card_id values for assets whose metadata_json is missing
     a non-empty images.small URL."""
     from backend.app.models.asset import Asset
+    from backend.app.models.game import Game
 
     rows = session.execute(
         select(
@@ -549,7 +550,7 @@ def _query_missing_image(session: Session, *, limit: int) -> list[str]:
             Asset.metadata_json.isnot(None),
             Asset.metadata_json["provider_card_id"].astext.isnot(None),
             Asset.metadata_json["provider_card_id"].astext != "",
-            Asset.category == "Pokemon",
+            Asset.game == Game.POKEMON.value,
             ~(
                 Asset.metadata_json.has_key("images")
                 & Asset.metadata_json["images"].has_key("small")
