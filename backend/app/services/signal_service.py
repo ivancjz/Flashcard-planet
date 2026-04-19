@@ -114,15 +114,22 @@ def classify_signal(
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
-def _get_active_asset_ids(db: Session) -> list[Any]:
-    """All asset_ids with at least one real price point in the last 30 days."""
+def _get_active_asset_ids(db: Session, *, limit: int | None = None) -> list[Any]:
+    """All asset_ids with at least one real price point in the last 30 days.
+
+    When limit is set, returns the top-N by price-point count (most active first).
+    """
     source_filter = get_active_price_source_filter(db)
     cutoff = datetime.now(UTC) - timedelta(days=ACTIVE_WINDOW_DAYS)
-    rows = db.execute(
-        select(PriceHistory.asset_id)
+    stmt = (
+        select(PriceHistory.asset_id, func.count().label("pts"))
         .where(source_filter, PriceHistory.captured_at >= cutoff)
         .group_by(PriceHistory.asset_id)
-    ).all()
+        .order_by(func.count().desc())
+    )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    rows = db.execute(stmt).all()
     return [row.asset_id for row in rows]
 
 
@@ -233,15 +240,26 @@ def _append_history(db: Session, *, signal: SignalRow) -> None:
 
 # ── Sweep ─────────────────────────────────────────────────────────────────────
 
-def sweep_signals(db: Session) -> SweepResult:
+def sweep_signals(
+    db: Session,
+    *,
+    dry_run: bool = False,
+    limit: int | None = None,
+) -> SweepResult:
     """Classify all active assets and upsert their signal labels.
 
     Safe to re-run at any time — all writes are upserts.
+
+    Args:
+        dry_run: If True, walk the full classification logic but roll back all
+                 DB writes at the end.  Useful for validating output before the
+                 first production run.
+        limit:   Process only the top-N most price-active assets.  None = all.
     """
     result = SweepResult()
     t_start = time.monotonic()
 
-    asset_ids = _get_active_asset_ids(db)
+    asset_ids = _get_active_asset_ids(db, limit=limit)
     result.total = len(asset_ids)
     if not asset_ids:
         result.duration_ms = (time.monotonic() - t_start) * 1000
@@ -250,21 +268,25 @@ def sweep_signals(db: Session) -> SweepResult:
     for batch_start in range(0, len(asset_ids), SWEEP_BATCH_SIZE):
         batch = asset_ids[batch_start : batch_start + SWEEP_BATCH_SIZE]
         try:
-            _process_batch(db, batch, result)
+            _process_batch(db, batch, result, commit=not dry_run)
         except Exception as exc:
             logger.exception("signal_sweep_batch_failed batch_start=%s error=%s", batch_start, exc)
             result.errors += len(batch)
 
+    if dry_run:
+        db.rollback()
+        logger.info("signal_sweep_dry_run_rollback total_classified=%s", result.total)
+
     result.duration_ms = (time.monotonic() - t_start) * 1000
     logger.info(
-        "signal_sweep_complete total=%s breakout=%s move=%s watch=%s idle=%s errors=%s duration_ms=%.1f",
-        result.total, result.breakout, result.move, result.watch, result.idle,
+        "signal_sweep_complete dry_run=%s total=%s breakout=%s move=%s watch=%s idle=%s errors=%s duration_ms=%.1f",
+        dry_run, result.total, result.breakout, result.move, result.watch, result.idle,
         result.errors, result.duration_ms,
     )
     return result
 
 
-def _process_batch(db: Session, asset_ids: list[Any], result: SweepResult) -> None:
+def _process_batch(db: Session, asset_ids: list[Any], result: SweepResult, *, commit: bool = True) -> None:
     now = datetime.now(UTC)
 
     # Latest two prices → percent change
@@ -338,7 +360,8 @@ def _process_batch(db: Session, asset_ids: list[Any], result: SweepResult) -> No
         else:
             result.idle += 1
 
-    db.commit()
+    if commit:
+        db.commit()
 
 
 # ── Read helpers ──────────────────────────────────────────────────────────────
