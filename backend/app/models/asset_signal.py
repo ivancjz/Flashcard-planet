@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import ForeignKey, Integer, Numeric, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -32,3 +32,4 @@ class AssetSignal(Base):
     computed_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     explanation: Mapped[str | None] = mapped_column(Text)
     explained_at: Mapped[datetime | None] = mapped_column()
+    signal_context: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

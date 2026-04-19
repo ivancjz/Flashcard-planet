@@ -26,6 +26,7 @@ class SignalLabel(str, Enum):
     MOVE = "MOVE"
     WATCH = "WATCH"
     IDLE = "IDLE"
+    INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
 
 
 class AccessTier(str, Enum):

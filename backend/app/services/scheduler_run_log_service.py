@@ -48,6 +48,7 @@ def finish_run(
     records_written: int = 0,
     errors: int = 0,
     error_message: str | None = None,
+    meta_json: dict | None = None,
 ) -> None:
     """Update the run row to its final state.  Commits immediately."""
     row = session.get(SchedulerRunLog, run_id)
@@ -59,6 +60,7 @@ def finish_run(
     row.records_written = records_written
     row.errors = errors
     row.error_message = error_message
+    row.meta_json = meta_json
     session.commit()
 
 
@@ -110,4 +112,5 @@ def serialize_run(run: SchedulerRunLog | None) -> dict:
         "records_written": run.records_written,
         "errors": run.errors,
         "error_message": run.error_message,
+        "meta_json": run.meta_json,
     }

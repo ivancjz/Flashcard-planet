@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from backend.app.core.config import get_settings
-from backend.app.core.permissions import Feature, alert_limit, can
+from backend.app.core.permissions import Feature, alert_limit, can, get_pro_gate_config
 from backend.app.core.price_sources import get_active_price_source_filter
 from backend.app.models.alert import Alert
 from backend.app.models.alert_history import AlertHistory
@@ -21,6 +21,7 @@ from backend.app.models.enums import AlertDirection, AlertType
 from backend.app.models.price_history import PriceHistory
 from backend.app.models.user import User
 from backend.app.schemas.alert import AlertCreateRequest, AlertHistoryItemResponse, AlertItemResponse
+from backend.app.services.card_credibility_service import CredibilityIndicators, build_credibility_indicators  # boundary-ok: see docs/plan-v3.md §2 ST-1
 from backend.app.services.liquidity_service import AssetSignalSnapshot, get_asset_signal_snapshots
 from backend.app.services.price_service import PredictionComputation, get_prediction_state_for_asset
 from backend.app.services.watchlist_service import get_or_create_user
@@ -304,6 +305,7 @@ def list_active_alerts(db: Session, discord_user_id: str) -> list[AlertItemRespo
                 asset_id=alert.asset.id,
                 asset_name=alert.asset.name,
                 category=alert.asset.category,
+                game=alert.asset.game,
                 alert_type=alert.alert_type,
                 direction=alert.direction,
                 threshold_percent=alert.threshold_percent,
@@ -475,6 +477,23 @@ def _embed_field(name: str, value: str, *, inline: bool = True) -> dict:
     return {"name": name, "value": value or "—", "inline": inline}
 
 
+def _credibility_fields(credibility: CredibilityIndicators | None, access_tier: str) -> list[dict]:
+    """Return embed fields for data-quality indicators and a pro-gate nudge for free-tier users."""
+    if credibility is None:
+        return []
+    result: list[dict] = []
+    if credibility.sample_size > 0:
+        result.append(_embed_field("Data quality", credibility.sample_size_label, inline=False))
+    if credibility.match_confidence is not None:
+        pct = int(round(credibility.match_confidence * 100))
+        icon = "✅" if credibility.confidence_status == "green" else "⚠️"
+        result.append(_embed_field("Match confidence", f"{icon} {pct}%", inline=False))
+    bot_cfg = get_pro_gate_config("price_history", access_tier).to_bot_config()
+    if bot_cfg:
+        result.append(_embed_field("🔒 Pro feature", bot_cfg["locked_message"], inline=False))
+    return result
+
+
 def build_alert_notification_embed(
     alert: Alert,
     current_price: PricePoint,
@@ -484,6 +503,8 @@ def build_alert_notification_embed(
     prediction_state: PredictionComputation | None = None,
     previous_signal: str | None = None,
     signal_snapshot: AssetSignalSnapshot | None = None,
+    credibility: CredibilityIndicators | None = None,
+    access_tier: str = "free",
 ) -> dict:
     """Return a Discord embed dict (matches the Discord API embeds array element)."""
     asset_name = alert.asset.name
@@ -504,6 +525,7 @@ def build_alert_notification_embed(
             _embed_field("Target", f"{alert.target_price:.2f} {currency}"),
             _embed_field("Current price", price_str(current_price.price)),
         ]
+        fields.extend(_credibility_fields(credibility, access_tier))
         return {
             "title": "🎯 Target Price Reached",
             "color": _EMBED_COLOR_GOLD,
@@ -537,6 +559,7 @@ def build_alert_notification_embed(
             if signal_snapshot.alert_confidence is not None:
                 conf = f"{signal_snapshot.alert_confidence_label} ({signal_snapshot.alert_confidence}/100)"
                 fields.append(_embed_field("Confidence", conf, inline=False))
+        fields.extend(_credibility_fields(credibility, access_tier))
         return {
             "title": "📈 Price Up Alert" if is_up else "📉 Price Down Alert",
             "color": _EMBED_COLOR_GREEN if is_up else _EMBED_COLOR_RED,
@@ -715,6 +738,7 @@ def evaluate_active_alerts(db: Session) -> AlertEvaluationResult:
     latest_cache: dict[Any, list[PricePoint]] = {}
     reference_cache: dict[tuple[Any, datetime], PricePoint | None] = {}
     prediction_cache: dict[Any, PredictionComputation] = {}
+    credibility_cache: dict[tuple[Any, str], CredibilityIndicators] = {}
     result = AlertEvaluationResult(active_alerts_checked=len(alerts))
     triggered_at = datetime.now(UTC).replace(microsecond=0)
 
@@ -818,6 +842,15 @@ def evaluate_active_alerts(db: Session) -> AlertEvaluationResult:
         if not triggered:
             continue
 
+        credibility: CredibilityIndicators | None = None
+        if alert.alert_type in PRICE_MOVEMENT_ALERT_TYPES or alert.alert_type == AlertType.TARGET_PRICE_HIT.value:
+            cred_key = (alert.asset_id, alert.user.access_tier)
+            if cred_key not in credibility_cache:
+                credibility_cache[cred_key] = build_credibility_indicators(  # boundary-ok: see docs/plan-v3.md §2 ST-1
+                    db, asset_id=alert.asset_id, access_tier=alert.user.access_tier
+                )
+            credibility = credibility_cache[cred_key]
+
         # Compute percent_change for history record (price movement alerts only).
         _history_percent_change: Decimal | None = None
         _history_reference_price: Decimal | None = None
@@ -845,7 +878,11 @@ def evaluate_active_alerts(db: Session) -> AlertEvaluationResult:
                 alert_type=alert.alert_type,
                 discord_user_id=alert.user.discord_user_id,
                 content=build_alert_notification_content(**_shared_kwargs),
-                embed=build_alert_notification_embed(**_shared_kwargs),
+                embed=build_alert_notification_embed(
+                    **_shared_kwargs,
+                    credibility=credibility,
+                    access_tier=alert.user.access_tier,
+                ),
                 triggered_at=triggered_at,
                 price_at_trigger=current_row.price,
                 reference_price=_history_reference_price,

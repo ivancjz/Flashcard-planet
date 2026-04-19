@@ -20,7 +20,8 @@ class WatchlistItemResponse(BaseModel):
     watchlist_id: UUID
     asset_id: UUID
     name: str
-    category: str
+    category: str | None = None
+    game: str = "pokemon"
     added_at: datetime
     threshold_up_percent: Decimal | None = None
     threshold_down_percent: Decimal | None = None

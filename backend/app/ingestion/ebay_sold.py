@@ -14,6 +14,7 @@ from backend.app.core.price_sources import EBAY_SOLD_PRICE_SOURCE, SAMPLE_PRICE_
 from backend.app.ingestion.rule_engine_patches import ObservationSkipReason, preflight_observation
 from backend.app.ingestion.pokemon_tcg import IngestionResult
 from backend.app.models.asset import Asset
+from backend.app.models.game import GAME_CONFIG, Game
 from backend.app.models.observation_match_log import ObservationMatchLog
 from backend.app.models.price_history import PriceHistory
 
@@ -297,7 +298,8 @@ def ingest_ebay_sold_cards(
                         headers={"Authorization": f"Bearer {token}", "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"},
                         params={
                             "q": query,
-                            "category_ids": "2536",
+                            **( {"category_ids": GAME_CONFIG[Game.POKEMON].ebay_category_id}
+                                if GAME_CONFIG[Game.POKEMON].ebay_category_id else {} ),
                             "filter": "buyingOptions:{FIXED_PRICE}",
                             "sort": "endingSoonest",
                             "limit": "50",

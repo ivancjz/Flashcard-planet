@@ -28,12 +28,21 @@ from backend.app.ingestion.provider_registry import (
     get_configured_provider_ingestors,
     get_unimplemented_configured_providers,
 )
+from sqlalchemy import text as sa_text
+
+from backend.app.alerting.discord import send_discord_alert
 from backend.app.services.alert_service import process_alert_notifications
 from backend.app.services.signal_service import sweep_signals
 
 logger = logging.getLogger(__name__)
 ebay_logger = logging.getLogger("backend.app.ingestion.ebay_scheduled")
-INITIAL_INGEST_DELAY_SECONDS = 10
+_STARTUP_DELAY: dict[str, int] = {
+    "scheduled-ingestion":    120,   # 2 min
+    "bulk-set-price-refresh": 300,   # 5 min
+    "signal-sweep":           600,   # 10 min
+    "alert-heartbeat":        720,   # 12 min — receives first sweep result before sending
+    # "retry-pass" intentionally omitted — resume separately when confidence is high
+}
 
 
 @dataclass
@@ -79,7 +88,22 @@ def _log_gap_report(report: GapReport) -> None:
     )
 
 
+def _is_first_successful_sweep(session) -> bool:
+    count = session.execute(
+        sa_text(
+            "SELECT COUNT(*) FROM scheduler_run_log "
+            "WHERE job_name = 'signals' AND status = 'success'"
+        )
+    ).scalar()
+    return count == 1
+
+
 def _run_signal_sweep() -> None:
+    settings = get_settings()
+    if not settings.signal_sweep_enabled:
+        logger.info("signal_sweep_skipped reason=kill_switch")
+        return
+
     logger.info("Signal sweep tick started.")
     with SessionLocal() as _log_session:
         _run_id = start_run(_log_session, JOB_SIGNALS)
@@ -87,20 +111,68 @@ def _run_signal_sweep() -> None:
         with SessionLocal() as session:
             result = sweep_signals(session)
         logger.info(
-            "Signal sweep finished. total=%s breakout=%s move=%s watch=%s idle=%s errors=%s duration_ms=%.1f",
+            "Signal sweep finished. total=%s breakout=%s move=%s watch=%s idle=%s "
+            "insufficient_data=%s errors=%s duration_ms=%.1f",
             result.total, result.breakout, result.move, result.watch,
-            result.idle, result.errors, result.duration_ms,
+            result.idle, result.insufficient_data, result.errors, result.duration_ms,
         )
+        meta = {
+            "breakout": result.breakout,
+            "move": result.move,
+            "watch": result.watch,
+            "idle": result.idle,
+            "insufficient_data": result.insufficient_data,
+            "errors": result.errors,
+            "duration_ms": round(result.duration_ms, 1),
+        }
+        is_first = False
         with SessionLocal() as _log_session:
-            finish_run(_log_session, _run_id, status="success", records_written=result.total)
+            finish_run(
+                _log_session, _run_id,
+                status="success",
+                records_written=result.total,
+                meta_json=meta,
+            )
+            is_first = _is_first_successful_sweep(_log_session)
             prune_old_runs(_log_session, JOB_SIGNALS)
+
+        if is_first:
+            send_discord_alert(
+                "success",
+                "Signal sweep 首次生产运行成功",
+                f"BREAKOUT={result.breakout} MOVE={result.move} "
+                f"WATCH={result.watch} IDLE={result.idle} "
+                f"INSUFFICIENT_DATA={result.insufficient_data}\n"
+                f"Total={result.total} records",
+            )
+
+        if result.total > 500:
+            send_discord_alert(
+                "warning",
+                "Signal sweep 产出异常大",
+                f"一次 sweep 写入 {result.total} 条 signal，超过 500 阈值\n"
+                f"BREAKOUT={result.breakout} MOVE={result.move} "
+                f"WATCH={result.watch} IDLE={result.idle} "
+                f"INSUFFICIENT_DATA={result.insufficient_data}\n"
+                "可能阈值配置错误，请检查",
+            )
+
     except Exception:
         logger.exception("Signal sweep job failed.")
         with SessionLocal() as _log_session:
             finish_run(_log_session, _run_id, status="error")
+        send_discord_alert(
+            "error",
+            "Signal sweep 失败",
+            f"Run ID: {_run_id}\n"
+            "如需紧急暂停，在 Railway 设 SIGNAL_SWEEP_ENABLED=false",
+        )
 
 
 def _run_retry_pass() -> None:
+    if not get_settings().retry_pass_enabled:
+        logger.info("retry_pass_skipped reason=kill_switch")
+        return
     with SessionLocal() as _log_session:
         _run_id = start_run(_log_session, JOB_RETRY)
     try:
@@ -125,6 +197,61 @@ def _run_retry_pass() -> None:
         logger.exception('{"event": "retry_pass_error"}')
         with SessionLocal() as _log_session:
             finish_run(_log_session, _run_id, status="error")
+
+
+def _send_heartbeat() -> None:
+    """Send a periodic health pulse to Discord.
+
+    The job runs every 10 minutes.  Actual send frequency depends on mode:
+      - Observation mode (deploy_observation_mode_until is set and in the future):
+        every 10 minutes so you can watch the first few sweeps closely.
+      - Normal mode: only once per hour (minute 0–9 window).
+    """
+    settings = get_settings()
+    if not settings.alert_heartbeat_enabled:
+        return
+
+    now = datetime.now(UTC)
+
+    # Parse observation-mode deadline
+    observation_until: datetime | None = None
+    raw = settings.deploy_observation_mode_until
+    if raw:
+        try:
+            observation_until = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            logger.warning("Invalid DEPLOY_OBSERVATION_MODE_UNTIL: %r", raw)
+
+    in_observation = observation_until is not None and now < observation_until
+
+    # Normal mode: only send during the first 10 minutes of each hour
+    if not in_observation and now.minute >= 10:
+        return
+
+    with SessionLocal() as session:
+        rows = session.execute(sa_text("""
+            SELECT status, COUNT(*) AS cnt, MAX(started_at) AS last_run
+            FROM scheduler_run_log
+            WHERE job_name = 'signals'
+              AND started_at > now() - interval '1 hour'
+            GROUP BY status
+        """)).fetchall()
+
+    if not rows:
+        send_discord_alert(
+            "warning",
+            "Heartbeat: signal-sweep 过去 1 小时没有运行",
+            "Scheduler 可能挂了，或 SIGNAL_SWEEP_ENABLED=false",
+        )
+        return
+
+    lines = [f"{r.status}: {r.cnt} runs, last at {r.last_run}" for r in rows]
+    tag = " [观察期]" if in_observation else ""
+    send_discord_alert(
+        "heartbeat",
+        f"Scheduler 健康{tag}",
+        "\n".join(lines),
+    )
 
 
 def _evaluate_alerts() -> None:
@@ -641,23 +768,45 @@ def build_scheduler() -> BackgroundScheduler:
             coalesce=True,
         )
 
+    # Heartbeat — always registered, regardless of ingestion mode
+    scheduler.add_job(
+        _send_heartbeat,
+        "interval",
+        seconds=600,  # 10 min; function throttles actual sends based on mode
+        id="alert-heartbeat",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=None,
+    )
+
     _register_ebay_job(scheduler, settings)
     return scheduler
 
 
-def prepare_scheduler_for_startup(scheduler: BackgroundScheduler) -> None:
-    job = scheduler.get_job("scheduled-ingestion")
-    bulk_job = scheduler.get_job("bulk-set-price-refresh")
-    if job is None and bulk_job is None:
-        return
+def prepare_scheduler_for_startup(
+    scheduler: BackgroundScheduler,
+    *,
+    now: datetime | None = None,
+) -> None:
+    """Resume all paused jobs at startup with staggered first runs.
 
-    first_run_at = datetime.now(UTC) + timedelta(seconds=INITIAL_INGEST_DELAY_SECONDS)
-    if job is not None:
-        scheduler.modify_job("scheduled-ingestion", next_run_time=first_run_at)
-    if bulk_job is not None:
-        scheduler.modify_job("bulk-set-price-refresh", next_run_time=first_run_at)
-    logger.info(
-        "Initial scheduled ingestion delayed until %s (%s seconds after startup).",
-        first_run_at.isoformat(),
-        INITIAL_INGEST_DELAY_SECONDS,
-    )
+    Each job gets a distinct first_run_time to avoid a thundering-herd
+    at process start.  Jobs not registered (e.g. bulk-set-price-refresh
+    when no bulk set IDs are configured) are skipped with a warning.
+    """
+    now = now or datetime.now(UTC)
+    resumed: list[str] = []
+    for job_id, delay_seconds in _STARTUP_DELAY.items():
+        job = scheduler.get_job(job_id)
+        if job is None:
+            logger.warning("prepare_scheduler_for_startup: job %r not found — skipping", job_id)
+            continue
+        first_run = now + timedelta(seconds=delay_seconds)
+        scheduler.modify_job(job_id, next_run_time=first_run)
+        logger.info(
+            "Resumed job %r, first run at %s (+%ds)",
+            job_id, first_run.isoformat(), delay_seconds,
+        )
+        resumed.append(job_id)
+    logger.info("prepare_scheduler_for_startup complete. resumed=%s", resumed)

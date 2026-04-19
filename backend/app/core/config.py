@@ -96,7 +96,21 @@ class Settings(BaseSettings):
     magic_link_secret: str = Field(default="change-me-magic-link-secret")
     admin_emails: str = ""          # comma-separated email whitelist
     app_url: str = Field(default="http://localhost:8000")
+    # Alerting / observability
+    discord_alert_webhook_url: str | None = None
+    signal_sweep_enabled: bool = True          # kill switch: set False to pause sweeps
+    retry_pass_enabled: bool = True            # kill switch: set False to pause retry-pass
+    alert_heartbeat_enabled: bool = True
+    alert_heartbeat_interval_minutes: int = Field(default=60, ge=1)
+    deploy_observation_mode_until: str | None = None  # ISO 8601 UTC — dense heartbeats until this time
     signal_sweep_interval_seconds: int = Field(default=900, ge=60)
+    signal_baseline_window_days: int = Field(default=7, ge=1)
+    signal_current_window_hours: int = Field(default=24, ge=1)
+    signal_delta_source_weights: str = Field(default="ebay_sold=2.0,pokemon_tcg_api=1.0")
+    signal_breakout_min_price_usd: float = Field(default=2.00, ge=0)
+    signal_move_min_price_usd: float = Field(default=1.00, ge=0)
+    signal_breakout_min_baseline_n: int = Field(default=3, ge=1)
+    signal_move_min_baseline_n: int = Field(default=2, ge=1)
     ingest_schedule_enabled: bool = True
     ingest_interval_hours: float = Field(default=24.0, gt=0)
     gap_history_threshold: int = Field(default=7, ge=1)
