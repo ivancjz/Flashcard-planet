@@ -27,6 +27,7 @@ from backend.app.core.price_sources import (
 from backend.app.db.session import SessionLocal
 from backend.app.models.alert import Alert
 from backend.app.models.asset import Asset
+from backend.app.models.game import Game
 from backend.app.models.asset_signal_history import AssetSignalHistory
 from backend.app.models.price_history import PriceHistory
 from backend.app.models.user import User
@@ -567,7 +568,7 @@ def cards_page(
                 Asset.set_name,
             )
             .where(
-                Asset.category == "Pokemon",
+                Asset.game == Game.POKEMON.value,
                 Asset.set_name.is_not(None),
                 Asset.metadata_json["set_id"].astext.is_not(None),
             )
