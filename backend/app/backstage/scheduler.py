@@ -33,7 +33,12 @@ from backend.app.services.signal_service import sweep_signals
 
 logger = logging.getLogger(__name__)
 ebay_logger = logging.getLogger("backend.app.ingestion.ebay_scheduled")
-INITIAL_INGEST_DELAY_SECONDS = 10
+_STARTUP_DELAY: dict[str, int] = {
+    "scheduled-ingestion":   120,   # 2 min
+    "bulk-set-price-refresh": 300,  # 5 min
+    "signal-sweep":           600,  # 10 min
+    "retry-pass":             900,  # 15 min
+}
 
 
 @dataclass
@@ -87,12 +92,27 @@ def _run_signal_sweep() -> None:
         with SessionLocal() as session:
             result = sweep_signals(session)
         logger.info(
-            "Signal sweep finished. total=%s breakout=%s move=%s watch=%s idle=%s errors=%s duration_ms=%.1f",
+            "Signal sweep finished. total=%s breakout=%s move=%s watch=%s idle=%s "
+            "insufficient_data=%s errors=%s duration_ms=%.1f",
             result.total, result.breakout, result.move, result.watch,
-            result.idle, result.errors, result.duration_ms,
+            result.idle, result.insufficient_data, result.errors, result.duration_ms,
         )
         with SessionLocal() as _log_session:
-            finish_run(_log_session, _run_id, status="success", records_written=result.total)
+            finish_run(
+                _log_session,
+                _run_id,
+                status="success",
+                records_written=result.total,
+                meta_json={
+                    "breakout": result.breakout,
+                    "move": result.move,
+                    "watch": result.watch,
+                    "idle": result.idle,
+                    "insufficient_data": result.insufficient_data,
+                    "errors": result.errors,
+                    "duration_ms": round(result.duration_ms, 1),
+                },
+            )
             prune_old_runs(_log_session, JOB_SIGNALS)
     except Exception:
         logger.exception("Signal sweep job failed.")
@@ -645,19 +665,29 @@ def build_scheduler() -> BackgroundScheduler:
     return scheduler
 
 
-def prepare_scheduler_for_startup(scheduler: BackgroundScheduler) -> None:
-    job = scheduler.get_job("scheduled-ingestion")
-    bulk_job = scheduler.get_job("bulk-set-price-refresh")
-    if job is None and bulk_job is None:
-        return
+def prepare_scheduler_for_startup(
+    scheduler: BackgroundScheduler,
+    *,
+    now: datetime | None = None,
+) -> None:
+    """Resume all paused jobs at startup with staggered first runs.
 
-    first_run_at = datetime.now(UTC) + timedelta(seconds=INITIAL_INGEST_DELAY_SECONDS)
-    if job is not None:
-        scheduler.modify_job("scheduled-ingestion", next_run_time=first_run_at)
-    if bulk_job is not None:
-        scheduler.modify_job("bulk-set-price-refresh", next_run_time=first_run_at)
-    logger.info(
-        "Initial scheduled ingestion delayed until %s (%s seconds after startup).",
-        first_run_at.isoformat(),
-        INITIAL_INGEST_DELAY_SECONDS,
-    )
+    Each job gets a distinct first_run_time to avoid a thundering-herd
+    at process start.  Jobs not registered (e.g. bulk-set-price-refresh
+    when no bulk set IDs are configured) are skipped with a warning.
+    """
+    now = now or datetime.now(UTC)
+    resumed: list[str] = []
+    for job_id, delay_seconds in _STARTUP_DELAY.items():
+        job = scheduler.get_job(job_id)
+        if job is None:
+            logger.warning("prepare_scheduler_for_startup: job %r not found — skipping", job_id)
+            continue
+        first_run = now + timedelta(seconds=delay_seconds)
+        scheduler.modify_job(job_id, next_run_time=first_run)
+        logger.info(
+            "Resumed job %r, first run at %s (+%ds)",
+            job_id, first_run.isoformat(), delay_seconds,
+        )
+        resumed.append(job_id)
+    logger.info("prepare_scheduler_for_startup complete. resumed=%s", resumed)

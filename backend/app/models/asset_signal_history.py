@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import ForeignKey, Index, Integer, Numeric, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.base import Base
@@ -27,3 +27,4 @@ class AssetSignalHistory(Base):
     liquidity_score: Mapped[int | None] = mapped_column(Integer)
     prediction: Mapped[str | None] = mapped_column(String(32))
     computed_at: Mapped[datetime] = mapped_column(nullable=False)
+    signal_context: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

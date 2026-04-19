@@ -1,11 +1,12 @@
 """Signal detection service.
 
-Classifies every asset with recent price history into one of four labels:
+Classifies every asset with recent price history into one of five labels:
 
-  BREAKOUT — High-confidence move ≥10% with strong liquidity. Act now.
-  MOVE     — Moderate-confidence move ≥5%. Worth watching closely.
-  WATCH    — Directional prediction (Up/Down) with enough history to trust.
-  IDLE     — No meaningful signal detected.
+  BREAKOUT          — High-confidence move ≥10% with strong liquidity. Act now.
+  MOVE              — Moderate-confidence move ≥5%. Worth watching closely.
+  WATCH             — Directional prediction (Up/Down) with enough history to trust.
+  IDLE              — No meaningful signal detected.
+  INSUFFICIENT_DATA — Not enough price history to compute a reliable delta.
 
 Entry point: sweep_signals(db) — upserts one row per asset into asset_signals.
 Called by the scheduler every SIGNAL_SWEEP_INTERVAL_SECONDS (default 900).
@@ -15,7 +16,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -24,7 +25,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from backend.app.core.price_sources import get_active_price_source_filter
+from backend.app.core.config import settings
 from backend.app.models.asset_signal_history import AssetSignalHistory
 from backend.app.models.asset_signal import AssetSignal
 from backend.app.models.enums import SignalLabel
@@ -52,6 +53,40 @@ SWEEP_BATCH_SIZE = 500
 PREDICTION_POINTS = 8
 
 
+# ── Source weight parsing ─────────────────────────────────────────────────────
+
+def _parse_source_weights(raw: str) -> dict[str, float]:
+    """Parse 'ebay_sold=2.0,pokemon_tcg_api=1.0' into {source: weight}."""
+    weights: dict[str, float] = {}
+    for part in raw.split(","):
+        part = part.strip()
+        if "=" not in part:
+            continue
+        k, v = part.split("=", 1)
+        try:
+            weights[k.strip()] = float(v.strip())
+        except ValueError:
+            pass
+    return weights
+
+
+# ── Weighted median ───────────────────────────────────────────────────────────
+
+def _weighted_median(prices_with_weights: list[tuple[Decimal, float]]) -> Decimal:
+    """Pure function — no I/O. Returns the weighted median of (price, weight) pairs."""
+    if not prices_with_weights:
+        raise ValueError("empty input")
+    sorted_pairs = sorted(prices_with_weights, key=lambda x: x[0])
+    total_weight = sum(w for _, w in sorted_pairs)
+    cumulative = Decimal("0")
+    half = Decimal(str(total_weight / 2))
+    for price, weight in sorted_pairs:
+        cumulative += Decimal(str(weight))
+        if cumulative >= half:
+            return price
+    return sorted_pairs[-1][0]
+
+
 # ── Public result types ───────────────────────────────────────────────────────
 
 @dataclass
@@ -63,6 +98,7 @@ class SignalRow:
     liquidity_score: int | None
     prediction: str | None
     computed_at: datetime
+    signal_context: dict | None = field(default=None)
 
 
 @dataclass
@@ -72,6 +108,7 @@ class SweepResult:
     move: int = 0
     watch: int = 0
     idle: int = 0
+    insufficient_data: int = 0
     errors: int = 0
     duration_ms: float = 0.0
 
@@ -112,6 +149,39 @@ def classify_signal(
     return SignalLabel.IDLE
 
 
+# ── Downgrade rules ───────────────────────────────────────────────────────────
+
+def _apply_signal_downgrade(
+    candidate: SignalLabel,
+    *,
+    current_price: Decimal,
+    baseline_n: int,
+) -> tuple[SignalLabel, str | None]:
+    """Apply price-floor and baseline-sample-size downgrade rules.
+
+    Downgrade is chained (BREAKOUT→MOVE→WATCH→IDLE), never a jump.
+    Returns (final_label, downgrade_reason | None).
+    """
+    breakout_min_price = Decimal(str(settings.signal_breakout_min_price_usd))
+    move_min_price = Decimal(str(settings.signal_move_min_price_usd))
+    breakout_min_n = settings.signal_breakout_min_baseline_n
+    move_min_n = settings.signal_move_min_baseline_n
+
+    if candidate == SignalLabel.BREAKOUT:
+        if current_price < breakout_min_price:
+            candidate = SignalLabel.MOVE
+            return candidate, "low_absolute_price"
+        if baseline_n < breakout_min_n:
+            candidate = SignalLabel.MOVE
+            return candidate, "insufficient_baseline_n"
+
+    if candidate == SignalLabel.MOVE:
+        if current_price < move_min_price:
+            return SignalLabel.WATCH, "low_absolute_price"
+
+    return candidate, None
+
+
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 def _get_active_asset_ids(db: Session, *, limit: int | None = None) -> list[Any]:
@@ -119,11 +189,10 @@ def _get_active_asset_ids(db: Session, *, limit: int | None = None) -> list[Any]
 
     When limit is set, returns the top-N by price-point count (most active first).
     """
-    source_filter = get_active_price_source_filter(db)
     cutoff = datetime.now(UTC) - timedelta(days=ACTIVE_WINDOW_DAYS)
     stmt = (
         select(PriceHistory.asset_id, func.count().label("pts"))
-        .where(source_filter, PriceHistory.captured_at >= cutoff)
+        .where(PriceHistory.captured_at >= cutoff)
         .group_by(PriceHistory.asset_id)
         .order_by(func.count().desc())
     )
@@ -133,43 +202,11 @@ def _get_active_asset_ids(db: Session, *, limit: int | None = None) -> list[Any]
     return [row.asset_id for row in rows]
 
 
-def _get_latest_two_prices(
-    db: Session, asset_ids: list[Any]
-) -> dict[Any, list[Decimal]]:
-    """Returns the two most recent prices per asset (newest first)."""
-    source_filter = get_active_price_source_filter(db)
-    ranked = (
-        select(
-            PriceHistory.asset_id,
-            PriceHistory.price,
-            func.row_number()
-            .over(
-                partition_by=PriceHistory.asset_id,
-                order_by=PriceHistory.captured_at.desc(),
-            )
-            .label("rn"),
-        )
-        .where(PriceHistory.asset_id.in_(asset_ids), source_filter)
-        .subquery()
-    )
-    rows = db.execute(
-        select(ranked.c.asset_id, ranked.c.price)
-        .where(ranked.c.rn <= 2)
-        .order_by(ranked.c.asset_id, ranked.c.rn)
-    ).all()
-
-    result: dict[Any, list[Decimal]] = {}
-    for row in rows:
-        result.setdefault(row.asset_id, []).append(Decimal(row.price))
-    return result
-
-
 def _get_recent_prices_for_prediction(
     db: Session, asset_ids: list[Any]
 ) -> dict[Any, list[tuple[Decimal, datetime]]]:
     """Returns up to PREDICTION_POINTS most recent (price, captured_at) pairs per
     asset, newest-first — matching the signature of compute_prediction_from_recent_points."""
-    source_filter = get_active_price_source_filter(db)
     ranked = (
         select(
             PriceHistory.asset_id,
@@ -182,7 +219,7 @@ def _get_recent_prices_for_prediction(
             )
             .label("rn"),
         )
-        .where(PriceHistory.asset_id.in_(asset_ids), source_filter)
+        .where(PriceHistory.asset_id.in_(asset_ids))
         .subquery()
     )
     rows = db.execute(
@@ -199,6 +236,186 @@ def _get_recent_prices_for_prediction(
     return result
 
 
+# ── Delta algorithm (multi-source, windowed) ──────────────────────────────────
+
+def _parse_source_weights_from_settings() -> dict[str, float]:
+    return _parse_source_weights(settings.signal_delta_source_weights)
+
+
+def compute_signal_delta(
+    db: Session,
+    asset_id: Any,
+    *,
+    baseline_window_days: int | None = None,
+    current_window_hours: int | None = None,
+    source_weights: dict[str, float] | None = None,
+    now: datetime | None = None,
+) -> tuple[Decimal | None, dict]:
+    """Compute percent-change delta for a single asset (for testing and ad-hoc use).
+
+    Returns (delta_pct, context_dict).
+    delta_pct is None when there is insufficient data.
+    """
+    if now is None:
+        now = datetime.now(UTC)
+    if baseline_window_days is None:
+        baseline_window_days = settings.signal_baseline_window_days
+    if current_window_hours is None:
+        current_window_hours = settings.signal_current_window_hours
+    if source_weights is None:
+        source_weights = _parse_source_weights_from_settings()
+
+    result = _compute_delta_batch(
+        db,
+        [asset_id],
+        baseline_window_days=baseline_window_days,
+        current_window_hours=current_window_hours,
+        source_weights=source_weights,
+        now=now,
+    )
+    return result.get(asset_id, (None, {"reason": "no_data"}))
+
+
+_BASELINE_SAMPLE_POINTS = 5   # how many rows to sample around the baseline cutoff
+_CURRENT_SAMPLE_POINTS = 10  # how many recent rows to use for the current price
+
+
+def _compute_delta_batch(
+    db: Session,
+    asset_ids: list[Any],
+    *,
+    baseline_window_days: int,
+    current_window_hours: int,
+    source_weights: dict[str, float],
+    now: datetime,
+) -> dict[Any, tuple[Decimal | None, dict]]:
+    """Compute windowed weighted-median delta for a batch of assets.
+
+    Returns {asset_id: (delta_pct | None, context_dict)}.
+
+    Baseline price = weighted median of the _BASELINE_SAMPLE_POINTS most
+      recent rows per asset captured BEFORE (now - baseline_window_days).
+      This is robust to data gaps — it finds the nearest available data to
+      the baseline cutoff without requiring data in a specific 24h slice.
+
+    Current price  = weighted median of the _CURRENT_SAMPLE_POINTS most
+      recent rows per asset captured in the last current_window_hours.
+
+    Unknown sources default to weight 1.0.
+    """
+    baseline_cutoff = now - timedelta(days=baseline_window_days)
+    current_start = now - timedelta(hours=current_window_hours)
+
+    # ── Baseline: most recent N rows per asset before the baseline cutoff ──
+    baseline_ranked = (
+        select(
+            PriceHistory.asset_id,
+            PriceHistory.price,
+            PriceHistory.source,
+            PriceHistory.captured_at,
+            func.row_number()
+            .over(
+                partition_by=PriceHistory.asset_id,
+                order_by=PriceHistory.captured_at.desc(),
+            )
+            .label("rn"),
+        )
+        .where(
+            PriceHistory.asset_id.in_(asset_ids),
+            PriceHistory.captured_at <= baseline_cutoff,
+        )
+        .subquery()
+    )
+    baseline_rows = db.execute(
+        select(
+            baseline_ranked.c.asset_id,
+            baseline_ranked.c.price,
+            baseline_ranked.c.source,
+            baseline_ranked.c.captured_at,
+        ).where(baseline_ranked.c.rn <= _BASELINE_SAMPLE_POINTS)
+    ).all()
+
+    # ── Current: most recent N rows per asset in the current window ────────
+    current_ranked = (
+        select(
+            PriceHistory.asset_id,
+            PriceHistory.price,
+            PriceHistory.source,
+            PriceHistory.captured_at,
+            func.row_number()
+            .over(
+                partition_by=PriceHistory.asset_id,
+                order_by=PriceHistory.captured_at.desc(),
+            )
+            .label("rn"),
+        )
+        .where(
+            PriceHistory.asset_id.in_(asset_ids),
+            PriceHistory.captured_at >= current_start,
+            PriceHistory.captured_at <= now,
+        )
+        .subquery()
+    )
+    current_rows = db.execute(
+        select(
+            current_ranked.c.asset_id,
+            current_ranked.c.price,
+            current_ranked.c.source,
+        ).where(current_ranked.c.rn <= _CURRENT_SAMPLE_POINTS)
+    ).all()
+
+    # Bucket into per-asset weighted price lists
+    baseline_by_asset: dict[Any, list[tuple[Decimal, float]]] = {}
+    for row in baseline_rows:
+        w = source_weights.get(row.source, 1.0)
+        baseline_by_asset.setdefault(row.asset_id, []).append((Decimal(str(row.price)), w))
+
+    current_by_asset: dict[Any, list[tuple[Decimal, float]]] = {}
+    for row in current_rows:
+        w = source_weights.get(row.source, 1.0)
+        current_by_asset.setdefault(row.asset_id, []).append((Decimal(str(row.price)), w))
+
+    result: dict[Any, tuple[Decimal | None, dict]] = {}
+
+    for asset_id in asset_ids:
+        baseline_pairs = baseline_by_asset.get(asset_id, [])
+        current_pairs = current_by_asset.get(asset_id, [])
+
+        ctx: dict = {
+            "baseline_n": len(baseline_pairs),
+            "current_n": len(current_pairs),
+            "baseline_window_days": baseline_window_days,
+            "current_window_hours": current_window_hours,
+        }
+
+        if not baseline_pairs:
+            ctx["reason"] = "no_baseline_data"
+            result[asset_id] = (None, ctx)
+            continue
+
+        if not current_pairs:
+            ctx["reason"] = "no_current_data"
+            result[asset_id] = (None, ctx)
+            continue
+
+        baseline_price = _weighted_median(baseline_pairs)
+        current_price = _weighted_median(current_pairs)
+
+        ctx["baseline_price"] = float(baseline_price)
+        ctx["current_price"] = float(current_price)
+
+        if baseline_price == 0:
+            ctx["reason"] = "zero_baseline"
+            result[asset_id] = (None, ctx)
+            continue
+
+        delta = ((current_price - baseline_price) / baseline_price * Decimal("100")).quantize(Decimal("0.01"))
+        ctx["delta_pct"] = float(delta)
+        result[asset_id] = (delta, ctx)
+
+    return result
+
+
 def _upsert_signal(db: Session, *, signal: SignalRow) -> None:
     stmt = pg_insert(AssetSignal).values(
         id=uuid.uuid4(),
@@ -209,6 +426,7 @@ def _upsert_signal(db: Session, *, signal: SignalRow) -> None:
         liquidity_score=signal.liquidity_score,
         prediction=signal.prediction,
         computed_at=signal.computed_at,
+        signal_context=signal.signal_context,
     )
     stmt = stmt.on_conflict_do_update(
         index_elements=["asset_id"],
@@ -219,6 +437,7 @@ def _upsert_signal(db: Session, *, signal: SignalRow) -> None:
             "liquidity_score": stmt.excluded.liquidity_score,
             "prediction": stmt.excluded.prediction,
             "computed_at": stmt.excluded.computed_at,
+            "signal_context": stmt.excluded.signal_context,
         },
     )
     db.execute(stmt)
@@ -234,6 +453,7 @@ def _append_history(db: Session, *, signal: SignalRow) -> None:
             liquidity_score=signal.liquidity_score,
             prediction=signal.prediction,
             computed_at=signal.computed_at,
+            signal_context=signal.signal_context,
         )
     )
 
@@ -265,10 +485,22 @@ def sweep_signals(
         result.duration_ms = (time.monotonic() - t_start) * 1000
         return result
 
+    source_weights = _parse_source_weights_from_settings()
+    baseline_window_days = settings.signal_baseline_window_days
+    current_window_hours = settings.signal_current_window_hours
+
     for batch_start in range(0, len(asset_ids), SWEEP_BATCH_SIZE):
         batch = asset_ids[batch_start : batch_start + SWEEP_BATCH_SIZE]
         try:
-            _process_batch(db, batch, result, commit=not dry_run)
+            _process_batch(
+                db,
+                batch,
+                result,
+                commit=not dry_run,
+                source_weights=source_weights,
+                baseline_window_days=baseline_window_days,
+                current_window_hours=current_window_hours,
+            )
         except Exception as exc:
             logger.exception("signal_sweep_batch_failed batch_start=%s error=%s", batch_start, exc)
             result.errors += len(batch)
@@ -279,23 +511,41 @@ def sweep_signals(
 
     result.duration_ms = (time.monotonic() - t_start) * 1000
     logger.info(
-        "signal_sweep_complete dry_run=%s total=%s breakout=%s move=%s watch=%s idle=%s errors=%s duration_ms=%.1f",
+        "signal_sweep_complete dry_run=%s total=%s breakout=%s move=%s watch=%s "
+        "idle=%s insufficient_data=%s errors=%s duration_ms=%.1f",
         dry_run, result.total, result.breakout, result.move, result.watch, result.idle,
-        result.errors, result.duration_ms,
+        result.insufficient_data, result.errors, result.duration_ms,
     )
     return result
 
 
-def _process_batch(db: Session, asset_ids: list[Any], result: SweepResult, *, commit: bool = True) -> None:
+def _process_batch(
+    db: Session,
+    asset_ids: list[Any],
+    result: SweepResult,
+    *,
+    commit: bool = True,
+    source_weights: dict[str, float],
+    baseline_window_days: int,
+    current_window_hours: int,
+) -> None:
     now = datetime.now(UTC)
 
-    # Latest two prices → percent change
-    latest_two = _get_latest_two_prices(db, asset_ids)
+    # Compute windowed deltas for the whole batch
+    delta_batch = _compute_delta_batch(
+        db,
+        asset_ids,
+        baseline_window_days=baseline_window_days,
+        current_window_hours=current_window_hours,
+        source_weights=source_weights,
+        now=now,
+    )
+
+    # Build percent_changes for assets that have a valid delta
     percent_changes: dict[Any, Decimal] = {}
-    for asset_id, prices in latest_two.items():
-        if len(prices) >= 2 and prices[1] != 0:
-            pct = ((prices[0] - prices[1]) / prices[1]) * Decimal("100")
-            percent_changes[asset_id] = pct.quantize(Decimal("0.01"))
+    for asset_id, (delta, _ctx) in delta_batch.items():
+        if delta is not None:
+            percent_changes[asset_id] = delta
 
     # Signal snapshots (liquidity + alert_confidence, batched)
     snapshots = get_asset_signal_snapshots(
@@ -306,6 +556,44 @@ def _process_batch(db: Session, asset_ids: list[Any], result: SweepResult, *, co
     price_history = _get_recent_prices_for_prediction(db, asset_ids)
 
     for asset_id in asset_ids:
+        delta, ctx = delta_batch.get(asset_id, (None, {"reason": "no_data"}))
+
+        # Assets with no delta → INSUFFICIENT_DATA, skip classification
+        if delta is None:
+            signal = SignalRow(
+                asset_id=asset_id,
+                label=SignalLabel.INSUFFICIENT_DATA,
+                confidence=None,
+                price_delta_pct=None,
+                liquidity_score=None,
+                prediction=None,
+                computed_at=now,
+                signal_context=ctx,
+            )
+            _upsert_signal(db, signal=signal)
+            _append_history(db, signal=signal)
+            result.insufficient_data += 1
+            continue
+
+        # Hard floor: too few baseline samples → no reliable signal
+        baseline_n = ctx.get("baseline_n", 0)
+        if baseline_n < settings.signal_move_min_baseline_n:
+            ctx["downgrade_reason"] = "insufficient_baseline_n"
+            signal = SignalRow(
+                asset_id=asset_id,
+                label=SignalLabel.INSUFFICIENT_DATA,
+                confidence=None,
+                price_delta_pct=delta,
+                liquidity_score=None,
+                prediction=None,
+                computed_at=now,
+                signal_context=ctx,
+            )
+            _upsert_signal(db, signal=signal)
+            _append_history(db, signal=signal)
+            result.insufficient_data += 1
+            continue
+
         snapshot = snapshots.get(asset_id)
         if snapshot is None:
             continue
@@ -318,38 +606,34 @@ def _process_batch(db: Session, asset_ids: list[Any], result: SweepResult, *, co
             else None
         )
 
-        label = classify_signal(
+        candidate = classify_signal(
             alert_confidence=snapshot.alert_confidence,
-            price_delta_pct=percent_changes.get(asset_id),
+            price_delta_pct=delta,
             liquidity_score=snapshot.liquidity_score,
             prediction=prediction,
             history_depth=snapshot.history_depth,
         )
 
-        _upsert_signal(
-            db,
-            signal=SignalRow(
-                asset_id=asset_id,
-                label=label,
-                confidence=snapshot.alert_confidence,
-                price_delta_pct=percent_changes.get(asset_id),
-                liquidity_score=snapshot.liquidity_score,
-                prediction=prediction,
-                computed_at=now,
-            ),
+        current_price = Decimal(str(ctx.get("current_price", 0)))
+        label, downgrade_reason = _apply_signal_downgrade(
+            candidate, current_price=current_price, baseline_n=baseline_n
         )
-        _append_history(
-            db,
-            signal=SignalRow(
-                asset_id=asset_id,
-                label=label,
-                confidence=snapshot.alert_confidence,
-                price_delta_pct=percent_changes.get(asset_id),
-                liquidity_score=snapshot.liquidity_score,
-                prediction=prediction,
-                computed_at=now,
-            ),
+        if downgrade_reason:
+            ctx["original_candidate_label"] = candidate.value
+            ctx["downgrade_reason"] = downgrade_reason
+
+        signal = SignalRow(
+            asset_id=asset_id,
+            label=label,
+            confidence=snapshot.alert_confidence,
+            price_delta_pct=delta,
+            liquidity_score=snapshot.liquidity_score,
+            prediction=prediction,
+            computed_at=now,
+            signal_context=ctx,
         )
+        _upsert_signal(db, signal=signal)
+        _append_history(db, signal=signal)
 
         if label == SignalLabel.BREAKOUT:
             result.breakout += 1
