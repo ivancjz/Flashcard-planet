@@ -784,7 +784,7 @@ def card_detail_page(request: Request, external_id: str) -> HTMLResponse:
 
         # Look up asset by external_id (needed for tcgplayer URL + 404 check)
         asset = db.scalars(
-            select(Asset).where(Asset.category == "Pokemon", Asset.external_id == external_id)
+            select(Asset).where(Asset.game == Game.POKEMON.value, Asset.external_id == external_id)
         ).first()
         if asset is None:
             raise HTTPException(status_code=404, detail="卡牌不存在。")
@@ -1005,7 +1005,7 @@ def card_sources_page(request: Request, external_id: str) -> HTMLResponse:
         access_tier = current_user.access_tier if current_user else "free"
 
         asset = db.scalars(
-            select(Asset).where(Asset.category == "Pokemon", Asset.external_id == external_id)
+            select(Asset).where(Asset.game == Game.POKEMON.value, Asset.external_id == external_id)
         ).first()
         if asset is None:
             raise HTTPException(status_code=404, detail="卡牌不存在。")
@@ -1110,7 +1110,7 @@ def card_history_page(request: Request, external_id: str) -> HTMLResponse:
         access_tier = current_user.access_tier if current_user else "free"
 
         asset = db.scalars(
-            select(Asset).where(Asset.category == "Pokemon", Asset.external_id == external_id)
+            select(Asset).where(Asset.game == Game.POKEMON.value, Asset.external_id == external_id)
         ).first()
         if asset is None:
             raise HTTPException(status_code=404, detail="卡牌不存在。")
