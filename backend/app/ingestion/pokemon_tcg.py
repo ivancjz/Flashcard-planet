@@ -200,7 +200,6 @@ def build_asset_payload(card: dict[str, Any], price_source: str, price_field: st
     card_id = card["id"]
     return {
         "asset_class": "TCG",
-        "category": "Pokemon",  # dual-write: keep until TASK-001c
         "game": "pokemon",
         "name": card["name"],
         "set_name": card.get("set", {}).get("name"),
