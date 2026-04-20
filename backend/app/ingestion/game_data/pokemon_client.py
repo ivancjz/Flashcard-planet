@@ -6,7 +6,6 @@ import httpx
 
 from backend.app.ingestion.game_data.base import CardMetadata, SetMetadata
 from backend.app.ingestion.pokemon_tcg import (
-    ProviderUnavailableError,
     build_headers,
     fetch_card,
 )
@@ -33,9 +32,10 @@ class PokemonClient:
         try:
             with httpx.Client(timeout=20.0, headers=build_headers()) as client:
                 raw = fetch_card(client, external_id)
-        except ProviderUnavailableError:
-            logger.warning("PokemonClient: provider unavailable for card %s", external_id)
-            return None
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return None
+            raise
         return self._to_card_metadata(raw)
 
     def fetch_cards_by_set(self, set_code: str) -> list[CardMetadata]:
