@@ -119,6 +119,7 @@ class Settings(BaseSettings):
     backfill_batch_size: int = Field(default=100, ge=1, le=1000)
     pokemon_tcg_schedule_enabled: bool = True
     pokemon_tcg_schedule_seconds: int = 3600
+    bulk_refresh_auto_import_new_sets: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",

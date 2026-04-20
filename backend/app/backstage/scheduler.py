@@ -28,7 +28,8 @@ from backend.app.ingestion.provider_registry import (
     get_configured_provider_ingestors,
     get_unimplemented_configured_providers,
 )
-from sqlalchemy import text as sa_text
+from sqlalchemy import func, select, text as sa_text
+from backend.app.models.asset import Asset
 
 from backend.app.alerting.discord import send_discord_alert
 from backend.app.services.alert_service import process_alert_notifications
@@ -305,6 +306,19 @@ def _run_bulk_set_price_refresh() -> None:
                 price_batch: list[dict[str, object]] = []
 
                 for set_id in set_ids:
+                    if not settings.bulk_refresh_auto_import_new_sets:
+                        existing_count = session.scalar(
+                            select(func.count()).select_from(Asset)
+                            .where(Asset.metadata_json["set_id"].as_string() == set_id)
+                        )
+                        if existing_count == 0:
+                            logger.info(
+                                "Bulk set price refresh skipping %s: no existing assets in DB. "
+                                "Run scripts/import_pokemon_cards.py to import first, or set "
+                                "BULK_REFRESH_AUTO_IMPORT_NEW_SETS=true to allow auto-import.",
+                                set_id,
+                            )
+                            continue
                     logger.info("Bulk set price refresh fetching cards for set %s.", set_id)
                     cards = importer.fetch_cards_for_set(set_id)
                     if not cards:
