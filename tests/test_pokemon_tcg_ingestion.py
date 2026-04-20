@@ -6,7 +6,7 @@ from backend.app.ingestion.game_data.base import CardMetadata
 from backend.app.ingestion.game_data.registry import GameDataClientRegistry
 from backend.app.ingestion.pokemon_tcg import (
     PricePointInsertResult,
-    ingest_pokemon_tcg_cards,
+    ingest_game_cards,
 )
 from backend.app.models.game import Game
 from backend.app.services.observation_match_service import ObservationMatchResult
@@ -91,7 +91,7 @@ class PokemonTcgIngestionTests(TestCase):
         )
 
         with patch("backend.app.ingestion.pokemon_tcg.add_price_point") as add_price_point_mock:
-            result = ingest_pokemon_tcg_cards(
+            result = ingest_game_cards(
                 session,
                 card_ids=["sv8pt5-161"],
                 clear_sample_seed=False,
@@ -124,7 +124,7 @@ class PokemonTcgIngestionTests(TestCase):
             reason="Multiple canonical matches.",
         )
 
-        result = ingest_pokemon_tcg_cards(
+        result = ingest_game_cards(
             session,
             card_ids=["sv8pt5-161"],
             clear_sample_seed=False,
@@ -159,7 +159,7 @@ class PokemonTcgIngestionTests(TestCase):
             price_changed=True,
         )
 
-        result = ingest_pokemon_tcg_cards(
+        result = ingest_game_cards(
             session,
             card_ids=["sv8pt5-161"],
             clear_sample_seed=False,

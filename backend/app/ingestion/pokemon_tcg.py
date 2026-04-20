@@ -358,7 +358,7 @@ def fetch_card(client: httpx.Client, card_id: str) -> dict[str, Any]:
     raise RuntimeError(f"Failed to fetch card {card_id}") from last_exception
 
 
-def ingest_pokemon_tcg_cards(
+def ingest_game_cards(
     session: Session,
     card_ids: list[str] | None = None,
     *,
@@ -374,7 +374,7 @@ def ingest_pokemon_tcg_cards(
     settings = get_settings()
     configured_card_ids = card_ids or parse_card_ids(settings.pokemon_tcg_card_ids)
     if not configured_card_ids:
-        raise ValueError("POKEMON_TCG_CARD_IDS must contain at least one card id.")
+        raise ValueError("No card IDs configured for ingestion.")
 
     result = IngestionResult(cards_requested=len(configured_card_ids))
 
@@ -477,18 +477,18 @@ def ingest_pokemon_tcg_cards(
         except ProviderUnavailableError as exc:
             result.cards_failed += 1
             logger.error(
-                "Stopping Pokemon TCG ingestion early because the provider is unavailable while fetching card %s: %s",
+                "Stopping ingestion early because the provider is unavailable while fetching card %s: %s",
                 card_id,
                 exc,
             )
             break
         except Exception:
             result.cards_failed += 1
-            logger.exception("Failed to ingest Pokemon TCG card %s. Continuing with the remaining cards.", card_id)
+            logger.exception("Failed to ingest card %s. Continuing with the remaining cards.", card_id)
 
     session.commit()
     logger.info(
-        "Pokemon TCG ingest summary: cards_requested=%s cards_processed=%s cards_failed=%s cards_skipped_no_price=%s assets_created=%s assets_updated=%s price_points_inserted=%s price_points_changed=%s price_points_unchanged=%s price_points_skipped_existing_timestamp=%s sample_rows_deleted=%s observations_logged=%s observations_matched=%s observations_unmatched=%s observations_require_review=%s observation_match_status_counts=%s inserted_assets=%s latest_captured_at=%s",
+        "Ingest summary: cards_requested=%s cards_processed=%s cards_failed=%s cards_skipped_no_price=%s assets_created=%s assets_updated=%s price_points_inserted=%s price_points_changed=%s price_points_unchanged=%s price_points_skipped_existing_timestamp=%s sample_rows_deleted=%s observations_logged=%s observations_matched=%s observations_unmatched=%s observations_require_review=%s observation_match_status_counts=%s inserted_assets=%s latest_captured_at=%s",
         result.cards_requested,
         result.cards_processed,
         result.cards_failed,

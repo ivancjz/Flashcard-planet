@@ -11,7 +11,7 @@ from backend.app.core.price_sources import (
     get_configured_price_providers,
 )
 from backend.app.ingestion.ebay_sold import EBAY_SOLD_PRICE_SOURCE, ingest_ebay_sold_cards
-from backend.app.ingestion.pokemon_tcg import IngestionResult, ingest_pokemon_tcg_cards
+from backend.app.ingestion.pokemon_tcg import IngestionResult, ingest_game_cards
 
 
 ProviderIngestor = Callable[..., IngestionResult]
@@ -29,7 +29,7 @@ class ProviderIngestionBinding:
 def get_supported_provider_ingestors() -> dict[str, ProviderIngestor]:
     # Future provider_2 support only needs a new source constant plus an entry here.
     return {
-        POKEMON_TCG_PRICE_SOURCE: ingest_pokemon_tcg_cards,
+        POKEMON_TCG_PRICE_SOURCE: ingest_game_cards,
         EBAY_SOLD_PRICE_SOURCE: ingest_ebay_sold_cards,
     }
 
