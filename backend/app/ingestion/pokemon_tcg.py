@@ -362,8 +362,15 @@ def ingest_pokemon_tcg_cards(
     session: Session,
     card_ids: list[str] | None = None,
     *,
+    game: "Game" = None,
     clear_sample_seed: bool = True,
 ) -> IngestionResult:
+    from backend.app.models.game import Game as _Game
+    from backend.app.ingestion.game_data.registry import GameDataClientRegistry
+    if game is None:
+        game = _Game.POKEMON
+    data_client = GameDataClientRegistry.get(game)
+
     settings = get_settings()
     configured_card_ids = card_ids or parse_card_ids(settings.pokemon_tcg_card_ids)
     if not configured_card_ids:
@@ -378,38 +385,16 @@ def ingest_pokemon_tcg_cards(
     ingested_at = datetime.now(UTC).replace(microsecond=0)
     result.latest_captured_at = ingested_at
 
-    with httpx.Client(timeout=20.0, headers=build_headers()) as client:
-        for card_id in configured_card_ids:
-            try:
-                card = fetch_card(client, card_id)
-                chosen_price = choose_price_snapshot(card)
-                if chosen_price is None:
-                    _card_name = card.get("name", "")
-                    _pf = preflight_observation(_card_name)
-                    _normalised_name = _pf.normalised_title if not _pf.should_skip else _card_name
-                    observation_result = stage_observation_match(
-                        session,
-                        provider=POKEMON_TCG_PRICE_SOURCE,
-                        external_item_id=card["id"],
-                        raw_title=_normalised_name,
-                        raw_set_name=card.get("set", {}).get("name"),
-                        raw_card_number=card.get("number"),
-                        raw_language=extract_raw_language(card),
-                        asset_payload=None,
-                        unmatched_reason="No usable tcgplayer price snapshot was returned for this provider observation.",
-                    )
-                    _record_observation_result(
-                        result,
-                        match_status=observation_result.observation_log.match_status,
-                        matched=observation_result.can_write_price_history,
-                        requires_review=observation_result.observation_log.requires_review,
-                    )
-                    logger.warning("Skipping card %s because no usable tcgplayer price was returned.", card_id)
-                    result.cards_skipped_no_price += 1
-                    continue
-
-                price_source, price_field, price = chosen_price
-                asset_payload = build_asset_payload(card, price_source, price_field)
+    for card_id in configured_card_ids:
+        try:
+            metadata = data_client.fetch_card_by_external_id(card_id)
+            if metadata is None:
+                result.cards_failed += 1
+                logger.warning("Card %s not found (404), skipping.", card_id)
+                continue
+            card = metadata.raw_payload
+            chosen_price = choose_price_snapshot(card)
+            if chosen_price is None:
                 _card_name = card.get("name", "")
                 _pf = preflight_observation(_card_name)
                 _normalised_name = _pf.normalised_title if not _pf.should_skip else _card_name
@@ -421,7 +406,8 @@ def ingest_pokemon_tcg_cards(
                     raw_set_name=card.get("set", {}).get("name"),
                     raw_card_number=card.get("number"),
                     raw_language=extract_raw_language(card),
-                    asset_payload=asset_payload,
+                    asset_payload=None,
+                    unmatched_reason="No usable tcgplayer price snapshot was returned for this provider observation.",
                 )
                 _record_observation_result(
                     result,
@@ -429,51 +415,76 @@ def ingest_pokemon_tcg_cards(
                     matched=observation_result.can_write_price_history,
                     requires_review=observation_result.observation_log.requires_review,
                 )
-                if not observation_result.can_write_price_history or observation_result.matched_asset is None:
-                    logger.warning(
-                        "Skipping card %s because the observation could not be matched canonically: %s",
-                        card_id,
-                        observation_result.observation_log.reason,
-                    )
-                    continue
+                logger.warning("Skipping card %s because no usable tcgplayer price was returned.", card_id)
+                result.cards_skipped_no_price += 1
+                continue
 
-                asset = observation_result.matched_asset
-                if observation_result.asset_created:
-                    result.assets_created += 1
-                else:
-                    result.assets_updated += 1
-
-                insert_result = add_price_point(
-                    session,
-                    asset.id,
-                    source=POKEMON_TCG_PRICE_SOURCE,
-                    currency="USD",
-                    price=price,
-                    captured_at=ingested_at,
-                )
-                if insert_result.inserted:
-                    result.price_points_inserted += 1
-                    if insert_result.price_changed is True:
-                        result.price_points_changed += 1
-                    elif insert_result.price_changed is False:
-                        result.price_points_unchanged += 1
-                    if asset.name not in result.inserted_asset_names:
-                        result.inserted_asset_names.append(asset.name)
-                else:
-                    result.price_points_skipped_existing_timestamp += 1
-
-                result.cards_processed += 1
-            except ProviderUnavailableError as exc:
-                result.cards_failed += 1
-                logger.error(
-                    "Stopping Pokemon TCG ingestion early because the provider is unavailable while fetching card %s: %s",
+            price_source, price_field, price = chosen_price
+            asset_payload = build_asset_payload(card, price_source, price_field)
+            _card_name = card.get("name", "")
+            _pf = preflight_observation(_card_name)
+            _normalised_name = _pf.normalised_title if not _pf.should_skip else _card_name
+            observation_result = stage_observation_match(
+                session,
+                provider=POKEMON_TCG_PRICE_SOURCE,
+                external_item_id=card["id"],
+                raw_title=_normalised_name,
+                raw_set_name=card.get("set", {}).get("name"),
+                raw_card_number=card.get("number"),
+                raw_language=extract_raw_language(card),
+                asset_payload=asset_payload,
+            )
+            _record_observation_result(
+                result,
+                match_status=observation_result.observation_log.match_status,
+                matched=observation_result.can_write_price_history,
+                requires_review=observation_result.observation_log.requires_review,
+            )
+            if not observation_result.can_write_price_history or observation_result.matched_asset is None:
+                logger.warning(
+                    "Skipping card %s because the observation could not be matched canonically: %s",
                     card_id,
-                    exc,
+                    observation_result.observation_log.reason,
                 )
-                break
-            except Exception:
-                result.cards_failed += 1
-                logger.exception("Failed to ingest Pokemon TCG card %s. Continuing with the remaining cards.", card_id)
+                continue
+
+            asset = observation_result.matched_asset
+            if observation_result.asset_created:
+                result.assets_created += 1
+            else:
+                result.assets_updated += 1
+
+            insert_result = add_price_point(
+                session,
+                asset.id,
+                source=POKEMON_TCG_PRICE_SOURCE,
+                currency="USD",
+                price=price,
+                captured_at=ingested_at,
+            )
+            if insert_result.inserted:
+                result.price_points_inserted += 1
+                if insert_result.price_changed is True:
+                    result.price_points_changed += 1
+                elif insert_result.price_changed is False:
+                    result.price_points_unchanged += 1
+                if asset.name not in result.inserted_asset_names:
+                    result.inserted_asset_names.append(asset.name)
+            else:
+                result.price_points_skipped_existing_timestamp += 1
+
+            result.cards_processed += 1
+        except ProviderUnavailableError as exc:
+            result.cards_failed += 1
+            logger.error(
+                "Stopping Pokemon TCG ingestion early because the provider is unavailable while fetching card %s: %s",
+                card_id,
+                exc,
+            )
+            break
+        except Exception:
+            result.cards_failed += 1
+            logger.exception("Failed to ingest Pokemon TCG card %s. Continuing with the remaining cards.", card_id)
 
     session.commit()
     logger.info(

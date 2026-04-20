@@ -129,12 +129,25 @@ class TestPokemonClientFetchCard:
             result = client.fetch_card_by_external_id("sv1-1")
         assert result.raw_payload == FAKE_CARD_RAW
 
-    def test_returns_none_on_provider_unavailable(self):
+    def test_provider_unavailable_propagates_to_caller(self):
         from backend.app.ingestion.pokemon_tcg import ProviderUnavailableError
+        import pytest
         client = self._make_client()
         with patch(
             "backend.app.ingestion.game_data.pokemon_client.fetch_card",
             side_effect=ProviderUnavailableError("API down"),
+        ):
+            with pytest.raises(ProviderUnavailableError):
+                client.fetch_card_by_external_id("sv1-1")
+
+    def test_returns_none_on_404(self):
+        import httpx
+        client = self._make_client()
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        with patch(
+            "backend.app.ingestion.game_data.pokemon_client.fetch_card",
+            side_effect=httpx.HTTPStatusError("not found", request=MagicMock(), response=mock_response),
         ):
             result = client.fetch_card_by_external_id("sv1-1")
         assert result is None

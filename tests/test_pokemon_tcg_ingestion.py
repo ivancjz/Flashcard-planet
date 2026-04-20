@@ -1,24 +1,40 @@
 from decimal import Decimal
 from unittest import TestCase
-from unittest.mock import ANY, MagicMock, Mock, patch
+from unittest.mock import ANY, Mock, patch
 
+from backend.app.ingestion.game_data.base import CardMetadata
+from backend.app.ingestion.game_data.registry import GameDataClientRegistry
 from backend.app.ingestion.pokemon_tcg import (
     PricePointInsertResult,
     ingest_pokemon_tcg_cards,
 )
+from backend.app.models.game import Game
 from backend.app.services.observation_match_service import ObservationMatchResult
+from tests.conftest import MockGameDataClient
 
 
-def make_card(*, card_id: str) -> dict[str, object]:
-    return {
-        "id": card_id,
-        "name": "Umbreon ex",
-        "number": "161",
-        "set": {
-            "name": "Prismatic Evolutions",
-            "releaseDate": "2025-01-17",
-        },
-    }
+RAW_CARD = {
+    "id": "sv8pt5-161",
+    "name": "Umbreon ex",
+    "number": "161",
+    "set": {
+        "id": "sv8pt5",
+        "name": "Prismatic Evolutions",
+        "releaseDate": "2025-01-17",
+    },
+}
+
+CARD_METADATA = CardMetadata(
+    external_id="sv8pt5-161",
+    name="Umbreon ex",
+    set_code="sv8pt5",
+    set_name="Prismatic Evolutions",
+    collector_number="161",
+    rarity=None,
+    image_url=None,
+    game=Game.POKEMON,
+    raw_payload=RAW_CARD,
+)
 
 
 def make_observation_result(
@@ -50,26 +66,23 @@ def make_observation_result(
 
 
 class PokemonTcgIngestionTests(TestCase):
-    def _mock_http_client(self):
-        client_context = MagicMock()
-        client_context.__enter__.return_value = Mock()
-        client_context.__exit__.return_value = False
-        return client_context
+    def setUp(self):
+        GameDataClientRegistry.clear()
+        self._mock_client = MockGameDataClient(game=Game.POKEMON)
+        self._mock_client.card_responses["sv8pt5-161"] = CARD_METADATA
+        GameDataClientRegistry.register(self._mock_client)
 
-    @patch("backend.app.ingestion.pokemon_tcg.httpx.Client")
+    def tearDown(self):
+        GameDataClientRegistry.clear()
+
     @patch("backend.app.ingestion.pokemon_tcg.stage_observation_match")
     @patch("backend.app.ingestion.pokemon_tcg.choose_price_snapshot")
-    @patch("backend.app.ingestion.pokemon_tcg.fetch_card")
     def test_ingestion_logs_unmatched_no_price_observation_and_skips_price_history(
         self,
-        fetch_card_mock,
         choose_price_snapshot_mock,
         stage_observation_match_mock,
-        client_mock,
     ):
         session = Mock()
-        client_mock.return_value = self._mock_http_client()
-        fetch_card_mock.return_value = make_card(card_id="sv8pt5-161")
         choose_price_snapshot_mock.return_value = None
         stage_observation_match_mock.return_value = make_observation_result(
             match_status="unmatched_no_price",
@@ -93,22 +106,16 @@ class PokemonTcgIngestionTests(TestCase):
         add_price_point_mock.assert_not_called()
         session.commit.assert_called_once()
 
-    @patch("backend.app.ingestion.pokemon_tcg.httpx.Client")
     @patch("backend.app.ingestion.pokemon_tcg.add_price_point")
     @patch("backend.app.ingestion.pokemon_tcg.stage_observation_match")
     @patch("backend.app.ingestion.pokemon_tcg.choose_price_snapshot")
-    @patch("backend.app.ingestion.pokemon_tcg.fetch_card")
     def test_only_matched_observations_write_price_history(
         self,
-        fetch_card_mock,
         choose_price_snapshot_mock,
         stage_observation_match_mock,
         add_price_point_mock,
-        client_mock,
     ):
         session = Mock()
-        client_mock.return_value = self._mock_http_client()
-        fetch_card_mock.return_value = make_card(card_id="sv8pt5-161")
         choose_price_snapshot_mock.return_value = ("holofoil", "market", Decimal("100.00"))
         stage_observation_match_mock.return_value = make_observation_result(
             match_status="unmatched_ambiguous",
@@ -130,22 +137,16 @@ class PokemonTcgIngestionTests(TestCase):
         self.assertEqual(result.price_points_inserted, 0)
         add_price_point_mock.assert_not_called()
 
-    @patch("backend.app.ingestion.pokemon_tcg.httpx.Client")
     @patch("backend.app.ingestion.pokemon_tcg.add_price_point")
     @patch("backend.app.ingestion.pokemon_tcg.stage_observation_match")
     @patch("backend.app.ingestion.pokemon_tcg.choose_price_snapshot")
-    @patch("backend.app.ingestion.pokemon_tcg.fetch_card")
     def test_ingestion_writes_price_history_after_matched_observation(
         self,
-        fetch_card_mock,
         choose_price_snapshot_mock,
         stage_observation_match_mock,
         add_price_point_mock,
-        client_mock,
     ):
         session = Mock()
-        client_mock.return_value = self._mock_http_client()
-        fetch_card_mock.return_value = make_card(card_id="sv8pt5-161")
         choose_price_snapshot_mock.return_value = ("holofoil", "market", Decimal("100.00"))
         stage_observation_match_mock.return_value = make_observation_result(
             match_status="matched_existing",
