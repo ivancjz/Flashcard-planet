@@ -510,13 +510,11 @@ def _process_set(
     prices_in_set = sum(1 for c in cards if build_price_payload(c, captured_at=importer._run_captured_at) is not None)
 
     if dry_run:
+        # cards_seen already incremented inside fetch_cards_for_set — don't add again
         print(
             f"  [dry-run] {set_id}: {cards_in_set} cards fetched, "
             f"~{prices_in_set} would have price records"
         )
-        importer.summary.cards_seen += cards_in_set
-        importer.summary.sets_processed -= 1  # already incremented above; undo for accurate dry-run count
-        importer.summary.sets_processed += 1
         return
 
     for i, card in enumerate(cards):
