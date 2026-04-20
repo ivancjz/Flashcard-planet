@@ -423,11 +423,24 @@ def price_history_available(session) -> bool:
         return False
 
 
+PROGRESS_INTERVAL = 50
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Import Pokemon card assets from the Pokemon TCG API.")
     scope = parser.add_mutually_exclusive_group(required=False)
     scope.add_argument("--set-id", type=str, help="Fetch cards from a single Pokemon TCG set.")
+    scope.add_argument(
+        "--set-ids",
+        type=str,
+        help="Comma-separated list of set IDs to import in order (e.g. swsh7,swsh11,sm115).",
+    )
     scope.add_argument("--all-sets", action="store_true", help="Fetch cards from every set in the API.")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Fetch from API and count cards/prices but do not write to the database.",
+    )
     parser.add_argument(
         "--list-aliases",
         action="store_true",
@@ -453,15 +466,87 @@ def parse_args() -> argparse.Namespace:
         for alias, real_id in SET_ID_ALIASES.items():
             print(f"  {alias} -> {real_id}")
         sys.exit(0)
-    if not args.set_id and not args.all_sets:
-        parser.error("one of the arguments --set-id --all-sets is required")
+    if not args.set_id and not args.set_ids and not args.all_sets:
+        parser.error("one of the arguments --set-id/--set-ids/--all-sets is required")
     if args.set_id and args.set_id.lower() in SET_ID_ALIASES:
         resolved = SET_ID_ALIASES[args.set_id.lower()]
         print(f"Resolving set alias '{args.set_id}' -> '{resolved}'")
         args.set_id = resolved
+    if args.set_ids:
+        resolved_ids = []
+        for sid in args.set_ids.split(","):
+            sid = sid.strip()
+            if not sid:
+                continue
+            if sid.lower() in SET_ID_ALIASES:
+                resolved = SET_ID_ALIASES[sid.lower()]
+                print(f"Resolving set alias '{sid}' -> '{resolved}'")
+                sid = resolved
+            resolved_ids.append(sid)
+        args.set_ids = resolved_ids
     if args.limit is not None and args.limit <= 0:
         parser.error("--limit must be a positive integer.")
     return args
+
+
+def _process_set(
+    importer: "PokemonTCGImporter",
+    session: Any,
+    set_id: str,
+    *,
+    can_record_prices: bool,
+    dry_run: bool,
+    asset_batch: list,
+    price_batch: list,
+) -> None:
+    logger.info("Fetching cards for set %s.", set_id)
+    cards = importer.fetch_cards_for_set(set_id)
+    if not cards:
+        logger.info("No cards returned for set %s.", set_id)
+        return
+
+    importer.summary.sets_processed += 1
+    cards_in_set = len(cards)
+    prices_in_set = sum(1 for c in cards if build_price_payload(c, captured_at=importer._run_captured_at) is not None)
+
+    if dry_run:
+        print(
+            f"  [dry-run] {set_id}: {cards_in_set} cards fetched, "
+            f"~{prices_in_set} would have price records"
+        )
+        importer.summary.cards_seen += cards_in_set
+        importer.summary.sets_processed -= 1  # already incremented above; undo for accurate dry-run count
+        importer.summary.sets_processed += 1
+        return
+
+    for i, card in enumerate(cards):
+        asset_batch.append(build_asset_payload(card))
+        if can_record_prices:
+            price_payload = build_price_payload(card, captured_at=importer._run_captured_at)
+            if price_payload is not None:
+                price_batch.append(price_payload)
+
+        if (i + 1) % PROGRESS_INTERVAL == 0:
+            print(f"  {set_id}: {i + 1}/{cards_in_set} cards prepared...")
+
+        if len(asset_batch) >= DEFAULT_BATCH_SIZE:
+            cards_processed, prices_recorded = flush_batch(
+                session,
+                asset_payloads=asset_batch,
+                price_payloads=price_batch,
+            )
+            importer.summary.cards_processed += cards_processed
+            importer.summary.prices_recorded += prices_recorded
+            logger.info(
+                "Committed batch: assets_inserted=%s prices_recorded=%s total_seen=%s",
+                cards_processed,
+                prices_recorded,
+                importer.summary.cards_seen,
+            )
+            asset_batch.clear()
+            price_batch.clear()
+
+    print(f"  {set_id}: done ({cards_in_set} cards).")
 
 
 def main() -> None:
@@ -471,62 +556,48 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
+    dry_run: bool = args.dry_run
+    if dry_run:
+        print("DRY RUN — no database writes will occur.")
+
     importer = PokemonTCGImporter(api_key=args.api_key, limit=args.limit)
 
+    asset_batch: list[dict[str, Any]] = []
+    price_batch: list[dict[str, Any]] = []
+
     with SessionLocal() as session:
-        can_record_prices = price_history_available(session)
-        if not can_record_prices:
+        can_record_prices = False if dry_run else price_history_available(session)
+        if not can_record_prices and not dry_run:
             logger.warning("price_history model or table is unavailable; price ingestion will be skipped.")
 
-        asset_batch: list[dict[str, Any]] = []
-        price_batch: list[dict[str, Any]] = []
-
         try:
-            sets = importer.fetch_sets(args.set_id, args.all_sets)
-            logger.info("Fetched %s set definition(s) from the Pokemon TCG API.", len(sets))
+            if args.set_ids:
+                # Multi-set mode: iterate explicitly, no fetch_sets() call needed.
+                for set_id in args.set_ids:
+                    if importer._remaining_capacity() == 0:
+                        break
+                    _process_set(
+                        importer, session, set_id,
+                        can_record_prices=can_record_prices,
+                        dry_run=dry_run,
+                        asset_batch=asset_batch,
+                        price_batch=price_batch,
+                    )
+            else:
+                sets = importer.fetch_sets(args.set_id, args.all_sets)
+                logger.info("Fetched %s set definition(s) from the Pokemon TCG API.", len(sets))
+                for card_set in sets:
+                    if importer._remaining_capacity() == 0:
+                        break
+                    _process_set(
+                        importer, session, card_set["id"],
+                        can_record_prices=can_record_prices,
+                        dry_run=dry_run,
+                        asset_batch=asset_batch,
+                        price_batch=price_batch,
+                    )
 
-            for card_set in sets:
-                if importer._remaining_capacity() == 0:
-                    break
-
-                set_id = card_set["id"]
-                set_name = card_set.get("name") or set_id
-                logger.info("Fetching cards for set %s (%s).", set_name, set_id)
-                cards = importer.fetch_cards_for_set(set_id)
-                if not cards:
-                    logger.info("No cards returned for set %s (%s).", set_name, set_id)
-                    continue
-
-                importer.summary.sets_processed += 1
-                for card in cards:
-                    asset_batch.append(build_asset_payload(card))
-                    if can_record_prices:
-                        price_payload = build_price_payload(card, captured_at=importer._run_captured_at)
-                        if price_payload is not None:
-                            price_batch.append(price_payload)
-
-                    if len(asset_batch) >= DEFAULT_BATCH_SIZE:
-                        cards_processed, prices_recorded = flush_batch(
-                            session,
-                            asset_payloads=asset_batch,
-                            price_payloads=price_batch,
-                        )
-                        importer.summary.cards_processed += cards_processed
-                        importer.summary.prices_recorded += prices_recorded
-                        logger.info(
-                            "Committed batch: assets_inserted=%s prices_recorded=%s total_seen=%s",
-                            cards_processed,
-                            prices_recorded,
-                            importer.summary.cards_seen,
-                        )
-                        asset_batch.clear()
-                        price_batch.clear()
-
-                if importer._remaining_capacity() == 0:
-                    logger.info("Card fetch limit reached; stopping after set %s (%s).", set_name, set_id)
-                    break
-
-            if asset_batch:
+            if asset_batch and not dry_run:
                 cards_processed, prices_recorded = flush_batch(
                     session,
                     asset_payloads=asset_batch,
@@ -543,12 +614,18 @@ def main() -> None:
         finally:
             importer.close()
 
-    print(
-        "Import summary: "
-        f"sets processed={importer.summary.sets_processed}, "
-        f"cards upserted={importer.summary.cards_processed}, "
-        f"prices recorded={importer.summary.prices_recorded}"
-    )
+    if dry_run:
+        print(
+            f"\nDry-run summary: sets_scanned={importer.summary.sets_processed}, "
+            f"cards_seen={importer.summary.cards_seen} — no DB writes."
+        )
+    else:
+        print(
+            "Import summary: "
+            f"sets processed={importer.summary.sets_processed}, "
+            f"cards upserted={importer.summary.cards_processed}, "
+            f"prices recorded={importer.summary.prices_recorded}"
+        )
 
 
 if __name__ == "__main__":
