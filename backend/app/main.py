@@ -27,6 +27,8 @@ scheduler = build_scheduler()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    from backend.app.ingestion.game_data import register_default_clients
+    register_default_clients(api_key=settings.pokemon_tcg_api_key)
     if not scheduler.running:
         prepare_scheduler_for_startup(scheduler)
         scheduler.start()
