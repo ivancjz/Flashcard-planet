@@ -4,7 +4,7 @@ from functools import lru_cache
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from backend.app.core.set_registry import P1_P2_BULK_SET_IDS, P1_P2_CARD_IDS
+from backend.app.core.set_registry import P1_P2_BULK_SET_IDS, P1_P2_CARD_IDS, TIER1_BULK_SET_IDS
 
 # P1+P2 sets from set_registry: Base Set (102), Jungle (64), Fossil (62), Team Rocket (83).
 # Operators can override via POKEMON_TCG_CARD_IDS env var.
@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     pokemon_tcg_api_base_url: str = "https://api.pokemontcg.io/v2"
     pokemon_tcg_api_key: str = ""
     pokemon_tcg_card_ids: str = DEFAULT_POKEMON_TCG_CARD_IDS
-    pokemon_tcg_bulk_set_ids: str = P1_P2_BULK_SET_IDS
+    pokemon_tcg_bulk_set_ids: str = TIER1_BULK_SET_IDS
     pokemon_tcg_trial_pool_label: str = "Scarlet & Violet 151 Trial"
     pokemon_tcg_trial_card_ids: str = DEFAULT_POKEMON_TCG_TRIAL_CARD_IDS
     pokemon_tcg_high_activity_pool_label: str = "High-Activity Trial"
