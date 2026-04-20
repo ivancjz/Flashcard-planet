@@ -9,6 +9,7 @@ Covers:
   b. Missing jobs log a warning rather than crashing
   c. _run_signal_sweep writes signal breakdown into meta_json on success
   d. _run_signal_sweep records status='error' when sweep_signals raises
+  e. _run_signal_sweep alert threshold — only fires above settings threshold
 """
 from __future__ import annotations
 
@@ -237,6 +238,54 @@ class TestRunSignalSweepObservability(unittest.TestCase):
             None,
         )
         self.assertIsNotNone(error_call, "finish_run(status='error') not called on exception")
+
+
+# ── e. alert threshold ────────────────────────────────────────────────────────
+
+class TestRunSignalSweepAlertThreshold(unittest.TestCase):
+    """_run_signal_sweep should only send a warning when total > threshold."""
+
+    def _run_sweep_with_total(self, total: int):
+        from backend.app.services.signal_service import SweepResult
+        result = SweepResult()
+        for k, v in dict(
+            total=total, breakout=0, move=0, watch=0,
+            idle=total, insufficient_data=0, errors=0, duration_ms=100.0,
+        ).items():
+            setattr(result, k, v)
+
+        with (
+            patch("backend.app.backstage.scheduler.SessionLocal") as mock_sl,
+            patch("backend.app.backstage.scheduler.sweep_signals", return_value=result),
+            patch("backend.app.backstage.scheduler.start_run", return_value=1),
+            patch("backend.app.backstage.scheduler.finish_run"),
+            patch("backend.app.backstage.scheduler.prune_old_runs"),
+            patch("backend.app.backstage.scheduler._is_first_successful_sweep", return_value=False),
+            patch("backend.app.backstage.scheduler.send_discord_alert") as mock_alert,
+        ):
+            mock_sl.return_value.__enter__ = MagicMock(return_value=MagicMock())
+            mock_sl.return_value.__exit__ = MagicMock(return_value=False)
+
+            from backend.app.backstage.scheduler import _run_signal_sweep
+            _run_signal_sweep()
+
+        return mock_alert
+
+    def test_2300_below_5000_threshold_no_warning(self):
+        mock_alert = self._run_sweep_with_total(2300)
+        warning_calls = [c for c in mock_alert.call_args_list if c.args[0] == "warning"]
+        self.assertEqual(len(warning_calls), 0, "Should not fire warning for 2300 < 5000")
+
+    def test_5001_above_5000_threshold_fires_warning(self):
+        mock_alert = self._run_sweep_with_total(5001)
+        warning_calls = [c for c in mock_alert.call_args_list if c.args[0] == "warning"]
+        self.assertEqual(len(warning_calls), 1, "Should fire warning for 5001 > 5000")
+
+    def test_5000_exactly_at_threshold_no_warning(self):
+        # threshold is strictly >, not >=
+        mock_alert = self._run_sweep_with_total(5000)
+        warning_calls = [c for c in mock_alert.call_args_list if c.args[0] == "warning"]
+        self.assertEqual(len(warning_calls), 0, "Should not fire warning for exactly 5000")
 
 
 if __name__ == "__main__":
