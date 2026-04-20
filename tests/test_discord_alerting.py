@@ -32,6 +32,7 @@ def _fake_settings(**overrides):
         retry_pass_enabled=True,
         alert_heartbeat_enabled=True,
         deploy_observation_mode_until=None,
+        signal_sweep_alert_threshold=5000,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -190,14 +191,14 @@ class TestExcessiveOutputAlert(unittest.TestCase):
             _run_signal_sweep()
         return mock_alert
 
-    def test_over_500_triggers_warning(self):
-        mock_alert = self._run_sweep_with_total(501)
+    def test_over_threshold_triggers_warning(self):
+        mock_alert = self._run_sweep_with_total(5001)
         warning_calls = [c for c in mock_alert.call_args_list if c.args[0] == "warning"]
         self.assertEqual(len(warning_calls), 1)
         self.assertIn("异常", warning_calls[0].args[1])
 
-    def test_under_500_no_warning(self):
-        mock_alert = self._run_sweep_with_total(100)
+    def test_under_threshold_no_warning(self):
+        mock_alert = self._run_sweep_with_total(2300)
         warning_calls = [c for c in mock_alert.call_args_list if c.args[0] == "warning"]
         self.assertEqual(len(warning_calls), 0)
 

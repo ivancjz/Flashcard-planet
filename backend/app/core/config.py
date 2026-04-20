@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     alert_heartbeat_interval_minutes: int = Field(default=60, ge=1)
     deploy_observation_mode_until: str | None = None  # ISO 8601 UTC — dense heartbeats until this time
     signal_sweep_interval_seconds: int = Field(default=900, ge=60)
+    signal_sweep_alert_threshold: int = Field(default=5000, ge=1)
     signal_baseline_window_days: int = Field(default=7, ge=1)
     signal_current_window_hours: int = Field(default=24, ge=1)
     signal_delta_source_weights: str = Field(default="ebay_sold=2.0,pokemon_tcg_api=1.0")

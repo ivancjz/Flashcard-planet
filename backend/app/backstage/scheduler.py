@@ -146,11 +146,11 @@ def _run_signal_sweep() -> None:
                 f"Total={result.total} records",
             )
 
-        if result.total > 500:
+        if result.total > settings.signal_sweep_alert_threshold:
             send_discord_alert(
                 "warning",
                 "Signal sweep 产出异常大",
-                f"一次 sweep 写入 {result.total} 条 signal，超过 500 阈值\n"
+                f"一次 sweep 写入 {result.total} 条 signal，超过 {settings.signal_sweep_alert_threshold} 阈值\n"
                 f"BREAKOUT={result.breakout} MOVE={result.move} "
                 f"WATCH={result.watch} IDLE={result.idle} "
                 f"INSUFFICIENT_DATA={result.insufficient_data}\n"
