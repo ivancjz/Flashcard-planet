@@ -152,6 +152,84 @@ SUPPORTED_SETS: list[SetConfig] = [
         priority=4,
     ),
 
+    # ── Sword & Shield — Tier 1 market-hot sets ──────────────────────────
+    SetConfig(
+        set_id="swsh7",
+        name="Evolving Skies",
+        card_count=203,
+        release_year=2021,
+        series="Sword & Shield",
+        priority=3,
+        notes="Tier 1 — Umbreon/Rayquaza VMAX, very high collector demand.",
+    ),
+    SetConfig(
+        set_id="swsh9",
+        name="Brilliant Stars",
+        card_count=172,
+        release_year=2022,
+        series="Sword & Shield",
+        priority=3,
+        notes="Tier 1 — Charizard VSTAR, first VSTAR set.",
+    ),
+    SetConfig(
+        set_id="swsh10",
+        name="Astral Radiance",
+        card_count=189,
+        release_year=2022,
+        series="Sword & Shield",
+        priority=3,
+        notes="Tier 1 — Origin Forme Palkia/Dialga VSTAR.",
+    ),
+    SetConfig(
+        set_id="swsh11",
+        name="Lost Origin",
+        card_count=196,
+        release_year=2022,
+        series="Sword & Shield",
+        priority=3,
+        notes="Tier 1 — Giratina VSTAR, Lost Zone mechanic reintroduction.",
+    ),
+    SetConfig(
+        set_id="swsh12",
+        name="Silver Tempest",
+        card_count=195,
+        release_year=2022,
+        series="Sword & Shield",
+        priority=3,
+        notes="Tier 1 — Lugia VSTAR, high finance activity.",
+    ),
+    SetConfig(
+        set_id="swsh12pt5",
+        name="Crown Zenith",
+        card_count=159,
+        release_year=2023,
+        series="Sword & Shield",
+        priority=3,
+        notes="Tier 1 — Galarian Gallery subset, Regieleki/Regidrago VSTAR.",
+    ),
+
+    # ── Sun & Moon — Tier 1 market-hot sets ──────────────────────────────
+    SetConfig(
+        set_id="sm115",
+        name="Hidden Fates",
+        card_count=68,
+        release_year=2019,
+        series="Sun & Moon",
+        priority=3,
+        notes="Tier 1 — Shiny Vault subset, extremely high collector demand.",
+    ),
+
+    # ── Sword & Shield Subsets ────────────────────────────────────────────
+    SetConfig(
+        set_id="swsh45",
+        name="Shining Fates",
+        card_count=72,
+        release_year=2021,
+        series="Sword & Shield",
+        priority=3,
+        notes="Tier 1 — Shiny Vault subset, Charizard VMAX.",
+    ),
+
     # ── P3: Modern high-activity ──────────────────────────────────────────
     SetConfig(
         set_id="sv1",
@@ -228,6 +306,19 @@ ALL_BULK_SET_IDS: str = ",".join(s.set_id for s in SUPPORTED_SETS)
 
 # P1+P2 only bulk IDs (conservative default)
 P1_P2_BULK_SET_IDS: str = ",".join(s.set_id for s in P1_P2_SETS)
+
+# Tier 1 expansion — P1/P2 classics + 10 market-hot modern sets (2026-04)
+# Covers all sets tracked by bulk-set-price-refresh after the Tier 1 expansion.
+TIER1_BULK_SET_IDS: str = ",".join([
+    # P1/P2 classics
+    "base1", "base2", "base3", "base5",
+    # Sword & Shield Tier 1
+    "swsh7", "swsh9", "swsh10", "swsh11", "swsh12", "swsh12pt5", "swsh45",
+    # Sun & Moon Tier 1
+    "sm115",
+    # Scarlet & Violet (already in SUPPORTED_SETS, added to bulk scope)
+    "sv2", "sv3",
+])
 
 
 # ── Lookup helpers ────────────────────────────────────────────────────────
