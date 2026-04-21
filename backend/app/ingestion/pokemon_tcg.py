@@ -297,6 +297,27 @@ def _record_observation_result(
     )
 
 
+def _parse_retry_after(response: httpx.Response) -> float | None:
+    """Parse Retry-After header. Returns seconds as float, or None if absent/invalid."""
+    retry_after = response.headers.get("Retry-After")
+    if retry_after is None:
+        return None
+    try:
+        return float(retry_after)
+    except ValueError:
+        return None
+
+
+def _compute_retry_delay(response: httpx.Response | None, attempt: int) -> float:
+    """Prefer Retry-After header if present, otherwise exponential backoff."""
+    if response is not None:
+        retry_after = _parse_retry_after(response)
+        if retry_after is not None:
+            return min(retry_after, 60.0)
+    fallback = [2.0, 5.0, 15.0]
+    return fallback[min(attempt - 1, len(fallback) - 1)]
+
+
 def fetch_card(client: httpx.Client, card_id: str) -> dict[str, Any]:
     settings = get_settings()
     last_exception: Exception | None = None
@@ -306,13 +327,10 @@ def fetch_card(client: httpx.Client, card_id: str) -> dict[str, Any]:
         try:
             response = client.get(url)
             if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_FETCH_ATTEMPTS:
-                delay_seconds = min(2 ** (attempt - 1), 8)
+                delay_seconds = _compute_retry_delay(response, attempt)
                 logger.warning(
-                    "Retrying Pokemon TCG card %s after HTTP %s on attempt %s/%s.",
-                    card_id,
-                    response.status_code,
-                    attempt,
-                    MAX_FETCH_ATTEMPTS,
+                    "Retrying Pokemon TCG card %s after HTTP %s on attempt %s/%s (sleeping %.1fs).",
+                    card_id, response.status_code, attempt, MAX_FETCH_ATTEMPTS, delay_seconds,
                 )
                 time.sleep(delay_seconds)
                 continue
@@ -323,13 +341,10 @@ def fetch_card(client: httpx.Client, card_id: str) -> dict[str, Any]:
             last_exception = exc
             status_code = exc.response.status_code
             if status_code in RETRYABLE_STATUS_CODES and attempt < MAX_FETCH_ATTEMPTS:
-                delay_seconds = min(2 ** (attempt - 1), 8)
+                delay_seconds = _compute_retry_delay(exc.response, attempt)
                 logger.warning(
-                    "Retrying Pokemon TCG card %s after HTTP %s on attempt %s/%s.",
-                    card_id,
-                    status_code,
-                    attempt,
-                    MAX_FETCH_ATTEMPTS,
+                    "Retrying Pokemon TCG card %s after HTTP %s on attempt %s/%s (sleeping %.1fs).",
+                    card_id, status_code, attempt, MAX_FETCH_ATTEMPTS, delay_seconds,
                 )
                 time.sleep(delay_seconds)
                 continue
@@ -341,13 +356,10 @@ def fetch_card(client: httpx.Client, card_id: str) -> dict[str, Any]:
         except (httpx.TimeoutException, httpx.NetworkError, httpx.ProtocolError) as exc:
             last_exception = exc
             if attempt < MAX_FETCH_ATTEMPTS:
-                delay_seconds = min(2 ** (attempt - 1), 8)
+                delay_seconds = _compute_retry_delay(None, attempt)
                 logger.warning(
                     "Retrying Pokemon TCG card %s after network error on attempt %s/%s: %s",
-                    card_id,
-                    attempt,
-                    MAX_FETCH_ATTEMPTS,
-                    exc,
+                    card_id, attempt, MAX_FETCH_ATTEMPTS, exc,
                 )
                 time.sleep(delay_seconds)
                 continue
@@ -384,6 +396,8 @@ def ingest_game_cards(
 
     ingested_at = datetime.now(UTC).replace(microsecond=0)
     result.latest_captured_at = ingested_at
+
+    failed_provider_unavailable: list[str] = []
 
     for card_id in configured_card_ids:
         try:
@@ -476,15 +490,25 @@ def ingest_game_cards(
             result.cards_processed += 1
         except ProviderUnavailableError as exc:
             result.cards_failed += 1
-            logger.error(
-                "Stopping ingestion early because the provider is unavailable while fetching card %s: %s",
+            failed_provider_unavailable.append(card_id)
+            logger.warning(
+                "Provider unavailable for card %s: %s. Skipping and continuing.",
                 card_id,
                 exc,
             )
-            break
+            continue
         except Exception:
             result.cards_failed += 1
             logger.exception("Failed to ingest card %s. Continuing with the remaining cards.", card_id)
+        finally:
+            time.sleep(1.0 / data_client.rate_limit_per_second)
+
+    if failed_provider_unavailable:
+        logger.error(
+            "Pokemon TCG provider unavailable for %s card(s): %s",
+            len(failed_provider_unavailable),
+            ", ".join(failed_provider_unavailable),
+        )
 
     session.commit()
     logger.info(
