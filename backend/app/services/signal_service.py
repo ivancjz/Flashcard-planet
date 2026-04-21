@@ -49,7 +49,7 @@ WATCH_MIN_HISTORY = 3
 # ── Sweep config ──────────────────────────────────────────────────────────────
 
 ACTIVE_WINDOW_DAYS = 30
-SWEEP_BATCH_SIZE = 500
+SWEEP_BATCH_SIZE = 100
 PREDICTION_POINTS = 8
 
 
