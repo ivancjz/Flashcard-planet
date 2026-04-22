@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import './styles/theme.css'
+import LandingPage from './pages/LandingPage'
 
 function Placeholder({ name }: { name: string }) {
   return (
@@ -15,7 +16,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Placeholder name="LandingPage" />} />
+        <Route path="/" element={<LandingPage />} />
         <Route path="/market" element={<Placeholder name="DashboardPage" />} />
         <Route path="/market/:assetId" element={<Placeholder name="CardDetailPage" />} />
         <Route path="/alerts" element={<Placeholder name="AlertsPage" />} />
