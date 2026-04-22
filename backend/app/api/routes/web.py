@@ -51,10 +51,10 @@ def web_ticker(db: Session = Depends(get_database)):
             WHERE asset_id = a.id AND source = 'pokemon_tcg_api'
             ORDER BY captured_at DESC LIMIT 1
         ) ph ON TRUE
-        WHERE s.label != 'INSUFFICIENT_DATA'
+        WHERE s.label IN ('BREAKOUT', 'MOVE', 'WATCH')
           AND s.price_delta_pct IS NOT NULL
         ORDER BY ABS(s.price_delta_pct) DESC
-        LIMIT 10
+        LIMIT 20
     """)).fetchall()
     return [dict(r._mapping) for r in rows]
 
