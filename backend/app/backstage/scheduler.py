@@ -299,7 +299,12 @@ def _send_heartbeat() -> None:
     finally:
         log_status = "error" if _exc is not None else "success"
         with SessionLocal() as _log_session:
-            finish_run(_log_session, _run_id, status=log_status, meta_json=_log_meta)
+            finish_run(
+                _log_session, _run_id,
+                status=log_status,
+                meta_json=_log_meta,
+                error_message=str(_exc) if _exc is not None else None,
+            )
             prune_old_runs(_log_session, JOB_HEARTBEAT)
 
 
@@ -725,6 +730,11 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
             log_records = 0
             log_meta = {"job_blocked_reason": _summary.job_blocked_reason}
             log_error_message = None
+        elif _summary.job_blocked_reason == "exception":
+            log_status = "error"
+            log_records = 0
+            log_meta = None
+            log_error_message = _summary.errors[0] if _summary.errors else None
         else:
             log_status = _summary.run_status
             log_records = _summary.price_points_inserted
