@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import './styles/theme.css'
 import LandingPage from './pages/LandingPage'
+import DashboardPage from './pages/DashboardPage'
 
 function Placeholder({ name }: { name: string }) {
   return (
@@ -17,7 +18,7 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<LandingPage />} />
-        <Route path="/market" element={<Placeholder name="DashboardPage" />} />
+        <Route path="/market" element={<DashboardPage />} />
         <Route path="/market/:assetId" element={<Placeholder name="CardDetailPage" />} />
         <Route path="/alerts" element={<Placeholder name="AlertsPage" />} />
       </Routes>
