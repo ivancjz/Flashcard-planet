@@ -498,10 +498,15 @@ def _process_set(
     dry_run: bool,
     asset_batch: list,
     price_batch: list,
+    explicit_set_id: bool = False,
 ) -> None:
     logger.info("Fetching cards for set %s.", set_id)
     cards = importer.fetch_cards_for_set(set_id)
     if not cards:
+        if explicit_set_id:
+            raise ValueError(
+                f"No cards returned for set {set_id!r}; the set ID may be invalid or misspelled."
+            )
         logger.info("No cards returned for set %s.", set_id)
         return
 
@@ -580,6 +585,7 @@ def main() -> None:
                         dry_run=dry_run,
                         asset_batch=asset_batch,
                         price_batch=price_batch,
+                        explicit_set_id=True,
                     )
             else:
                 sets = importer.fetch_sets(args.set_id, args.all_sets)

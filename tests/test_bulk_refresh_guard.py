@@ -100,6 +100,9 @@ def test_bulk_refresh_skips_set_with_no_existing_assets() -> None:
                   return_value=_mock_settings(set_ids=["swsh7"])),
             patch("backend.app.backstage.scheduler.SessionLocal",
                   return_value=_make_session_ctx(session)),
+            patch("backend.app.backstage.scheduler.start_run", return_value=1),
+            patch("backend.app.backstage.scheduler.finish_run"),
+            patch("backend.app.backstage.scheduler.prune_old_runs"),
             patch("scripts.import_pokemon_cards.PokemonTCGImporter", importer_cls),
             patch("scripts.import_pokemon_cards.price_history_available", return_value=False),
         ):
@@ -119,6 +122,9 @@ def test_bulk_refresh_fetches_set_with_existing_assets() -> None:
                   return_value=_mock_settings(set_ids=["swsh7"])),
             patch("backend.app.backstage.scheduler.SessionLocal",
                   return_value=_make_session_ctx(session)),
+            patch("backend.app.backstage.scheduler.start_run", return_value=1),
+            patch("backend.app.backstage.scheduler.finish_run"),
+            patch("backend.app.backstage.scheduler.prune_old_runs"),
             patch("scripts.import_pokemon_cards.PokemonTCGImporter", importer_cls),
             patch("scripts.import_pokemon_cards.price_history_available", return_value=False),
         ):
@@ -138,6 +144,9 @@ def test_bulk_refresh_auto_import_bypasses_guard() -> None:
                   return_value=_mock_settings(set_ids=["swsh7"], auto_import=True)),
             patch("backend.app.backstage.scheduler.SessionLocal",
                   return_value=_make_session_ctx(session)),
+            patch("backend.app.backstage.scheduler.start_run", return_value=1),
+            patch("backend.app.backstage.scheduler.finish_run"),
+            patch("backend.app.backstage.scheduler.prune_old_runs"),
             patch("scripts.import_pokemon_cards.PokemonTCGImporter", importer_cls),
             patch("scripts.import_pokemon_cards.price_history_available", return_value=False),
         ):
