@@ -16,6 +16,8 @@ from backend.app.core.config import get_settings
 from backend.app.db.init_db import init_db
 from backend.app.scheduler import build_scheduler
 from backend.app.backstage.scheduler import prepare_scheduler_for_startup
+from backend.app.db.session import SessionLocal
+from backend.app.services.scheduler_run_log_service import cleanup_stale_runs
 from backend.app.site import SPAStaticFiles
 
 logging.basicConfig(level=logging.INFO)
@@ -30,6 +32,8 @@ async def lifespan(app: FastAPI):
     from backend.app.ingestion.game_data import register_default_clients
     register_default_clients(api_key=settings.pokemon_tcg_api_key)
     if not scheduler.running:
+        with SessionLocal() as _db:
+            cleanup_stale_runs(_db)
         prepare_scheduler_for_startup(scheduler)
         scheduler.start()
     yield

@@ -146,10 +146,10 @@ class TestIngestUsesRegistry(TestCase):
         self.assertEqual(result.price_points_inserted, 1)
 
     # ------------------------------------------------------------------
-    # ProviderUnavailableError from client still breaks the loop
+    # ProviderUnavailableError — card is skipped, loop continues
     # ------------------------------------------------------------------
 
-    def test_provider_unavailable_breaks_loop(self):
+    def test_provider_unavailable_skips_card_and_continues(self):
         from backend.app.ingestion.pokemon_tcg import ingest_game_cards, ProviderUnavailableError
         self._mock_client.card_responses.clear()
 
@@ -162,6 +162,6 @@ class TestIngestUsesRegistry(TestCase):
         result = ingest_game_cards(
             session, card_ids=["sv8pt5-161", "sv8pt5-162"], game=Game.POKEMON, clear_sample_seed=False
         )
-        # cards_failed increments once then loop breaks — second card never attempted
-        self.assertEqual(result.cards_failed, 1)
+        # Both cards attempted; each failure is recorded individually
+        self.assertEqual(result.cards_failed, 2)
         self.assertEqual(result.cards_requested, 2)

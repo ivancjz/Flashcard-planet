@@ -1,11 +1,16 @@
+from datetime import UTC, datetime, timezone
 from decimal import Decimal
+from email.utils import format_datetime
 from unittest import TestCase
 from unittest.mock import ANY, Mock, patch
+
+import httpx
 
 from backend.app.ingestion.game_data.base import CardMetadata
 from backend.app.ingestion.game_data.registry import GameDataClientRegistry
 from backend.app.ingestion.pokemon_tcg import (
     PricePointInsertResult,
+    _parse_retry_after,
     ingest_game_cards,
 )
 from backend.app.models.game import Game
@@ -179,3 +184,65 @@ class PokemonTcgIngestionTests(TestCase):
             price=Decimal("100.00"),
             captured_at=ANY,
         )
+
+
+def _make_response(retry_after: str | None) -> httpx.Response:
+    headers = {"Retry-After": retry_after} if retry_after is not None else {}
+    return httpx.Response(429, headers=headers)
+
+
+class ParseRetryAfterTests(TestCase):
+    def test_numeric_string_returns_float(self):
+        self.assertEqual(_parse_retry_after(_make_response("120")), 120.0)
+
+    def test_absent_header_returns_none(self):
+        self.assertIsNone(_parse_retry_after(_make_response(None)))
+
+    def test_garbage_string_returns_none(self):
+        self.assertIsNone(_parse_retry_after(_make_response("not-a-date")))
+
+    def test_http_date_returns_seconds_until_that_time(self):
+        fixed_now = datetime(2026, 4, 22, 12, 0, 0, tzinfo=UTC)
+        target = datetime(2026, 4, 22, 12, 0, 30, tzinfo=UTC)
+        http_date = format_datetime(target, usegmt=True)
+        response = _make_response(http_date)
+        with patch(
+            "backend.app.ingestion.pokemon_tcg.datetime"
+        ) as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            result = _parse_retry_after(response)
+        self.assertAlmostEqual(result, 30.0, places=1)
+
+    def test_http_date_in_the_past_returns_zero(self):
+        fixed_now = datetime(2026, 4, 22, 12, 1, 0, tzinfo=UTC)
+        target = datetime(2026, 4, 22, 12, 0, 0, tzinfo=UTC)
+        http_date = format_datetime(target, usegmt=True)
+        response = _make_response(http_date)
+        with patch(
+            "backend.app.ingestion.pokemon_tcg.datetime"
+        ) as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            result = _parse_retry_after(response)
+        self.assertEqual(result, 0.0)
+
+
+class IngestRegistryFallbackTests(TestCase):
+    """ingest_game_cards must not require the registry to be pre-populated."""
+
+    def setUp(self):
+        GameDataClientRegistry.clear()
+
+    def tearDown(self):
+        GameDataClientRegistry.clear()
+
+    @patch("backend.app.ingestion.game_data.pokemon_client.PokemonClient")
+    def test_uses_fallback_client_when_registry_empty(self, MockPokemonClient):
+        mock_instance = Mock()
+        mock_instance.fetch_card_by_external_id.return_value = None  # card not found → cards_failed
+        mock_instance.rate_limit_per_second = 5.0
+        MockPokemonClient.return_value = mock_instance
+
+        result = ingest_game_cards(Mock(), card_ids=["sv8pt5-161"], clear_sample_seed=False)
+
+        self.assertEqual(result.cards_requested, 1)
+        MockPokemonClient.assert_called_once()
