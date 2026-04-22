@@ -1,19 +1,31 @@
 import logging
 import secrets
 import uuid
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, Form, Header, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_database
 from backend.app.auth.dependencies import get_current_user as get_session_user
 from backend.app.backstage import gap_detector as _gap_detector
 from backend.app.core.config import get_settings
+from backend.app.models.asset import Asset
+from backend.app.models.asset_signal import AssetSignal
 from backend.app.models.enums import AccessTier
+from backend.app.models.price_history import PriceHistory
+from backend.app.models.scheduler_run_log import SchedulerRunLog
 from backend.app.models.user import User
+from backend.app.services.scheduler_run_log_service import (
+    JOB_EBAY,
+    JOB_INGESTION,
+    JOB_RETRY,
+    JOB_SIGNALS,
+)
 from backend.app.services.diagnostics_summary_service import build_standardized_diagnostics_summary
 from backend.app.services.smart_pool_service import get_smart_pool_candidates
 from backend.app.services.upgrade_service import (
@@ -432,3 +444,101 @@ def admin_reject_upgrade(
     if not result.ok:
         raise HTTPException(status_code=400, detail=result.error)
     return RedirectResponse(url="/admin/upgrade-requests", status_code=303)
+
+
+def _last_run_summary(db: Session, job_name: str) -> dict[str, Any] | None:
+    row = (
+        db.query(SchedulerRunLog)
+        .filter(SchedulerRunLog.job_name == job_name)
+        .order_by(SchedulerRunLog.started_at.desc())
+        .limit(1)
+        .first()
+    )
+    if row is None:
+        return {"status": "never_run"}
+    duration_ms: int | None = None
+    if row.finished_at is not None and row.started_at is not None:
+        duration_ms = int((row.finished_at - row.started_at).total_seconds() * 1000)
+    return {
+        "started_at": row.started_at.isoformat() if row.started_at else None,
+        "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+        "status": row.status,
+        "records_written": row.records_written,
+        "errors": row.errors,
+        "duration_ms": duration_ms,
+    }
+
+
+@router.get("/stats")
+def admin_stats(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    """Operational snapshot. Read-only."""
+    now = datetime.now(timezone.utc)
+    # captured_at is tz-naive in the DB; use a naive cutoff to avoid comparison errors
+    cutoff_24h = datetime.utcnow() - timedelta(hours=24)
+
+    # Asset counts
+    total_assets = db.query(func.count(Asset.id)).scalar() or 0
+    pokemon_assets = (
+        db.query(func.count(Asset.id)).filter(Asset.game == "pokemon").scalar() or 0
+    )
+    assets_with_prices = (
+        db.query(func.count(func.distinct(PriceHistory.asset_id))).scalar() or 0
+    )
+
+    # Price history
+    total_price_rows = db.query(func.count(PriceHistory.id)).scalar() or 0
+    latest_captured_at_val = db.query(func.max(PriceHistory.captured_at)).scalar()
+    source_rows = (
+        db.query(PriceHistory.source, func.count(PriceHistory.id))
+        .filter(PriceHistory.captured_at >= cutoff_24h)
+        .group_by(PriceHistory.source)
+        .all()
+    )
+    source_24h = {src: cnt for src, cnt in source_rows}
+
+    # Signal distribution (from asset_signals.label — one row per asset)
+    signal_rows = (
+        db.query(AssetSignal.label, func.count(AssetSignal.id))
+        .group_by(AssetSignal.label)
+        .all()
+    )
+    signal_counts = {label: cnt for label, cnt in signal_rows}
+    signal_total = sum(signal_counts.values())
+    latest_signal_at_val = db.query(func.max(AssetSignal.computed_at)).scalar()
+
+    # Scheduler last runs (job names from scheduler_run_log_service constants)
+    scheduler = {
+        "last_ingestion": _last_run_summary(db, JOB_INGESTION),
+        "last_retry": _last_run_summary(db, JOB_RETRY),
+        "last_signals": _last_run_summary(db, JOB_SIGNALS),
+        "last_ebay": _last_run_summary(db, JOB_EBAY),
+    }
+
+    return {
+        "snapshot_at": now.isoformat(),
+        "assets": {
+            "total": total_assets,
+            "pokemon": pokemon_assets,
+            "with_price_history": assets_with_prices,
+            "without_price_history": total_assets - assets_with_prices,
+        },
+        "price_history": {
+            "total_rows": total_price_rows,
+            "latest_captured_at": latest_captured_at_val.isoformat() if latest_captured_at_val else None,
+            "pokemon_tcg_api_rows_last_24h": source_24h.get("pokemon_tcg_api", 0),
+            "ebay_sold_rows_last_24h": source_24h.get("ebay_sold", 0),
+        },
+        "signals": {
+            "total": signal_total,
+            "breakout": signal_counts.get("BREAKOUT", 0),
+            "move": signal_counts.get("MOVE", 0),
+            "watch": signal_counts.get("WATCH", 0),
+            "idle": signal_counts.get("IDLE", 0),
+            "insufficient_data": signal_counts.get("INSUFFICIENT_DATA", 0),
+            "latest_computed_at": latest_signal_at_val.isoformat() if latest_signal_at_val else None,
+        },
+        "scheduler": scheduler,
+    }
