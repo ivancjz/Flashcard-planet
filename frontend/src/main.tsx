@@ -1,10 +1,25 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.tsx'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import './styles/theme.css'
+
+function Placeholder({ name }: { name: string }) {
+  return (
+    <div style={{ padding: 40, color: 'var(--text-primary)' }}>
+      <h1 style={{ fontFamily: 'var(--font-display)' }}>{name}</h1>
+    </div>
+  )
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
-  </StrictMode>,
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Placeholder name="LandingPage" />} />
+        <Route path="/market" element={<Placeholder name="DashboardPage" />} />
+        <Route path="/market/:assetId" element={<Placeholder name="CardDetailPage" />} />
+        <Route path="/alerts" element={<Placeholder name="AlertsPage" />} />
+      </Routes>
+    </BrowserRouter>
+  </StrictMode>
 )
