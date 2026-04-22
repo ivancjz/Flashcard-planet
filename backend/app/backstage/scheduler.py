@@ -10,10 +10,12 @@ from backend.app.backstage.gap_detector import GapReport, get_gap_report
 from backend.app.ingestion.pokemon_tcg import backfill_single_card, run_backfill_pass
 from backend.app.services.backfill_retry_service import run_retry_pass
 from backend.app.services.scheduler_run_log_service import (
+    JOB_EBAY,
     JOB_INGESTION,
     JOB_RETRY,
     JOB_SIGNALS,
     finish_run,
+    get_last_run,
     prune_old_runs,
     start_run,
 )
@@ -42,6 +44,7 @@ _STARTUP_DELAY: dict[str, int] = {
     "bulk-set-price-refresh": 300,   # 5 min
     "signal-sweep":           600,   # 10 min
     "alert-heartbeat":        720,   # 12 min — receives first sweep result before sending
+    "ebay-ingestion":         660,   # 11 min — after signal-sweep, before heartbeat reports it
     # "retry-pass" intentionally omitted — resume separately when confidence is high
 }
 
@@ -247,6 +250,25 @@ def _send_heartbeat() -> None:
             "Scheduler 可能挂了，或 SIGNAL_SWEEP_ENABLED=false",
         )
         return
+
+    # eBay ingestion health: warn if ebay-ingestion is enabled but hasn't run in 25 hours
+    if settings.ebay_scheduled_ingest_enabled and settings.ebay_app_id:
+        with SessionLocal() as _ebay_session:
+            last_ebay = get_last_run(_ebay_session, JOB_EBAY)
+        if last_ebay is None:
+            ebay_age_h = None
+        else:
+            last_started = last_ebay.started_at
+            if last_started.tzinfo is None:
+                last_started = last_started.replace(tzinfo=UTC)
+            ebay_age_h = (now - last_started).total_seconds() / 3600
+        if ebay_age_h is None or ebay_age_h > 25:
+            send_discord_alert(
+                "warning",
+                "eBay ingestion 超过 25h 未运行",
+                f"上次运行: {'从未' if last_ebay is None else last_ebay.started_at.isoformat()}\n"
+                "cron 可能被 deploy 打断，或 EBAY_SCHEDULED_INGEST_ENABLED=false",
+            )
 
     lines = [f"{r.status}: {r.cnt} runs, last at {r.last_run}" for r in rows]
     tag = " [观察期]" if in_observation else ""
@@ -508,6 +530,7 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
     assets_considered = 0
     remaining_daily_budget = 0
     result = None
+    _run_id: int | None = None
 
     try:
         with SessionLocal() as session:
@@ -548,6 +571,8 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
                 remaining_daily_budget,
                 effective_limit,
             )
+            with SessionLocal() as _log_session:
+                _run_id = start_run(_log_session, JOB_EBAY)
 
             # ── Priority ordering: tracked-pool assets first, then least-recently ingested ──
             tracked_pools = get_tracked_pokemon_pools()
@@ -570,6 +595,10 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
 
     except Exception:
         ebay_logger.exception("ebay_scheduled_ingest_job_failed")
+        if _run_id is not None:
+            with SessionLocal() as _log_session:
+                finish_run(_log_session, _run_id, status="error",
+                           error_message="Unhandled exception — see logs for details.")
         return EbayScheduledRunSummary(
             run_status="failed",
             assets_considered=assets_considered,
@@ -631,6 +660,21 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
         summary.errors or "<none>",
         summary.match_status_counts,
     )
+    if _run_id is not None:
+        with SessionLocal() as _log_session:
+            finish_run(
+                _log_session, _run_id,
+                status=run_status,
+                records_written=summary.price_points_inserted,
+                meta_json={
+                    "assets_processed": summary.assets_processed,
+                    "api_calls_used": summary.api_calls_used,
+                    "matched": summary.matched,
+                    "unmatched": summary.unmatched,
+                    "match_status_counts": summary.match_status_counts,
+                },
+            )
+            prune_old_runs(_log_session, JOB_EBAY)
     return summary
 
 
@@ -645,35 +689,19 @@ def _register_ebay_job(scheduler: BackgroundScheduler, settings: object) -> None
         logger.warning("eBay scheduled ingestion enabled but credentials missing — job not registered.")
         return
 
-    try:
-        minute, hour, day, month, day_of_week = s.ebay_ingest_cron.split()
-    except ValueError:
-        logger.error(
-            "Invalid EBAY_INGEST_CRON value %r — expected 5-field cron expression. Job not registered.",
-            s.ebay_ingest_cron,
-        )
-        return
-
-    effective_limit = min(s.ebay_max_calls_per_run, s.ebay_daily_budget_limit)
     scheduler.add_job(
         _run_ebay_ingestion,
-        "cron",
-        minute=minute,
-        hour=hour,
-        day=day,
-        month=month,
-        day_of_week=day_of_week,
+        "interval",
+        hours=24,
         id="ebay-ingestion",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
+        next_run_time=None,  # activated by prepare_scheduler_for_startup
     )
     logger.info(
-        "eBay scheduled ingestion registered. cron=%r effective_limit=%s (max_calls_per_run=%s daily_budget=%s)",
-        s.ebay_ingest_cron,
-        effective_limit,
-        s.ebay_max_calls_per_run,
-        s.ebay_daily_budget_limit,
+        "eBay scheduled ingestion registered. trigger=interval/24h first_run=startup+%ds",
+        _STARTUP_DELAY.get("ebay-ingestion", 660),
     )
 
 

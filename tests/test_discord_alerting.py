@@ -33,6 +33,8 @@ def _fake_settings(**overrides):
         alert_heartbeat_enabled=True,
         deploy_observation_mode_until=None,
         signal_sweep_alert_threshold=5000,
+        ebay_scheduled_ingest_enabled=False,
+        ebay_app_id="",
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

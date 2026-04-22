@@ -21,6 +21,7 @@ JOB_INGESTION = "ingestion"
 JOB_BACKFILL  = "backfill"
 JOB_RETRY     = "retry"
 JOB_SIGNALS   = "signals"
+JOB_EBAY      = "ebay-ingestion"
 
 _KEEP_RUNS = 50
 

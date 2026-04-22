@@ -133,20 +133,23 @@ _patch_finding = patch(
 )
 
 
-# ── Config / cron validation ──────────────────────────────────────────────────
+# ── Config / registration ────────────────────────────────────────────────────
 
-def test_register_ebay_job_invalid_cron_not_registered() -> None:
-    """A badly-formatted cron string must be rejected with an error log — job not added."""
+def test_register_ebay_job_uses_interval_trigger() -> None:
+    """Job must be registered with an interval trigger, not a cron trigger."""
     scheduler = MagicMock()
     settings = MagicMock()
     settings.ebay_scheduled_ingest_enabled = True
     settings.ebay_app_id = "app-id"
     settings.ebay_cert_id = "cert-id"
-    settings.ebay_ingest_cron = "not-a-valid-cron"  # wrong — only 1 field
 
     _register_ebay_job(scheduler, settings)
 
-    scheduler.add_job.assert_not_called()
+    scheduler.add_job.assert_called_once()
+    call_args = scheduler.add_job.call_args
+    assert call_args[0][1] == "interval", "trigger must be interval, not cron"
+    assert call_args[1]["hours"] == 24
+    assert call_args[1]["next_run_time"] is None  # paused until prepare_scheduler_for_startup
 
 
 def test_register_ebay_job_disabled_not_registered() -> None:
@@ -180,9 +183,6 @@ def test_register_ebay_job_valid_registers() -> None:
     settings.ebay_scheduled_ingest_enabled = True
     settings.ebay_app_id = "app-id"
     settings.ebay_cert_id = "cert-id"
-    settings.ebay_ingest_cron = "0 3 * * *"
-    settings.ebay_max_calls_per_run = 150
-    settings.ebay_daily_budget_limit = 500
 
     _register_ebay_job(scheduler, settings)
 
