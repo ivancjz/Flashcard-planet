@@ -51,7 +51,7 @@ All 5 use `interval` trigger + startup resume via `prepare_scheduler_for_startup
 | `ebay-ingestion` | 24h | 660s |
 | `alert-heartbeat` | 10m | 720s |
 
-**Only `scheduled-ingestion` and `ebay-ingestion` currently write to `scheduler_run_log`.** Others should but don't yet. Adding write logic to the remaining three is outstanding work.
+**All 6 scheduler jobs now write to `scheduler_run_log`.** Every job uses unconditional `start_run` before the try block and `finish_run`/`prune_old_runs` in a `finally` clause, guaranteeing a DB row on every exit path including disabled kill-switches and exceptions.
 
 ### Auth
 `require_admin_key` in `backend/app/backstage/routes.py` is the canonical admin dependency. Dual path: `X-Admin-Key` header OR session user in `ADMIN_EMAILS` allowlist. **Do not introduce HTTPBasic or other auth schemes** — reuse `require_admin_key`.
@@ -224,10 +224,11 @@ Things that are true as of 2026-04-22 and unlikely to change soon:
 - **Price history**: ~217k rows. `pokemon_tcg_api` dominant (~212k). `ebay_sold` small (~5k, first real run 2026-04-22).
 - **Signal state**: `insufficient_data=90.8%` (3832/4219) as of Day 2 sweep. Expected to improve over 2-3 weeks as eBay accumulates baseline history. Root cause: 97.7% of insufficient cases are `has_baseline_no_current` — need 24h-fresh data and eBay is the source that provides it.
 - **Known open problems** (see session handoff for the latest — may be stale by the time you read this):
-  - Orphaned `running` rows in `scheduler_run_log` (scheduled-ingestion id=36 as of 2026-04-22). No cleanup logic on startup.
-  - `pokemon_tcg_api` price data 3 days stale as of 2026-04-22 (last captured_at ~2026-04-19). scheduled-ingestion may be failing silently.
-  - Only 2/5 scheduled jobs write `scheduler_run_log`. Others need the same treatment eBay got on Day 2.
+  - Orphaned `running` rows in `scheduler_run_log` are now cleaned up at startup via `cleanup_stale_runs` (120-min threshold). New orphans from container crash are auto-closed on next deploy.
+  - `pokemon_tcg_api` price data "3 days stale" on 2026-04-22 was a false alarm. SQL confirmed data flowing continuously 8–37k rows/day every day. Root cause: `scheduler_run_log` visibility gap (no run_log rows for `scheduled-ingestion` before its instrumentation was confirmed working). Resolved by PR #13.
+  - All 6 scheduler jobs now write `scheduler_run_log` (resolved 2026-04-23).
   - No backup infrastructure (Hobby plan). Operator accepted this risk explicitly; P0 remains on backlog.
+  - `start_run` outside `try` block for all scheduler jobs — if `start_run` itself raises (DB pool exhaustion, transient network issue), the job crashes without leaving a `scheduler_run_log` row AND without triggering a Discord alert. Accepted tradeoff on 2026-04-23; 25h heartbeat alert provides eventual detection. See PR #13 Codex Review Finding #3 for full rationale. Proper fix: wrap `start_run` in its own try/except with separate alerting path; treat as hardening work, not urgent.
 
 ---
 
