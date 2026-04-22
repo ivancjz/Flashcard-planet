@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
@@ -298,13 +299,22 @@ def _record_observation_result(
 
 
 def _parse_retry_after(response: httpx.Response) -> float | None:
-    """Parse Retry-After header. Returns seconds as float, or None if absent/invalid."""
+    """Parse Retry-After header. Returns seconds as float, or None if absent/invalid.
+
+    Accepts both the delta-seconds form ("120") and the HTTP-date form
+    ("Wed, 22 Apr 2026 15:30:00 GMT") as specified in RFC 9110 §10.2.3.
+    """
     retry_after = response.headers.get("Retry-After")
     if retry_after is None:
         return None
     try:
         return float(retry_after)
     except ValueError:
+        pass
+    try:
+        target = parsedate_to_datetime(retry_after)
+        return max((target - datetime.now(UTC)).total_seconds(), 0.0)
+    except Exception:
         return None
 
 
@@ -381,7 +391,13 @@ def ingest_game_cards(
     from backend.app.ingestion.game_data.registry import GameDataClientRegistry
     if game is None:
         game = _Game.POKEMON
-    data_client = GameDataClientRegistry.get(game)
+    try:
+        data_client = GameDataClientRegistry.get(game)
+    except ValueError:
+        if game != _Game.POKEMON:
+            raise
+        from backend.app.ingestion.game_data.pokemon_client import PokemonClient
+        data_client = PokemonClient()
 
     settings = get_settings()
     configured_card_ids = card_ids or parse_card_ids(settings.pokemon_tcg_card_ids)

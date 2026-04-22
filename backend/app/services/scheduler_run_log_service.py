@@ -8,7 +8,7 @@ Old rows are pruned to keep the table small.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.orm import Session
@@ -17,10 +17,13 @@ from backend.app.models.scheduler_run_log import SchedulerRunLog
 
 logger = logging.getLogger(__name__)
 
-JOB_INGESTION = "ingestion"
-JOB_BACKFILL  = "backfill"
-JOB_RETRY     = "retry"
-JOB_SIGNALS   = "signals"
+JOB_INGESTION    = "ingestion"
+JOB_BACKFILL     = "backfill"
+JOB_RETRY        = "retry"
+JOB_SIGNALS      = "signals"
+JOB_EBAY         = "ebay-ingestion"
+JOB_BULK_REFRESH = "bulk-set-price-refresh"
+JOB_HEARTBEAT    = "alert-heartbeat"
 
 _KEEP_RUNS = 50
 
@@ -83,14 +86,55 @@ def prune_old_runs(session: Session, job_name: str, keep: int = _KEEP_RUNS) -> N
     session.commit()
 
 
-def get_last_run(session: Session, job_name: str) -> SchedulerRunLog | None:
-    """Return the most-recent row for job_name, or None."""
-    return session.scalars(
+def cleanup_stale_runs(
+    session: Session,
+    *,
+    now: datetime | None = None,
+    stale_after_minutes: int = 120,
+) -> int:
+    """Mark 'running' rows older than stale_after_minutes as 'error'.
+
+    Returns the number of rows updated. Called at startup to close out any
+    rows left open by a previous container crash (Railway SIGKILL, OOM, etc.).
+    """
+    now = now or datetime.now(UTC)
+    cutoff = now - timedelta(minutes=stale_after_minutes)
+    rows = session.scalars(
         select(SchedulerRunLog)
-        .where(SchedulerRunLog.job_name == job_name)
-        .order_by(SchedulerRunLog.started_at.desc())
-        .limit(1)
-    ).first()
+        .where(
+            SchedulerRunLog.status == "running",
+            SchedulerRunLog.started_at < cutoff,
+        )
+    ).all()
+    for row in rows:
+        row.status = "error"
+        row.finished_at = now
+        row.error_message = "Orphaned: container restart — finish_run never called"
+    if rows:
+        session.commit()
+        logger.warning(
+            "cleanup_stale_runs: closed %d orphaned 'running' row(s) older than %dm",
+            len(rows),
+            stale_after_minutes,
+        )
+    return len(rows)
+
+
+def get_last_run(
+    session: Session,
+    job_name: str,
+    *,
+    only_statuses: list[str] | None = None,
+) -> SchedulerRunLog | None:
+    """Return the most-recent row for job_name, or None.
+
+    Pass ``only_statuses`` to restrict to specific terminal statuses, e.g.
+    ``["success", "partial", "warning"]`` to ignore failed/errored rows.
+    """
+    q = select(SchedulerRunLog).where(SchedulerRunLog.job_name == job_name)
+    if only_statuses is not None:
+        q = q.where(SchedulerRunLog.status.in_(only_statuses))
+    return session.scalars(q.order_by(SchedulerRunLog.started_at.desc()).limit(1)).first()
 
 
 def serialize_run(run: SchedulerRunLog | None) -> dict:

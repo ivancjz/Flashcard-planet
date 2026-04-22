@@ -33,6 +33,8 @@ def _fake_settings(**overrides):
         alert_heartbeat_enabled=True,
         deploy_observation_mode_until=None,
         signal_sweep_alert_threshold=5000,
+        ebay_scheduled_ingest_enabled=False,
+        ebay_app_id="",
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -300,6 +302,17 @@ class TestSendHeartbeat(unittest.TestCase):
     def test_normal_mode_minute_under_10_sends(self):
         now = datetime(2026, 4, 19, 12, 5, 0, tzinfo=UTC)  # minute=5
         mock_alert = self._call_heartbeat(now=now)
+        self.assertTrue(mock_alert.called)
+
+    def test_naive_observation_until_treated_as_utc(self):
+        # A naive ISO string (no timezone suffix) must be treated as UTC,
+        # not crash with TypeError on the aware-vs-naive comparison.
+        now = datetime(2026, 4, 19, 12, 30, 0, tzinfo=UTC)  # minute=30, normally skipped
+        obs_until = "2026-04-19T15:00:00"  # naive, 2.5 h in the future if read as UTC
+        mock_alert = self._call_heartbeat(
+            now=now,
+            settings_overrides={"deploy_observation_mode_until": obs_until},
+        )
         self.assertTrue(mock_alert.called)
 
     def test_heartbeat_disabled_skips_all(self):

@@ -133,20 +133,23 @@ _patch_finding = patch(
 )
 
 
-# ── Config / cron validation ──────────────────────────────────────────────────
+# ── Config / registration ────────────────────────────────────────────────────
 
-def test_register_ebay_job_invalid_cron_not_registered() -> None:
-    """A badly-formatted cron string must be rejected with an error log — job not added."""
+def test_register_ebay_job_uses_interval_trigger() -> None:
+    """Job must be registered with an interval trigger, not a cron trigger."""
     scheduler = MagicMock()
     settings = MagicMock()
     settings.ebay_scheduled_ingest_enabled = True
     settings.ebay_app_id = "app-id"
     settings.ebay_cert_id = "cert-id"
-    settings.ebay_ingest_cron = "not-a-valid-cron"  # wrong — only 1 field
 
     _register_ebay_job(scheduler, settings)
 
-    scheduler.add_job.assert_not_called()
+    scheduler.add_job.assert_called_once()
+    call_args = scheduler.add_job.call_args
+    assert call_args[0][1] == "interval", "trigger must be interval, not cron"
+    assert call_args[1]["hours"] == 24
+    assert call_args[1]["next_run_time"] is None  # paused until prepare_scheduler_for_startup
 
 
 def test_register_ebay_job_disabled_not_registered() -> None:
@@ -180,9 +183,6 @@ def test_register_ebay_job_valid_registers() -> None:
     settings.ebay_scheduled_ingest_enabled = True
     settings.ebay_app_id = "app-id"
     settings.ebay_cert_id = "cert-id"
-    settings.ebay_ingest_cron = "0 3 * * *"
-    settings.ebay_max_calls_per_run = 150
-    settings.ebay_daily_budget_limit = 500
 
     _register_ebay_job(scheduler, settings)
 
@@ -447,7 +447,10 @@ def test_timestamp_dedup_fires_when_no_observation_log() -> None:
 # ── Failure isolation ─────────────────────────────────────────────────────────
 
 def test_ingest_exception_returns_failed_summary() -> None:
-    """If ingest_ebay_sold_cards raises, _run_ebay_ingestion returns run_status='failed'."""
+    """If SessionLocal raises during ingestion work, _run_ebay_ingestion returns run_status='failed'.
+
+    Call 1 (start_run) succeeds; call 2 (inner work session) raises; call 3 (finish_run/prune) succeeds.
+    """
     mock_settings = MagicMock(
         ebay_scheduled_ingest_enabled=True,
         ebay_app_id="app-id",
@@ -455,11 +458,20 @@ def test_ingest_exception_returns_failed_summary() -> None:
         ebay_daily_budget_limit=100,
         ebay_max_calls_per_run=10,
     )
+
+    _call_n: list[int] = [0]
+
+    def _sl_factory():
+        _call_n[0] += 1
+        if _call_n[0] == 2:
+            raise RuntimeError("DB down")
+        ctx = MagicMock()
+        ctx.__enter__ = MagicMock(return_value=MagicMock())
+        ctx.__exit__ = MagicMock(return_value=False)
+        return ctx
+
     settings_patch = patch("backend.app.backstage.scheduler.get_settings", return_value=mock_settings)
-    session_patch = patch(
-        "backend.app.backstage.scheduler.SessionLocal",
-        side_effect=RuntimeError("DB down"),
-    )
+    session_patch = patch("backend.app.backstage.scheduler.SessionLocal", side_effect=_sl_factory)
     pools_patch = patch("backend.app.backstage.scheduler.get_tracked_pokemon_pools", return_value=[])
 
     with settings_patch, session_patch, pools_patch:
