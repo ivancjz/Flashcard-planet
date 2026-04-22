@@ -23,6 +23,7 @@ JOB_RETRY        = "retry"
 JOB_SIGNALS      = "signals"
 JOB_EBAY         = "ebay-ingestion"
 JOB_BULK_REFRESH = "bulk-set-price-refresh"
+JOB_HEARTBEAT    = "alert-heartbeat"
 
 _KEEP_RUNS = 50
 

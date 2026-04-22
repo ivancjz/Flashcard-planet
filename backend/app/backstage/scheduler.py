@@ -12,6 +12,7 @@ from backend.app.services.backfill_retry_service import run_retry_pass
 from backend.app.services.scheduler_run_log_service import (
     JOB_BULK_REFRESH,
     JOB_EBAY,
+    JOB_HEARTBEAT,
     JOB_INGESTION,
     JOB_RETRY,
     JOB_SIGNALS,
@@ -213,74 +214,93 @@ def _send_heartbeat() -> None:
       - Normal mode: only once per hour (minute 0–9 window).
     """
     settings = get_settings()
-    if not settings.alert_heartbeat_enabled:
-        return
 
-    now = datetime.now(UTC)
+    with SessionLocal() as _log_session:
+        _run_id = start_run(_log_session, JOB_HEARTBEAT)
 
-    # Parse observation-mode deadline
-    observation_until: datetime | None = None
-    raw = settings.deploy_observation_mode_until
-    if raw:
-        try:
-            observation_until = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-            if observation_until.tzinfo is None:
-                observation_until = observation_until.replace(tzinfo=UTC)
-        except ValueError:
-            logger.warning("Invalid DEPLOY_OBSERVATION_MODE_UNTIL: %r", raw)
+    _exc: BaseException | None = None
+    _log_meta: dict | None = None
 
-    in_observation = observation_until is not None and now < observation_until
+    try:
+        if not settings.alert_heartbeat_enabled:
+            _log_meta = {"skipped_reason": "heartbeat_disabled"}
+            return
 
-    # Normal mode: only send during the first 10 minutes of each hour
-    if not in_observation and now.minute >= 10:
-        return
+        now = datetime.now(UTC)
 
-    with SessionLocal() as session:
-        rows = session.execute(sa_text("""
-            SELECT status, COUNT(*) AS cnt, MAX(started_at) AS last_run
-            FROM scheduler_run_log
-            WHERE job_name = 'signals'
-              AND started_at > now() - interval '1 hour'
-            GROUP BY status
-        """)).fetchall()
+        # Parse observation-mode deadline
+        observation_until: datetime | None = None
+        raw = settings.deploy_observation_mode_until
+        if raw:
+            try:
+                observation_until = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                if observation_until.tzinfo is None:
+                    observation_until = observation_until.replace(tzinfo=UTC)
+            except ValueError:
+                logger.warning("Invalid DEPLOY_OBSERVATION_MODE_UNTIL: %r", raw)
 
-    if not rows:
-        send_discord_alert(
-            "warning",
-            "Heartbeat: signal-sweep 过去 1 小时没有运行",
-            "Scheduler 可能挂了，或 SIGNAL_SWEEP_ENABLED=false",
-        )
-        return
+        in_observation = observation_until is not None and now < observation_until
 
-    # eBay ingestion health: warn if ebay-ingestion is enabled but hasn't had a
-    # successful/partial/warning run in the last 25 hours.  Failed and errored
-    # runs don't count — they are not evidence the pipeline is healthy.
-    if settings.ebay_scheduled_ingest_enabled and settings.ebay_app_id:
-        _good_statuses = ["success", "partial", "warning"]
-        with SessionLocal() as _ebay_session:
-            last_ebay = get_last_run(_ebay_session, JOB_EBAY, only_statuses=_good_statuses)
-        if last_ebay is None:
-            ebay_age_h = None
-        else:
-            last_started = last_ebay.started_at
-            if last_started.tzinfo is None:
-                last_started = last_started.replace(tzinfo=UTC)
-            ebay_age_h = (now - last_started).total_seconds() / 3600
-        if ebay_age_h is None or ebay_age_h > 25:
+        # Normal mode: only send during the first 10 minutes of each hour
+        if not in_observation and now.minute >= 10:
+            _log_meta = {"skipped_reason": "outside_send_window", "minute": now.minute}
+            return
+
+        with SessionLocal() as session:
+            rows = session.execute(sa_text("""
+                SELECT status, COUNT(*) AS cnt, MAX(started_at) AS last_run
+                FROM scheduler_run_log
+                WHERE job_name = 'signals'
+                  AND started_at > now() - interval '1 hour'
+                GROUP BY status
+            """)).fetchall()
+
+        if not rows:
             send_discord_alert(
                 "warning",
-                "eBay ingestion 超过 25h 未成功运行",
-                f"上次成功运行: {'从未' if last_ebay is None else last_ebay.started_at.isoformat()}\n"
-                "interval job 可能被 deploy 打断，或凭证失效，或每次 api_calls_used=0",
+                "Heartbeat: signal-sweep 过去 1 小时没有运行",
+                "Scheduler 可能挂了，或 SIGNAL_SWEEP_ENABLED=false",
             )
+            return
 
-    lines = [f"{r.status}: {r.cnt} runs, last at {r.last_run}" for r in rows]
-    tag = " [观察期]" if in_observation else ""
-    send_discord_alert(
-        "heartbeat",
-        f"Scheduler 健康{tag}",
-        "\n".join(lines),
-    )
+        # eBay ingestion health: warn if ebay-ingestion is enabled and credentials
+        # are set but no successful/partial/warning run in the last 25 hours.
+        if settings.ebay_scheduled_ingest_enabled and settings.ebay_app_id and settings.ebay_cert_id:
+            _good_statuses = ["success", "partial", "warning"]
+            with SessionLocal() as _ebay_session:
+                last_ebay = get_last_run(_ebay_session, JOB_EBAY, only_statuses=_good_statuses)
+            if last_ebay is None:
+                ebay_age_h = None
+            else:
+                last_started = last_ebay.started_at
+                if last_started.tzinfo is None:
+                    last_started = last_started.replace(tzinfo=UTC)
+                ebay_age_h = (now - last_started).total_seconds() / 3600
+            if ebay_age_h is None or ebay_age_h > 25:
+                send_discord_alert(
+                    "warning",
+                    "eBay ingestion 超过 25h 未成功运行",
+                    f"上次成功运行: {'从未' if last_ebay is None else last_ebay.started_at.isoformat()}\n"
+                    "interval job 可能被 deploy 打断，或凭证失效，或每次 api_calls_used=0",
+                )
+
+        lines = [f"{r.status}: {r.cnt} runs, last at {r.last_run}" for r in rows]
+        tag = " [观察期]" if in_observation else ""
+        send_discord_alert(
+            "heartbeat",
+            f"Scheduler 健康{tag}",
+            "\n".join(lines),
+        )
+
+    except Exception as exc:
+        _exc = exc
+        raise
+
+    finally:
+        log_status = "error" if _exc is not None else "success"
+        with SessionLocal() as _log_session:
+            finish_run(_log_session, _run_id, status=log_status, meta_json=_log_meta)
+            prune_old_runs(_log_session, JOB_HEARTBEAT)
 
 
 def _evaluate_alerts() -> None:
@@ -542,167 +562,189 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
 
     settings = get_settings()
 
-    if not settings.ebay_scheduled_ingest_enabled:
-        ebay_logger.info("ebay_scheduled_ingest_skipped reason=disabled")
-        return EbayScheduledRunSummary(run_status="skipped", job_blocked_reason="disabled")
+    with SessionLocal() as _log_session:
+        _run_id = start_run(_log_session, JOB_EBAY)
 
-    if not settings.ebay_app_id or not settings.ebay_cert_id:
-        ebay_logger.warning("ebay_scheduled_ingest_skipped reason=missing_credentials")
-        return EbayScheduledRunSummary(run_status="skipped", job_blocked_reason="missing_credentials")
-
-    started_at = datetime.now(UTC).replace(microsecond=0)
-    today_start_iso = started_at.replace(hour=0, minute=0, second=0).isoformat()
-
-    assets_considered = 0
-    remaining_daily_budget = 0
-    result = None
-    _run_id: int | None = None
+    _summary: EbayScheduledRunSummary | None = None
 
     try:
-        with SessionLocal() as session:
-            all_assets = list(session.scalars(_select(_Asset)).all())
-            assets_considered = len(all_assets)
+        if not settings.ebay_scheduled_ingest_enabled:
+            ebay_logger.info("ebay_scheduled_ingest_skipped reason=disabled")
+            _summary = EbayScheduledRunSummary(run_status="skipped", job_blocked_reason="disabled")
+            return _summary
 
-            # ── Daily budget: count assets already ingested since 00:00 UTC ──
-            calls_today = sum(
-                1 for a in all_assets
-                if (a.metadata_json or {}).get("ebay_sold_last_ingested_at", "") >= today_start_iso
-            )
-            remaining_daily_budget = max(0, settings.ebay_daily_budget_limit - calls_today)
-            effective_limit = min(settings.ebay_max_calls_per_run, remaining_daily_budget)
+        if not settings.ebay_app_id or not settings.ebay_cert_id:
+            ebay_logger.warning("ebay_scheduled_ingest_skipped reason=missing_credentials")
+            _summary = EbayScheduledRunSummary(run_status="skipped", job_blocked_reason="missing_credentials")
+            return _summary
 
-            if effective_limit <= 0:
+        started_at = datetime.now(UTC).replace(microsecond=0)
+        today_start_iso = started_at.replace(hour=0, minute=0, second=0).isoformat()
+
+        assets_considered = 0
+        remaining_daily_budget = 0
+        result = None
+        assets_skipped_budget = 0
+
+        try:
+            with SessionLocal() as session:
+                all_assets = list(session.scalars(_select(_Asset)).all())
+                assets_considered = len(all_assets)
+
+                # ── Daily budget: count assets already ingested since 00:00 UTC ──
+                calls_today = sum(
+                    1 for a in all_assets
+                    if (a.metadata_json or {}).get("ebay_sold_last_ingested_at", "") >= today_start_iso
+                )
+                remaining_daily_budget = max(0, settings.ebay_daily_budget_limit - calls_today)
+                effective_limit = min(settings.ebay_max_calls_per_run, remaining_daily_budget)
+
+                if effective_limit <= 0:
+                    ebay_logger.info(
+                        "ebay_scheduled_ingest_skipped reason=daily_budget_exhausted "
+                        "daily_budget=%s calls_today=%s",
+                        settings.ebay_daily_budget_limit,
+                        calls_today,
+                    )
+                    _summary = EbayScheduledRunSummary(
+                        run_status="skipped",
+                        assets_considered=assets_considered,
+                        assets_skipped_budget=assets_considered,
+                        budget_remaining=0,
+                        job_blocked_reason="daily_budget_exhausted",
+                    )
+                    return _summary
+
+                assets_skipped_budget = max(0, assets_considered - effective_limit)
+
                 ebay_logger.info(
-                    "ebay_scheduled_ingest_skipped reason=daily_budget_exhausted "
-                    "daily_budget=%s calls_today=%s",
-                    settings.ebay_daily_budget_limit,
+                    "ebay_scheduled_ingest_started start=%s assets_considered=%s "
+                    "calls_today=%s remaining_daily_budget=%s effective_limit=%s",
+                    started_at.isoformat(),
+                    assets_considered,
                     calls_today,
-                )
-                return EbayScheduledRunSummary(
-                    run_status="skipped",
-                    assets_considered=assets_considered,
-                    assets_skipped_budget=assets_considered,
-                    budget_remaining=0,
-                    job_blocked_reason="daily_budget_exhausted",
+                    remaining_daily_budget,
+                    effective_limit,
                 )
 
-            assets_skipped_budget = max(0, assets_considered - effective_limit)
+                # ── Priority ordering: tracked-pool assets first, then least-recently ingested ──
+                tracked_pools = get_tracked_pokemon_pools()
+                priority_external_ids: set[str] = set()
+                for pool in tracked_pools:
+                    priority_external_ids.update(pool.card_ids)
 
-            ebay_logger.info(
-                "ebay_scheduled_ingest_started start=%s assets_considered=%s "
-                "calls_today=%s remaining_daily_budget=%s effective_limit=%s",
-                started_at.isoformat(),
-                assets_considered,
-                calls_today,
-                remaining_daily_budget,
-                effective_limit,
+                def _sort_key(asset: _Asset) -> tuple[int, str]:
+                    in_priority = int((asset.external_id or "") not in priority_external_ids)
+                    last_ingested = (asset.metadata_json or {}).get("ebay_sold_last_ingested_at") or ""
+                    return (in_priority, last_ingested)
+
+                ordered_assets = sorted(all_assets, key=_sort_key)
+                selected_ids = [
+                    asset.external_id or str(asset.id)
+                    for asset in ordered_assets[:effective_limit]
+                ]
+
+                result = ingest_ebay_sold_cards(session, card_ids=selected_ids)
+
+        except Exception:
+            ebay_logger.exception("ebay_scheduled_ingest_job_failed")
+            _summary = EbayScheduledRunSummary(
+                run_status="failed",
+                assets_considered=assets_considered,
+                errors=["Unhandled exception — see logs for details."],
+                job_blocked_reason="exception",
             )
-            with SessionLocal() as _log_session:
-                _run_id = start_run(_log_session, JOB_EBAY)
+            return _summary
 
-            # ── Priority ordering: tracked-pool assets first, then least-recently ingested ──
-            tracked_pools = get_tracked_pokemon_pools()
-            priority_external_ids: set[str] = set()
-            for pool in tracked_pools:
-                priority_external_ids.update(pool.card_ids)
-
-            def _sort_key(asset: _Asset) -> tuple[int, str]:
-                in_priority = int((asset.external_id or "") not in priority_external_ids)
-                last_ingested = (asset.metadata_json or {}).get("ebay_sold_last_ingested_at") or ""
-                return (in_priority, last_ingested)
-
-            ordered_assets = sorted(all_assets, key=_sort_key)
-            selected_ids = [
-                asset.external_id or str(asset.id)
-                for asset in ordered_assets[:effective_limit]
-            ]
-
-            result = ingest_ebay_sold_cards(session, card_ids=selected_ids)
-
-    except Exception:
-        ebay_logger.exception("ebay_scheduled_ingest_job_failed")
-        if _run_id is not None:
-            with SessionLocal() as _log_session:
-                finish_run(_log_session, _run_id, status="error",
-                           error_message="Unhandled exception — see logs for details.")
-        return EbayScheduledRunSummary(
-            run_status="failed",
-            assets_considered=assets_considered,
-            errors=["Unhandled exception — see logs for details."],
-            job_blocked_reason="exception",
+        ended_at = datetime.now(UTC).replace(microsecond=0)
+        duration_s = (ended_at - started_at).total_seconds()
+        api_calls_used = result.api_calls_used
+        budget_remaining = max(0, remaining_daily_budget - api_calls_used)
+        errors: list[str] = []
+        if result.cards_failed:
+            errors.append(f"{result.cards_failed} asset(s) failed during ingestion.")
+        run_status = (
+            "failed" if not result.cards_processed and result.cards_failed
+            else "partial" if result.cards_failed
+            else "warning" if result.api_calls_used == 0
+            else "success"
         )
 
-    ended_at = datetime.now(UTC).replace(microsecond=0)
-    duration_s = (ended_at - started_at).total_seconds()
-    api_calls_used = result.api_calls_used
-    budget_remaining = max(0, remaining_daily_budget - api_calls_used)
-    errors: list[str] = []
-    if result.cards_failed:
-        errors.append(f"{result.cards_failed} asset(s) failed during ingestion.")
-    run_status = (
-        "failed" if not result.cards_processed and result.cards_failed
-        else "partial" if result.cards_failed
-        else "warning" if result.api_calls_used == 0
-        else "success"
-    )
+        _summary = EbayScheduledRunSummary(
+            run_status=run_status,
+            assets_considered=assets_considered,
+            assets_processed=result.cards_processed,
+            assets_skipped_budget=assets_skipped_budget,
+            errors=errors,
+            api_calls_used=api_calls_used,
+            budget_remaining=budget_remaining,
+            observations_fetched=result.observations_logged,
+            matched=result.observations_matched,
+            unmatched=result.observations_unmatched,
+            price_points_inserted=result.price_points_inserted,
+            duplicates_skipped=result.price_points_skipped_existing_timestamp,
+            match_status_counts=dict(result.observation_match_status_counts),
+        )
 
-    summary = EbayScheduledRunSummary(
-        run_status=run_status,
-        assets_considered=assets_considered,
-        assets_processed=result.cards_processed,
-        assets_skipped_budget=assets_skipped_budget,
-        errors=errors,
-        api_calls_used=api_calls_used,
-        budget_remaining=budget_remaining,
-        observations_fetched=result.observations_logged,
-        matched=result.observations_matched,
-        unmatched=result.observations_unmatched,
-        price_points_inserted=result.price_points_inserted,
-        duplicates_skipped=result.price_points_skipped_existing_timestamp,
-        match_status_counts=dict(result.observation_match_status_counts),
-    )
+        ebay_logger.info(
+            "ebay_scheduled_ingest_summary "
+            "start=%s end=%s duration_s=%.1f "
+            "run_status=%s assets_considered=%s assets_processed=%s assets_skipped_budget=%s "
+            "api_calls_used=%s budget_remaining=%s "
+            "observations_fetched=%s matched=%s unmatched=%s "
+            "price_points_inserted=%s duplicates_skipped=%s "
+            "errors=%s match_status=%s",
+            started_at.isoformat(),
+            ended_at.isoformat(),
+            duration_s,
+            _summary.run_status,
+            _summary.assets_considered,
+            _summary.assets_processed,
+            _summary.assets_skipped_budget,
+            _summary.api_calls_used,
+            _summary.budget_remaining,
+            _summary.observations_fetched,
+            _summary.matched,
+            _summary.unmatched,
+            _summary.price_points_inserted,
+            _summary.duplicates_skipped,
+            _summary.errors or "<none>",
+            _summary.match_status_counts,
+        )
+        return _summary
 
-    ebay_logger.info(
-        "ebay_scheduled_ingest_summary "
-        "start=%s end=%s duration_s=%.1f "
-        "run_status=%s assets_considered=%s assets_processed=%s assets_skipped_budget=%s "
-        "api_calls_used=%s budget_remaining=%s "
-        "observations_fetched=%s matched=%s unmatched=%s "
-        "price_points_inserted=%s duplicates_skipped=%s "
-        "errors=%s match_status=%s",
-        started_at.isoformat(),
-        ended_at.isoformat(),
-        duration_s,
-        summary.run_status,
-        summary.assets_considered,
-        summary.assets_processed,
-        summary.assets_skipped_budget,
-        summary.api_calls_used,
-        summary.budget_remaining,
-        summary.observations_fetched,
-        summary.matched,
-        summary.unmatched,
-        summary.price_points_inserted,
-        summary.duplicates_skipped,
-        summary.errors or "<none>",
-        summary.match_status_counts,
-    )
-    if _run_id is not None:
+    finally:
+        # Guaranteed on every exit path (disabled, budget_exhausted, exception, success)
+        if _summary is None:
+            log_status = "error"
+            log_records = 0
+            log_meta = None
+            log_error_message: str | None = "Unhandled exception — see logs for details."
+        elif _summary.run_status == "skipped":
+            log_status = "success"
+            log_records = 0
+            log_meta = {"job_blocked_reason": _summary.job_blocked_reason}
+            log_error_message = None
+        else:
+            log_status = _summary.run_status
+            log_records = _summary.price_points_inserted
+            log_meta = {
+                "assets_processed": _summary.assets_processed,
+                "api_calls_used": _summary.api_calls_used,
+                "matched": _summary.matched,
+                "unmatched": _summary.unmatched,
+                "match_status_counts": _summary.match_status_counts,
+            }
+            log_error_message = _summary.errors[0] if _summary.errors else None
         with SessionLocal() as _log_session:
             finish_run(
                 _log_session, _run_id,
-                status=run_status,
-                records_written=summary.price_points_inserted,
-                meta_json={
-                    "assets_processed": summary.assets_processed,
-                    "api_calls_used": summary.api_calls_used,
-                    "matched": summary.matched,
-                    "unmatched": summary.unmatched,
-                    "match_status_counts": summary.match_status_counts,
-                },
+                status=log_status,
+                records_written=log_records,
+                meta_json=log_meta,
+                error_message=log_error_message,
             )
             prune_old_runs(_log_session, JOB_EBAY)
-    return summary
 
 
 def _register_ebay_job(scheduler: BackgroundScheduler, settings: object) -> None:

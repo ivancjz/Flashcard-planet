@@ -21,7 +21,9 @@ from backend.app.models.price_history import PriceHistory
 from backend.app.models.scheduler_run_log import SchedulerRunLog
 from backend.app.models.user import User
 from backend.app.services.scheduler_run_log_service import (
+    JOB_BULK_REFRESH,
     JOB_EBAY,
+    JOB_HEARTBEAT,
     JOB_INGESTION,
     JOB_RETRY,
     JOB_SIGNALS,
@@ -515,6 +517,8 @@ def admin_stats(
         "last_retry": _last_run_summary(db, JOB_RETRY),
         "last_signals": _last_run_summary(db, JOB_SIGNALS),
         "last_ebay": _last_run_summary(db, JOB_EBAY),
+        "last_bulk_refresh": _last_run_summary(db, JOB_BULK_REFRESH),
+        "last_heartbeat": _last_run_summary(db, JOB_HEARTBEAT),
     }
 
     return {
