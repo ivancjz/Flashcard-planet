@@ -8,7 +8,7 @@ Old rows are pruned to keep the table small.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.orm import Session
@@ -82,6 +82,40 @@ def prune_old_runs(session: Session, job_name: str, keep: int = _KEEP_RUNS) -> N
         )
     )
     session.commit()
+
+
+def cleanup_stale_runs(
+    session: Session,
+    *,
+    now: datetime | None = None,
+    stale_after_minutes: int = 120,
+) -> int:
+    """Mark 'running' rows older than stale_after_minutes as 'error'.
+
+    Returns the number of rows updated. Called at startup to close out any
+    rows left open by a previous container crash (Railway SIGKILL, OOM, etc.).
+    """
+    now = now or datetime.now(UTC)
+    cutoff = now - timedelta(minutes=stale_after_minutes)
+    rows = session.scalars(
+        select(SchedulerRunLog)
+        .where(
+            SchedulerRunLog.status == "running",
+            SchedulerRunLog.started_at < cutoff,
+        )
+    ).all()
+    for row in rows:
+        row.status = "error"
+        row.finished_at = now
+        row.error_message = "Orphaned: container restart — finish_run never called"
+    if rows:
+        session.commit()
+        logger.warning(
+            "cleanup_stale_runs: closed %d orphaned 'running' row(s) older than %dm",
+            len(rows),
+            stale_after_minutes,
+        )
+    return len(rows)
 
 
 def get_last_run(
