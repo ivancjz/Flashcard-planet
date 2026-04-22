@@ -3,15 +3,11 @@ import type { MarketStats, TickerItem, CardsResponse, CardDetail, AlertsResponse
 import { MOCK_STATS, MOCK_TICKER, MOCK_CARDS, MOCK_PRICE_HISTORY, MOCK_ALERTS } from '../lib/mockData'
 import { getReadAlertIds } from '../lib/utils'
 
-const BASE = import.meta.env.VITE_API_BASE_URL ?? ''
-
 export async function fetchStats(): Promise<MarketStats> {
-  // TODO: swap → const res = await fetch(`${BASE}/api/v1/web/stats`); return res.json()
   return MOCK_STATS
 }
 
 export async function fetchTicker(): Promise<TickerItem[]> {
-  // TODO: swap → const res = await fetch(`${BASE}/api/v1/web/ticker`); return res.json()
   return MOCK_TICKER
 }
 
@@ -21,7 +17,6 @@ export async function fetchCards(params: {
   limit?: number
   offset?: number
 }): Promise<CardsResponse> {
-  // TODO: swap → const qs = new URLSearchParams({...}); return fetch(`${BASE}/api/v1/web/cards?${qs}`).then(r => r.json())
   const { signal = 'ALL', sort = 'change', limit = 50, offset = 0 } = params
   let cards = signal === 'ALL' ? MOCK_CARDS : MOCK_CARDS.filter(c => c.signal === signal)
   if (sort === 'price')  cards = [...cards].sort((a, b) => (b.tcg_price ?? 0) - (a.tcg_price ?? 0))
@@ -31,7 +26,6 @@ export async function fetchCards(params: {
 }
 
 export async function fetchCard(assetId: string): Promise<CardDetail> {
-  // TODO: swap → return fetch(`${BASE}/api/v1/web/cards/${assetId}`).then(r => r.json())
   const found = MOCK_CARDS.find(c => c.asset_id === assetId)
   if (!found) throw new Error(`Card ${assetId} not found`)
   return {
@@ -47,7 +41,6 @@ export async function fetchAlerts(params: {
   filter?: 'ALL' | 'HIGH' | 'UNREAD'
   limit?: number
 }): Promise<AlertsResponse> {
-  // TODO: swap → const qs = new URLSearchParams({...}); return fetch(`${BASE}/api/v1/web/alerts?${qs}`).then(r => r.json())
   const readIds = getReadAlertIds()
   let alerts = MOCK_ALERTS
   if (params.filter === 'HIGH')   alerts = alerts.filter(a => a.severity === 'high')
