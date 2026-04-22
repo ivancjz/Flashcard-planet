@@ -10,6 +10,7 @@ from backend.app.backstage.gap_detector import GapReport, get_gap_report
 from backend.app.ingestion.pokemon_tcg import backfill_single_card, run_backfill_pass
 from backend.app.services.backfill_retry_service import run_retry_pass
 from backend.app.services.scheduler_run_log_service import (
+    JOB_BULK_REFRESH,
     JOB_EBAY,
     JOB_INGESTION,
     JOB_RETRY,
@@ -312,6 +313,13 @@ def _run_bulk_set_price_refresh() -> None:
         price_history_available,
     )
 
+    with SessionLocal() as _log_session:
+        _run_id = start_run(_log_session, JOB_BULK_REFRESH)
+
+    _records_written = 0
+    _errors = 0
+    _error_message: str | None = None
+
     try:
         settings = get_settings()
         set_ids = settings.bulk_set_id_list
@@ -394,10 +402,25 @@ def _run_bulk_set_price_refresh() -> None:
                         prices_recorded,
                         importer.summary.cards_seen,
                     )
+            _records_written = importer.summary.prices_recorded
         finally:
             importer.close()
-    except Exception:
+
+    except Exception as exc:
+        _errors = 1
+        _error_message = str(exc)
         logger.exception("Bulk set price refresh job failed.")
+
+    finally:
+        with SessionLocal() as _log_session:
+            finish_run(
+                _log_session, _run_id,
+                status="success" if not _errors else "error",
+                records_written=_records_written,
+                errors=_errors,
+                error_message=_error_message,
+            )
+            prune_old_runs(_log_session, JOB_BULK_REFRESH)
 
 
 def _run_scheduled_ingestion() -> None:

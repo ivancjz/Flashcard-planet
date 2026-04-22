@@ -17,11 +17,12 @@ from backend.app.models.scheduler_run_log import SchedulerRunLog
 
 logger = logging.getLogger(__name__)
 
-JOB_INGESTION = "ingestion"
-JOB_BACKFILL  = "backfill"
-JOB_RETRY     = "retry"
-JOB_SIGNALS   = "signals"
-JOB_EBAY      = "ebay-ingestion"
+JOB_INGESTION    = "ingestion"
+JOB_BACKFILL     = "backfill"
+JOB_RETRY        = "retry"
+JOB_SIGNALS      = "signals"
+JOB_EBAY         = "ebay-ingestion"
+JOB_BULK_REFRESH = "bulk-set-price-refresh"
 
 _KEEP_RUNS = 50
 
