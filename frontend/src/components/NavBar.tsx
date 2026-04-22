@@ -36,7 +36,6 @@ export default function NavBar() {
           )
         )}
       </div>
-      <button className="btn btn-ghost btn-sm">Connect Discord</button>
     </nav>
   )
 }

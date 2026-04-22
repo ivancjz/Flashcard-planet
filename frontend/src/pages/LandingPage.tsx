@@ -8,7 +8,7 @@ import type { MarketStats, TickerItem } from '../types/api'
 const FEATURES = [
   { icon: '📊', title: 'Dual-source Data', desc: 'TCGPlayer market price + eBay sold listings, reconciled daily.' },
   { icon: '⚡', title: 'Signal Engine', desc: 'BREAKOUT / MOVE / WATCH / IDLE labels computed every ingest run.' },
-  { icon: '🔔', title: 'Discord Alerts', desc: 'Price spike and signal change notifications straight to your server.' },
+  { icon: '🔔', title: 'Price Alerts', desc: 'Signal change notifications when a card moves to BREAKOUT or MOVE.' },
   { icon: '📈', title: 'Price History', desc: '30-day rolling price chart per card from both sources.' },
 ]
 
@@ -37,7 +37,6 @@ export default function LandingPage() {
           <span className="nav-link" onClick={() => nav('/market')}>Market</span>
           <span className="nav-link" onClick={() => nav('/alerts')}>Alerts</span>
         </div>
-        <button className="btn btn-ghost btn-sm">Connect Discord</button>
       </nav>
 
       <TickerBar items={ticker} />
@@ -78,7 +77,7 @@ export default function LandingPage() {
 
             <div style={{ display: 'flex', gap: 12 }}>
               <button className="btn btn-primary" onClick={() => nav('/market')}>View Market →</button>
-              <button className="btn btn-ghost" onClick={() => nav('/alerts')}>Discord Alerts</button>
+              <button className="btn btn-ghost" onClick={() => nav('/alerts')}>Price Alerts</button>
             </div>
           </div>
 

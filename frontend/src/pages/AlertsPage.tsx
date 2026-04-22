@@ -44,7 +44,7 @@ export default function AlertsPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <h1 className="page-title">Discord Alerts</h1>
+              <h1 className="page-title">Price Alerts</h1>
               {unreadCount > 0 && (
                 <span style={{ background: '#ef4444', color: 'white', fontSize: 11, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 10 }}>
                   {unreadCount} new
@@ -60,8 +60,7 @@ export default function AlertsPage() {
 
         <div className="surface" style={{ padding: '10px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 16 }}>
           <span className="pulse-dot" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--breakout)', display: 'inline-block' }} />
-          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Discord Connected</span>
-          <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>#price-alerts</span>
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Live signal events</span>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
             {['Next ingest: 24h', 'Signal sweep: OK', 'eBay: active'].map(chip => (
               <span key={chip} style={{ fontSize: 11, background: 'var(--bg-elevated)', padding: '3px 10px', borderRadius: 4, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{chip}</span>
