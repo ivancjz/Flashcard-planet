@@ -251,10 +251,13 @@ def _send_heartbeat() -> None:
         )
         return
 
-    # eBay ingestion health: warn if ebay-ingestion is enabled but hasn't run in 25 hours
+    # eBay ingestion health: warn if ebay-ingestion is enabled but hasn't had a
+    # successful/partial/warning run in the last 25 hours.  Failed and errored
+    # runs don't count — they are not evidence the pipeline is healthy.
     if settings.ebay_scheduled_ingest_enabled and settings.ebay_app_id:
+        _good_statuses = ["success", "partial", "warning"]
         with SessionLocal() as _ebay_session:
-            last_ebay = get_last_run(_ebay_session, JOB_EBAY)
+            last_ebay = get_last_run(_ebay_session, JOB_EBAY, only_statuses=_good_statuses)
         if last_ebay is None:
             ebay_age_h = None
         else:
@@ -265,9 +268,9 @@ def _send_heartbeat() -> None:
         if ebay_age_h is None or ebay_age_h > 25:
             send_discord_alert(
                 "warning",
-                "eBay ingestion 超过 25h 未运行",
-                f"上次运行: {'从未' if last_ebay is None else last_ebay.started_at.isoformat()}\n"
-                "cron 可能被 deploy 打断，或 EBAY_SCHEDULED_INGEST_ENABLED=false",
+                "eBay ingestion 超过 25h 未成功运行",
+                f"上次成功运行: {'从未' if last_ebay is None else last_ebay.started_at.isoformat()}\n"
+                "interval job 可能被 deploy 打断，或凭证失效，或每次 api_calls_used=0",
             )
 
     lines = [f"{r.status}: {r.cnt} runs, last at {r.last_run}" for r in rows]
@@ -616,6 +619,7 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
     run_status = (
         "failed" if not result.cards_processed and result.cards_failed
         else "partial" if result.cards_failed
+        else "warning" if result.api_calls_used == 0
         else "success"
     )
 
