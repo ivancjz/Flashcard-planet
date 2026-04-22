@@ -279,18 +279,52 @@ class TestYugiohClientFetchCardsBySet:
         mock_resp.raise_for_status.return_value = None
         return mock_resp
 
+    def _make_side_effect(self, sets_data, cards_data):
+        sets_mock = self._mock_get(sets_data)
+        cards_mock = self._mock_get(cards_data)
+        def _side_effect(url, **kwargs):
+            return sets_mock if "cardsets" in url else cards_mock
+        return _side_effect
+
     def test_returns_list_of_card_metadata(self):
         client = _make_client()
-        with patch.object(client.client, "get", return_value=self._mock_get(FAKE_API_RESPONSE)):
+        side_effect = self._make_side_effect(FAKE_SETS_RESPONSE, FAKE_API_RESPONSE)
+        with patch.object(client.client, "get", side_effect=side_effect):
             result = client.fetch_cards_by_set("LOB")
         assert isinstance(result, list)
         assert all(isinstance(c, CardMetadata) for c in result)
 
     def test_returns_correct_count(self):
         client = _make_client()
-        with patch.object(client.client, "get", return_value=self._mock_get(FAKE_API_RESPONSE)):
+        side_effect = self._make_side_effect(FAKE_SETS_RESPONSE, FAKE_API_RESPONSE)
+        with patch.object(client.client, "get", side_effect=side_effect):
             result = client.fetch_cards_by_set("LOB")
         assert len(result) == 1
+
+    def test_sends_set_name_not_code_to_cardset_param(self):
+        client = _make_client()
+        mock_get = MagicMock(side_effect=self._make_side_effect(FAKE_SETS_RESPONSE, FAKE_API_RESPONSE))
+        with patch.object(client.client, "get", mock_get):
+            client.fetch_cards_by_set("LOB")
+        cardinfo_call = next(
+            c for c in mock_get.call_args_list if "cardinfo" in c.args[0]
+        )
+        assert cardinfo_call.kwargs["params"]["cardset"] == "Legend of Blue Eyes White Dragon"
+
+    def test_unknown_set_code_raises_value_error(self):
+        client = _make_client()
+        with patch.object(client.client, "get", return_value=self._mock_get(FAKE_SETS_RESPONSE)):
+            with pytest.raises(ValueError, match="BOGUS"):
+                client.fetch_cards_by_set("BOGUS")
+
+    def test_set_name_cache_avoids_repeated_cardsets_calls(self):
+        client = _make_client()
+        mock_get = MagicMock(side_effect=self._make_side_effect(FAKE_SETS_RESPONSE, FAKE_API_RESPONSE))
+        with patch.object(client.client, "get", mock_get):
+            client.fetch_cards_by_set("LOB")
+            client.fetch_cards_by_set("MRD")
+        cardsets_calls = [c for c in mock_get.call_args_list if "cardsets.php" in c.args[0]]
+        assert len(cardsets_calls) == 1
 
 
 # ---------------------------------------------------------------------------

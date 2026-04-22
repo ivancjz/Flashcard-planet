@@ -29,6 +29,7 @@ class YugiohClient:
             timeout=15.0,
             headers={"User-Agent": "FlashcardPlanet/1.0"},
         )
+        self._set_code_map: dict[str, str] | None = None
 
     def fetch_card_by_external_id(self, external_id: str) -> CardMetadata | None:
         try:
@@ -42,9 +43,20 @@ class YugiohClient:
         return self._to_card_metadata(raw)
 
     def fetch_cards_by_set(self, set_code: str) -> list[CardMetadata]:
-        resp = self.client.get(f"{self.BASE_URL}/cardinfo.php", params={"cardset": set_code})
+        set_name = self._resolve_set_name(set_code)
+        resp = self.client.get(f"{self.BASE_URL}/cardinfo.php", params={"cardset": set_name})
         resp.raise_for_status()
         return [self._to_card_metadata(raw) for raw in resp.json()["data"]]
+
+    def _resolve_set_name(self, set_code: str) -> str:
+        """Map abbreviated set code to the full name that cardinfo.php's cardset param requires."""
+        if self._set_code_map is None:
+            resp = self.client.get(f"{self.BASE_URL}/cardsets.php")
+            resp.raise_for_status()
+            self._set_code_map = {s["set_code"]: s["set_name"] for s in resp.json()}
+        if set_code not in self._set_code_map:
+            raise ValueError(f"Unknown YuGiOh set code: {set_code!r}")
+        return self._set_code_map[set_code]
 
     def list_sets(self) -> list[SetMetadata]:
         resp = self.client.get(f"{self.BASE_URL}/cardsets.php")

@@ -220,6 +220,8 @@ def _send_heartbeat() -> None:
     if raw:
         try:
             observation_until = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if observation_until.tzinfo is None:
+                observation_until = observation_until.replace(tzinfo=UTC)
         except ValueError:
             logger.warning("Invalid DEPLOY_OBSERVATION_MODE_UNTIL: %r", raw)
 
