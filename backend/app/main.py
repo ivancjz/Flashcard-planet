@@ -16,7 +16,7 @@ from backend.app.core.config import get_settings
 from backend.app.db.init_db import init_db
 from backend.app.scheduler import build_scheduler
 from backend.app.backstage.scheduler import prepare_scheduler_for_startup
-from backend.app.site import router as site_router
+from backend.app.site import SPAStaticFiles
 
 logging.basicConfig(level=logging.INFO)
 
@@ -46,8 +46,6 @@ app.mount(
     StaticFiles(directory=Path(__file__).resolve().parent / "static"),
     name="static",
 )
-if (_DIST / "assets").exists():
-    app.mount("/assets", StaticFiles(directory=str(_DIST / "assets")), name="spa-assets")
 app.include_router(magic_link_router)
 app.include_router(google_oauth_router)
 app.include_router(discord_web_router)
@@ -59,7 +57,12 @@ def healthz() -> dict[str, str]:
     return {"status": "ok", "project": settings.project_name}
 
 
-app.include_router(site_router)  # SPA catch-all must be last
+# SPA: serve all of frontend/dist/ at /.
+# SPAStaticFiles serves exact files (JS, CSS, favicon, icons) directly and
+# falls back to index.html for any unmatched path (React Router handles it).
+# Must be mounted LAST so API routes above are checked first.
+if _DIST.exists():
+    app.mount("/", SPAStaticFiles(directory=str(_DIST), html=True), name="spa")
 
 
 if __name__ == "__main__":
