@@ -18,7 +18,7 @@ from backend.app.scheduler import build_scheduler
 from backend.app.backstage.scheduler import prepare_scheduler_for_startup
 from backend.app.db.session import SessionLocal
 from backend.app.services.scheduler_run_log_service import cleanup_stale_runs
-from backend.app.site import router as site_router
+from backend.app.site import SPAStaticFiles
 
 logging.basicConfig(level=logging.INFO)
 
@@ -41,6 +41,8 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 
+_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
 app = FastAPI(title=settings.project_name, lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site="lax", https_only=False)
 app.mount(
@@ -48,7 +50,6 @@ app.mount(
     StaticFiles(directory=Path(__file__).resolve().parent / "static"),
     name="static",
 )
-app.include_router(site_router)
 app.include_router(magic_link_router)
 app.include_router(google_oauth_router)
 app.include_router(discord_web_router)
@@ -58,6 +59,14 @@ app.include_router(api_router)
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok", "project": settings.project_name}
+
+
+# SPA: serve all of frontend/dist/ at /.
+# SPAStaticFiles serves exact files (JS, CSS, favicon, icons) directly and
+# falls back to index.html for any unmatched path (React Router handles it).
+# Must be mounted LAST so API routes above are checked first.
+if _DIST.exists():
+    app.mount("/", SPAStaticFiles(directory=str(_DIST), html=True), name="spa")
 
 
 if __name__ == "__main__":

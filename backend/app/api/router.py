@@ -10,6 +10,7 @@ from backend.app.api.routes.prices import router as prices_router
 from backend.app.api.routes.signals import router as signals_router
 from backend.app.api.routes.cards import router as cards_router
 from backend.app.api.routes.watchlists import router as watchlists_router
+from backend.app.api.routes.web import router as web_router
 from backend.app.core.config import get_settings
 
 settings = get_settings()
@@ -25,3 +26,4 @@ api_router.include_router(signals_router, prefix=settings.api_prefix)
 api_router.include_router(watchlists_router, prefix=settings.api_prefix)
 api_router.include_router(cards_router, prefix=settings.api_prefix)
 api_router.include_router(review_router, prefix=settings.api_prefix)
+api_router.include_router(web_router)
