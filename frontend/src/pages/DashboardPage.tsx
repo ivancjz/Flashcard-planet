@@ -41,7 +41,9 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setLoading(true)
-    fetchCards({ signal, sort }).then(r => { setCards(r.cards); setLoading(false) })
+    fetchCards({ signal, sort })
+      .then(r => { setCards(r.cards); setLoading(false) })
+      .catch(() => setLoading(false))
   }, [signal, sort])
 
   return (

@@ -113,7 +113,7 @@ def web_cards(
             tcg.price       AS tcg_price,
             ebay.price      AS ebay_price,
             vol.cnt         AS volume_24h,
-            a.metadata_json->'images'->>'small' AS image_url
+            a.metadata->'images'->>'small' AS image_url
         {base}
         ORDER BY {order}
         LIMIT :limit OFFSET :offset
@@ -141,7 +141,7 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
             s.liquidity_score,
             tcg.price       AS tcg_price,
             ebay.price      AS ebay_price,
-            a.metadata_json->'images'->>'small' AS image_url,
+            a.metadata->'images'->>'small' AS image_url,
             CASE WHEN tcg.price > 0 AND ebay.price IS NOT NULL
                  THEN ROUND(((tcg.price - ebay.price) / tcg.price * 100)::numeric, 1)
                  ELSE NULL END AS spread_pct
