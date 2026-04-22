@@ -7,7 +7,6 @@ const BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 
 export async function fetchStats(): Promise<MarketStats> {
   // TODO: swap → const res = await fetch(`${BASE}/api/v1/web/stats`); return res.json()
-  void BASE
   return MOCK_STATS
 }
 
@@ -49,7 +48,6 @@ export async function fetchAlerts(params: {
   limit?: number
 }): Promise<AlertsResponse> {
   // TODO: swap → const qs = new URLSearchParams({...}); return fetch(`${BASE}/api/v1/web/alerts?${qs}`).then(r => r.json())
-  void params.limit
   const readIds = getReadAlertIds()
   let alerts = MOCK_ALERTS
   if (params.filter === 'HIGH')   alerts = alerts.filter(a => a.severity === 'high')
