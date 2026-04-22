@@ -37,6 +37,8 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 
+_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
 app = FastAPI(title=settings.project_name, lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site="lax", https_only=False)
 app.mount(
@@ -44,7 +46,8 @@ app.mount(
     StaticFiles(directory=Path(__file__).resolve().parent / "static"),
     name="static",
 )
-app.include_router(site_router)
+if (_DIST / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(_DIST / "assets")), name="spa-assets")
 app.include_router(magic_link_router)
 app.include_router(google_oauth_router)
 app.include_router(discord_web_router)
@@ -54,6 +57,9 @@ app.include_router(api_router)
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok", "project": settings.project_name}
+
+
+app.include_router(site_router)  # SPA catch-all must be last
 
 
 if __name__ == "__main__":
