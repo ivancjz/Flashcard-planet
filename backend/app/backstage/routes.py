@@ -618,6 +618,52 @@ def admin_diag_ebay_high_price(
     return {"rows": [dict(r._mapping) for r in rows], "threshold": threshold}
 
 
+@router.post("/diag/clean-known-graded-outliers")
+def admin_clean_known_graded_outliers(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    """Delete ebay_sold rows >$500 for cards whose raw value cannot reach that price."""
+    result = db.execute(text("""
+        DELETE FROM price_history
+        WHERE source = 'ebay_sold'
+          AND price > 500
+          AND asset_id IN (
+              SELECT id FROM assets WHERE name = 'Dark Charmeleon'
+                AND metadata->>'set_id' = 'base5'
+              UNION
+              SELECT id FROM assets WHERE name = 'Pikachu'
+                AND metadata->>'set_id' = 'sm115'
+              UNION
+              SELECT id FROM assets WHERE name = 'Umbreon ex'
+                AND metadata->>'set_id' = 'sv8pt5'
+              UNION
+              SELECT id FROM assets WHERE name = 'Machamp'
+                AND metadata->>'set_id' = 'base1'
+          )
+    """))
+    db.commit()
+    return {"deleted": result.rowcount}
+
+
+@router.get("/diag/charizard-base1-high-price")
+def admin_diag_charizard_base1(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    rows = db.execute(text("""
+        SELECT ph.price::text, ph.captured_at
+        FROM price_history ph
+        JOIN assets a ON a.id = ph.asset_id
+        WHERE a.name = 'Charizard'
+          AND a.metadata->>'set_id' = 'base1'
+          AND ph.source = 'ebay_sold'
+          AND ph.price > 500
+        ORDER BY ph.price DESC
+    """)).fetchall()
+    return {"rows": [dict(r._mapping) for r in rows]}
+
+
 @router.post("/diag/clean-graded-ebay-outliers")
 def admin_clean_graded_ebay_outliers(
     price_threshold: float = 50.0,
