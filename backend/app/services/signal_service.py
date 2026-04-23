@@ -635,11 +635,16 @@ def _process_batch(
             ctx["original_candidate_label"] = candidate.value
             ctx["downgrade_reason"] = downgrade_reason
 
+        # Bulk-downgraded cards: delta is noise (e.g. $0.18 TCG vs $140 one-off eBay
+        # sale = 77678%). Storing it causes these IDLE cards to sort to the top of
+        # the dashboard. Null it out so they sort to the bottom (NULLS LAST).
+        stored_delta = None if downgrade_reason == "bulk_baseline_price" else delta
+
         signal = SignalRow(
             asset_id=asset_id,
             label=label,
             confidence=snapshot.alert_confidence,
-            price_delta_pct=delta,
+            price_delta_pct=stored_delta,
             liquidity_score=snapshot.liquidity_score,
             prediction=prediction,
             computed_at=now,
