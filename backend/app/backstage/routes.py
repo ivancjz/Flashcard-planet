@@ -664,6 +664,64 @@ def admin_diag_charizard_base1(
     return {"rows": [dict(r._mapping) for r in rows]}
 
 
+@router.post("/diag/clean-charizard-base1")
+def admin_clean_charizard_base1(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    """Delete graded-price outliers (>$1500) and duplicate rows for Charizard base1."""
+    deleted_high = db.execute(text("""
+        DELETE FROM price_history
+        WHERE asset_id = (
+            SELECT id FROM assets
+            WHERE name = 'Charizard' AND metadata->>'set_id' = 'base1'
+        )
+        AND source = 'ebay_sold'
+        AND price > 1500
+    """)).rowcount
+
+    deleted_dupes = db.execute(text("""
+        DELETE FROM price_history
+        WHERE id IN (
+            SELECT id FROM (
+                SELECT id,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY asset_id, source, price, captured_at
+                        ORDER BY id
+                    ) AS rn
+                FROM price_history
+                WHERE asset_id = (
+                    SELECT id FROM assets
+                    WHERE name = 'Charizard' AND metadata->>'set_id' = 'base1'
+                )
+                AND source = 'ebay_sold'
+            ) ranked
+            WHERE rn > 1
+        )
+    """)).rowcount
+
+    remaining = db.execute(text("""
+        SELECT COUNT(*) AS cnt,
+               MIN(price)::text AS min_price,
+               MAX(price)::text AS max_price
+        FROM price_history
+        WHERE asset_id = (
+            SELECT id FROM assets
+            WHERE name = 'Charizard' AND metadata->>'set_id' = 'base1'
+        )
+        AND source = 'ebay_sold'
+    """)).fetchone()
+
+    db.commit()
+    return {
+        "deleted_high_price": deleted_high,
+        "deleted_duplicates": deleted_dupes,
+        "remaining_rows": remaining.cnt,
+        "remaining_min": remaining.min_price,
+        "remaining_max": remaining.max_price,
+    }
+
+
 @router.post("/diag/clean-graded-ebay-outliers")
 def admin_clean_graded_ebay_outliers(
     price_threshold: float = 50.0,
