@@ -80,13 +80,13 @@ class AgentChatRequest(BaseModel):
 async def agent_chat(req: AgentChatRequest):
     async with httpx.AsyncClient() as client:
         res = await client.post(
-            "https://api.groq.com/openai/v1/chat/completions",
+            "https://integrate.api.nvidia.com/v1/chat/completions",
             headers={
-                "Authorization": f"Bearer {os.environ['GROQ_API_KEY']}",
+                "Authorization": f"Bearer {os.environ['NVIDIA_API_KEY']}",
                 "Content-Type": "application/json",
             },
             json={
-                "model": "llama-3.3-70b-versatile",
+                "model": "meta/llama-3.3-70b-instruct",
                 "max_tokens": 1000,
                 "messages": req.messages,
             },
