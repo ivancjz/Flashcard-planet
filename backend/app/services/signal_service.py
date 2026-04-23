@@ -46,6 +46,11 @@ MOVE_DELTA_MIN = Decimal("5.0")
 
 WATCH_MIN_HISTORY = 3
 
+# Cards historically priced below this floor are bulk noise — large deltas from a
+# single eBay sale against a $0.09 baseline produce 12000%+ BREAKOUT signals that
+# have no investment meaning.
+SIGNAL_BULK_FLOOR_PRICE = Decimal("0.50")
+
 # ── Sweep config ──────────────────────────────────────────────────────────────
 
 ACTIVE_WINDOW_DAYS = 30
@@ -155,6 +160,7 @@ def _apply_signal_downgrade(
     candidate: SignalLabel,
     *,
     current_price: Decimal,
+    baseline_price: Decimal,
     baseline_n: int,
 ) -> tuple[SignalLabel, str | None]:
     """Apply price-floor and baseline-sample-size downgrade rules.
@@ -162,10 +168,15 @@ def _apply_signal_downgrade(
     Downgrade is chained (BREAKOUT→MOVE→WATCH→IDLE), never a jump.
     Returns (final_label, downgrade_reason | None).
     """
+    # Bulk gate: a card cheap historically produces noise deltas (e.g. $0.09 TCG → $12
+    # single eBay sale = 12000% BREAKOUT). Baseline price is the more stable indicator
+    # of card tier than the current eBay price, which may be a single outlier sale.
+    if candidate in (SignalLabel.BREAKOUT, SignalLabel.MOVE) and baseline_price < SIGNAL_BULK_FLOOR_PRICE:
+        return SignalLabel.IDLE, "bulk_baseline_price"
+
     breakout_min_price = Decimal(str(settings.signal_breakout_min_price_usd))
     move_min_price = Decimal(str(settings.signal_move_min_price_usd))
     breakout_min_n = settings.signal_breakout_min_baseline_n
-    move_min_n = settings.signal_move_min_baseline_n
 
     if candidate == SignalLabel.BREAKOUT:
         if current_price < breakout_min_price:
@@ -615,8 +626,9 @@ def _process_batch(
         )
 
         current_price = Decimal(str(ctx.get("current_price", 0)))
+        baseline_price = Decimal(str(ctx.get("baseline_price", 0)))
         label, downgrade_reason = _apply_signal_downgrade(
-            candidate, current_price=current_price, baseline_n=baseline_n
+            candidate, current_price=current_price, baseline_price=baseline_price, baseline_n=baseline_n
         )
         if downgrade_reason:
             ctx["original_candidate_label"] = candidate.value

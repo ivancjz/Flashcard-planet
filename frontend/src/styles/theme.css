@@ -152,6 +152,7 @@ a { color: inherit; text-decoration: none; }
   letter-spacing: 0.04em;
   border: 1px solid transparent;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .badge-breakout { background: rgba(34,197,94,0.12);  color: var(--breakout); border-color: rgba(34,197,94,0.3); }
@@ -172,6 +173,12 @@ a { color: inherit; text-decoration: none; }
   max-width: 1200px;
   margin: 0 auto;
   padding: 32px 24px;
+}
+
+@media (max-width: 480px) {
+  .page-content {
+    padding: 20px 12px;
+  }
 }
 
 .page-title {

@@ -9,6 +9,16 @@ import { fetchStats, fetchCards, fetchTicker } from '../api/api'
 import { signalToMeta } from '../lib/utils'
 import type { Signal, CardSummary, MarketStats, TickerItem } from '../types/api'
 
+function formatDelta(pct: number | null): string {
+  if (pct == null) return '—'
+  const abs = Math.abs(pct)
+  if (abs > 999) return pct > 0 ? '>+999%' : '<-999%'
+  const sign = pct >= 0 ? '+' : '-'
+  const raw = abs.toFixed(1)
+  const clean = raw.endsWith('.0') ? raw.slice(0, -2) : raw
+  return `${sign}${clean}%`
+}
+
 type SortKey = 'change' | 'price' | 'volume'
 const FILTERS: Array<{ value: Signal | 'ALL'; label: string }> = [
   { value: 'ALL', label: 'All' },
@@ -53,7 +63,7 @@ export default function DashboardPage() {
       <div className="page-content">
         {/* Stat tiles */}
         {stats && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 28 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginBottom: 28 }}>
             {([
               { label: 'Total assets', value: stats.total_assets },
               { label: 'Breakout', value: stats.signal_counts.BREAKOUT, color: 'var(--breakout)' },
@@ -105,8 +115,10 @@ export default function DashboardPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
             {cards.map(card => {
               const meta = signalToMeta(card.signal)
-              const sparkData = [30, 32, 31, 35, 34, 38, card.tcg_price ?? 35]
-              const up = (card.price_delta_pct ?? 0) >= 0
+              // 2-point sparkline derived from delta: direction always matches signal
+              const pct = card.price_delta_pct ?? 0
+              const sparkData = [100, 100 + Math.max(-80, Math.min(300, pct))]
+              const up = pct >= 0
               return (
                 <div
                   key={card.asset_id}
@@ -121,12 +133,12 @@ export default function DashboardPage() {
                   onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'; (e.currentTarget as HTMLDivElement).style.boxShadow = `0 8px 32px ${meta.color}20` }}
                   onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = ''; (e.currentTarget as HTMLDivElement).style.boxShadow = '' }}
                 >
-                  <CardArt name={card.name} type={card.card_type} rarity={card.rarity} size="sm" />
+                  <CardArt name={card.name} type={card.card_type} rarity={card.rarity} imageUrl={card.image_url} size="sm" />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                      <div>
-                        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{card.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{card.set_name}</div>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 4 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.set_name}</div>
                       </div>
                       <SignalBadge signal={card.signal} />
                     </div>
@@ -141,7 +153,7 @@ export default function DashboardPage() {
                       </div>
                       <div>
                         <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>24h</div>
-                        <div className={up ? 'up' : 'down'}>{card.price_delta_pct != null ? `${up ? '+' : ''}${card.price_delta_pct.toFixed(1)}%` : '—'}</div>
+                        <div className={up ? 'up' : 'down'}>{formatDelta(card.price_delta_pct)}</div>
                       </div>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

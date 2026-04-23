@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { typeToColor } from '../lib/utils'
 import type { Rarity } from '../types/api'
 
@@ -7,15 +8,30 @@ interface CardArtProps {
   name: string
   type: string | null
   rarity: Rarity | null
+  imageUrl?: string | null
   size?: 'sm' | 'md' | 'lg'
 }
 
 const RARITY_DOTS: Record<string, number> = { secret: 3, ultra: 2, holo: 1 }
 
-export default function CardArt({ name, type, rarity, size = 'md' }: CardArtProps) {
+export default function CardArt({ name, type, rarity, imageUrl, size = 'md' }: CardArtProps) {
+  const [imgError, setImgError] = useState(false)
   const color = typeToColor(type)
   const { w, h, font } = SIZE[size]
   const dots = RARITY_DOTS[rarity ?? ''] ?? 0
+
+  if (imageUrl && !imgError) {
+    return (
+      <img
+        src={imageUrl}
+        alt={name}
+        width={w}
+        height={h}
+        style={{ borderRadius: 8, display: 'block', flexShrink: 0, objectFit: 'cover' }}
+        onError={() => setImgError(true)}
+      />
+    )
+  }
 
   return (
     <svg

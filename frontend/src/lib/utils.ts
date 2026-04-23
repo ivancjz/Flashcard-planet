@@ -47,5 +47,6 @@ export function signalToMeta(signal: Signal): { label: string; badgeClass: strin
     case 'WATCH':             return { label: '◆ Watch',    badgeClass: 'badge-watch',    color: 'var(--watch)',    rowGlow: 'rgba(251,146,60,0.05)' }
     case 'IDLE':              return { label: '— Idle',     badgeClass: 'badge-idle',     color: 'var(--idle)',     rowGlow: 'transparent' }
     case 'INSUFFICIENT_DATA': return { label: '· · ·',     badgeClass: 'badge-nodata',   color: 'var(--nodata)',   rowGlow: 'transparent' }
+    default:                  return { label: '· · ·',     badgeClass: 'badge-nodata',   color: 'var(--nodata)',   rowGlow: 'transparent' }
   }
 }
