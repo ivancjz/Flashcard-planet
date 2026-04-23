@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Form, Header, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_database
@@ -546,6 +546,41 @@ def admin_stats(
         },
         "scheduler": scheduler,
     }
+
+
+@router.get("/diag/duplicates")
+def admin_diag_duplicates(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    rows = db.execute(text("""
+        SELECT name, COUNT(*) AS cnt, array_agg(id::text ORDER BY id::text) AS ids
+        FROM assets
+        GROUP BY name
+        HAVING COUNT(*) > 1
+        ORDER BY cnt DESC
+        LIMIT 20
+    """)).fetchall()
+    return {"duplicates": [{"name": r.name, "count": r.cnt, "ids": r.ids} for r in rows]}
+
+
+@router.get("/diag/blastoise")
+def admin_diag_blastoise(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    rows = db.execute(text("""
+        SELECT ph.source, ph.price::text, ph.captured_at,
+               a.metadata->>'set_id' AS set_id,
+               a.metadata->>'number' AS card_number,
+               a.variant
+        FROM price_history ph
+        JOIN assets a ON a.id = ph.asset_id
+        WHERE a.name = 'Blastoise ex'
+        ORDER BY ph.captured_at DESC
+        LIMIT 20
+    """)).fetchall()
+    return {"rows": [dict(r._mapping) for r in rows]}
 
 
 @router.get("/coverage")
