@@ -557,13 +557,13 @@ def admin_coverage(
     """eBay and TCG API price coverage for a given set."""
     from sqlalchemy import exists
 
-    total = db.query(func.count(Asset.id)).filter(Asset.metadata["set_id"].as_string() == set_id).scalar() or 0
+    total = db.query(func.count(Asset.id)).filter(Asset.metadata_json["set_id"].as_string() == set_id).scalar() or 0
 
     def _covered(source: str) -> int:
         return (
             db.query(func.count(Asset.id))
             .filter(
-                Asset.metadata["set_id"].as_string() == set_id,
+                Asset.metadata_json["set_id"].as_string() == set_id,
                 exists().where(
                     (PriceHistory.asset_id == Asset.id) & (PriceHistory.source == source)
                 ),
