@@ -583,6 +583,41 @@ def admin_diag_blastoise(
     return {"rows": [dict(r._mapping) for r in rows]}
 
 
+@router.get("/diag/blastoise-signal")
+def admin_diag_blastoise_signal(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    row = db.execute(text("""
+        SELECT s.label, s.price_delta_pct::text, s.computed_at
+        FROM asset_signals s
+        JOIN assets a ON a.id = s.asset_id
+        WHERE a.name = 'Blastoise ex'
+          AND a.metadata->>'set_id' = 'sv3pt5'
+        ORDER BY s.computed_at DESC
+        LIMIT 1
+    """)).fetchone()
+    return dict(row._mapping) if row else {"error": "not found"}
+
+
+@router.get("/diag/ebay-high-price")
+def admin_diag_ebay_high_price(
+    threshold: float = 100.0,
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    rows = db.execute(text("""
+        SELECT a.name, a.metadata->>'set_id' AS set_id, ph.price::text, ph.captured_at
+        FROM price_history ph
+        JOIN assets a ON a.id = ph.asset_id
+        WHERE ph.source = 'ebay_sold'
+          AND ph.price > :threshold
+        ORDER BY ph.price DESC
+        LIMIT 20
+    """), {"threshold": threshold}).fetchall()
+    return {"rows": [dict(r._mapping) for r in rows], "threshold": threshold}
+
+
 @router.post("/diag/clean-graded-ebay-outliers")
 def admin_clean_graded_ebay_outliers(
     price_threshold: float = 50.0,

@@ -153,7 +153,7 @@ export default function CardDetailPage() {
               {[
                 { label: 'TCGPlayer', value: card.tcg_price != null ? `$${card.tcg_price.toFixed(2)}` : '—', color: 'var(--gold)' },
                 { label: 'eBay sold', value: card.ebay_price != null ? `$${card.ebay_price.toFixed(2)}` : '—', color: 'var(--breakout)' },
-                { label: 'Spread', value: card.spread_pct != null ? formatDelta(card.spread_pct) : '—', color: 'var(--text-secondary)' },
+                { label: 'Spread', value: card.spread_pct != null ? `${card.spread_pct > 0 ? '+' : ''}${card.spread_pct.toFixed(1)}%` : '—', color: 'var(--text-secondary)' },
               ].map(tile => (
                 <div key={tile.label} className="surface" style={{ padding: '16px 20px' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>{tile.label}</div>
