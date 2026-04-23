@@ -25,7 +25,11 @@ EBAY_OAUTH_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 EBAY_INSIGHTS_API_URL = "https://api.ebay.com/buy/marketplace_insights/v1_beta/item_sales/search"
 EBAY_BROWSE_API_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
 EBAY_FINDING_XML_NS = "{urn:ebay:apis:eBLBaseComponents}"
-GRADING_KEYWORDS = {"psa", "bgs", "cgc", "sgc", "gma", "ace", "beckett"}
+GRADING_KEYWORDS = (
+    "psa", "bgs", "cgc", "sgc", "gma", "ace", "beckett",
+    "graded", "grade", "gem mint", "gem mt",
+    "pop report", "slab", "slabbed",
+)
 
 
 def _log_info(event: str, **fields: object) -> None:
@@ -169,8 +173,7 @@ def _title_contains_card_name(title: str, asset: Asset) -> bool:
 def _is_grade_compatible(title: str, asset: Asset) -> bool:
     """Return False when grading keywords in title conflict with the asset's grade status."""
     normalized = _normalize(title)
-    title_words = set(normalized.split())
-    has_grade_keyword = bool(title_words & GRADING_KEYWORDS)
+    has_grade_keyword = any(kw in normalized for kw in GRADING_KEYWORDS)
     if asset.grade_company:
         # Graded asset: title must mention the right company and approximate score.
         company = _normalize(asset.grade_company)

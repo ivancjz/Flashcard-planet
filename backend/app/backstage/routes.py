@@ -583,6 +583,27 @@ def admin_diag_blastoise(
     return {"rows": [dict(r._mapping) for r in rows]}
 
 
+@router.post("/diag/clean-graded-ebay-outliers")
+def admin_clean_graded_ebay_outliers(
+    price_threshold: float = 50.0,
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    """Delete ebay_sold price_history rows likely from graded cards (price > threshold)."""
+    result = db.execute(text("""
+        DELETE FROM price_history
+        WHERE source = 'ebay_sold'
+          AND price > :threshold
+          AND asset_id IN (
+              SELECT id FROM assets
+              WHERE name = 'Blastoise ex'
+                AND metadata->>'set_id' = 'sv3pt5'
+          )
+    """), {"threshold": price_threshold})
+    db.commit()
+    return {"deleted": result.rowcount, "price_threshold": price_threshold}
+
+
 @router.get("/coverage")
 def admin_coverage(
     set_id: str = Query(..., description="Pokemon TCG set_id, e.g. swsh7"),
