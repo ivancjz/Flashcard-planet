@@ -59,14 +59,22 @@ def web_ticker(db: Session = Depends(get_database)):
     return [dict(r._mapping) for r in rows]
 
 
+_GAME_PRIMARY_SOURCE = {
+    "pokemon": "pokemon_tcg_api",
+    "yugioh":  "ygoprodeck_api",
+}
+
+
 @router.get("/cards")
 def web_cards(
     signal: str = Query(default="ALL"),
     sort: str = Query(default="change"),
+    game: str = Query(default="pokemon"),
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0),
     db: Session = Depends(get_database),
 ):
+    primary_source = _GAME_PRIMARY_SOURCE.get(game, "pokemon_tcg_api")
     signal_filter = "" if signal == "ALL" else "AND s.label = :signal"
     order_map = {
         "change": "s.price_delta_pct DESC NULLS LAST",
@@ -74,7 +82,7 @@ def web_cards(
         "volume": "volume_24h DESC NULLS LAST",
     }
     order = order_map.get(sort, order_map["change"])
-    params: dict = {"limit": limit, "offset": offset}
+    params: dict = {"limit": limit, "offset": offset, "game": game, "primary_source": primary_source}
     if signal != "ALL":
         params["signal"] = signal
 
@@ -83,7 +91,7 @@ def web_cards(
         JOIN asset_signals s ON s.asset_id = a.id
         LEFT JOIN LATERAL (
             SELECT price FROM price_history
-            WHERE asset_id = a.id AND source = 'pokemon_tcg_api'
+            WHERE asset_id = a.id AND source = :primary_source
             ORDER BY captured_at DESC LIMIT 1
         ) tcg ON TRUE
         LEFT JOIN LATERAL (
@@ -96,7 +104,9 @@ def web_cards(
             WHERE asset_id = a.id AND source = 'ebay_sold'
               AND captured_at >= NOW() - INTERVAL '24 hours'
         ) vol ON TRUE
-        WHERE a.external_id NOT LIKE 'pokemontcg:%' {signal_filter}
+        WHERE a.external_id NOT LIKE 'pokemontcg:%'
+          AND a.game = :game
+          {signal_filter}
     """
 
     total = db.execute(text(f"SELECT COUNT(*) {base}"), params).scalar() or 0

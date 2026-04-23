@@ -22,9 +22,9 @@ export async function fetchCards(params: {
   limit?: number
   offset?: number
 }): Promise<CardsResponse> {
-  const { signal = 'ALL', sort = 'change', limit = 50, offset = 0 } = params
+  const { game = 'pokemon', signal = 'ALL', sort = 'change', limit = 50, offset = 0 } = params
   const qs = new URLSearchParams({
-    signal, sort, limit: String(limit), offset: String(offset),
+    game, signal, sort, limit: String(limit), offset: String(offset),
   })
   const res = await fetch(`${BASE}/api/v1/web/cards?${qs}`)
   if (!res.ok) throw new Error('cards fetch failed')

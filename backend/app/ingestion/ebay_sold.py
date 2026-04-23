@@ -206,9 +206,20 @@ _UNGRADED_EXCLUSIONS = ["-PSA", "-BGS", "-CGC", "-SGC", "-GMA", "-graded", "-sla
 
 
 def _build_search_query(asset: Asset) -> str:
-    parts = ["Pokemon", asset.name]
-    if asset.set_name:
-        parts.append(asset.set_name)
+    try:
+        game = Game(asset.game)
+    except ValueError:
+        game = Game.POKEMON
+
+    if game == Game.YUGIOH:
+        parts = ["Yu-Gi-Oh", asset.name]
+        if asset.set_name:
+            parts.append(asset.set_name)
+    else:
+        parts = ["Pokemon", asset.name]
+        if asset.set_name:
+            parts.append(asset.set_name)
+
     if asset.grade_company and asset.grade_score:
         parts.append(f"{asset.grade_company} {int(asset.grade_score)}")
     else:
@@ -306,8 +317,8 @@ def ingest_ebay_sold_cards(
                         headers={"Authorization": f"Bearer {token}", "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"},
                         params={
                             "q": query,
-                            **( {"category_ids": GAME_CONFIG[Game.POKEMON].ebay_category_id}
-                                if GAME_CONFIG[Game.POKEMON].ebay_category_id else {} ),
+                            **( {"category_ids": GAME_CONFIG.get(Game(asset.game), GAME_CONFIG[Game.POKEMON]).ebay_category_id}
+                                if GAME_CONFIG.get(Game(asset.game), GAME_CONFIG[Game.POKEMON]).ebay_category_id else {} ),
                             "filter": "buyingOptions:{FIXED_PRICE}",
                             "sort": "endingSoonest",
                             "limit": "50",
