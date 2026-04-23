@@ -96,7 +96,7 @@ def web_cards(
             WHERE asset_id = a.id AND source = 'ebay_sold'
               AND captured_at >= NOW() - INTERVAL '24 hours'
         ) vol ON TRUE
-        WHERE 1=1 {signal_filter}
+        WHERE a.external_id NOT LIKE 'pokemontcg:%' {signal_filter}
     """
 
     total = db.execute(text(f"SELECT COUNT(*) {base}"), params).scalar() or 0
