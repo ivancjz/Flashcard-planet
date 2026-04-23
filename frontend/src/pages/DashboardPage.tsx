@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import NavBar from '../components/NavBar'
 import TickerBar from '../components/TickerBar'
+import GameSwitcher from '../components/GameSwitcher'
 import SignalBadge from '../components/SignalBadge'
 import CardArt from '../components/CardArt'
 import Sparkline from '../components/Sparkline'
+import ProGate from '../components/ProGate'
 import { fetchStats, fetchCards, fetchTicker } from '../api/api'
 import { signalToMeta, formatDelta } from '../lib/utils'
 import type { Signal, CardSummary, MarketStats, TickerItem } from '../types/api'
@@ -36,24 +38,27 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [signal, setSignal] = useState<Signal | 'ALL'>('ALL')
   const [sort, setSort] = useState<SortKey>('change')
+  const [activeGame, setActiveGame] = useState('pokemon')
 
   useEffect(() => { fetchStats().then(setStats); fetchTicker().then(setTicker) }, [])
 
   useEffect(() => {
+    if (activeGame !== 'pokemon') return
     setLoading(true)
-    fetchCards({ signal, sort })
+    fetchCards({ game: activeGame, signal, sort })
       .then(r => { setCards(r.cards); setLoading(false) })
       .catch(() => setLoading(false))
-  }, [signal, sort])
+  }, [signal, sort, activeGame])
 
   return (
     <div>
       <NavBar />
+      <GameSwitcher activeGame={activeGame} onGameChange={setActiveGame} />
       <TickerBar items={ticker} />
       <div className="page-content">
         {/* Stat tiles */}
         {stats && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginBottom: 28 }}>
+          <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginBottom: 28 }}>
             {([
               { label: 'Total assets', value: stats.total_assets },
               { label: 'Breakout', value: stats.signal_counts.BREAKOUT, color: 'var(--breakout)' },
@@ -61,18 +66,18 @@ export default function DashboardPage() {
               { label: 'Watch', value: stats.signal_counts.WATCH, color: 'var(--watch)' },
             ] as const).map(tile => (
               <div key={tile.label} className="surface" style={{ padding: '16px 20px' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 700, color: ('color' in tile ? tile.color : 'var(--text-primary)') as string }}>
+                <div className="stat-number" style={{ fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 700, color: ('color' in tile ? tile.color : 'var(--text-primary)') as string }}>
                   {tile.value}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{tile.label}</div>
+                <div className="stat-label" style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{tile.label}</div>
               </div>
             ))}
           </div>
         )}
 
         {/* Filters + sort */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <div style={{ display: 'flex', gap: 6 }}>
+        <div className="filter-sort-bar">
+          <div className="filter-row">
             {FILTERS.map(f => (
               <button
                 key={f.value}
@@ -84,18 +89,34 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {(['change', 'price', 'volume'] as SortKey[]).map(s => (
-              <button key={s} className="btn btn-ghost btn-sm" onClick={() => setSort(s)}
-                style={sort === s ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
-                {s.charAt(0).toUpperCase() + s.slice(1)}
+          <div className="sort-row">
+            <button className="btn btn-ghost btn-sm" onClick={() => setSort('change')}
+              style={sort === 'change' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
+              Change
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setSort('price')}
+              style={sort === 'price' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
+              Price
+            </button>
+            <ProGate locked feature="Sort by Volume" reason="Advanced sorting on Pro plan">
+              <button className="btn btn-ghost btn-sm" onClick={() => setSort('volume')}
+                style={sort === 'volume' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
+                Volume
               </button>
-            ))}
+            </ProGate>
           </div>
         </div>
 
         {/* Card grid */}
-        {loading ? (
+        {activeGame !== 'pokemon' ? (
+          <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>⚔️</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, color: 'var(--text-primary)', marginBottom: 8 }}>
+              {activeGame === 'yugioh' ? 'Yu-Gi-Oh' : activeGame} support is coming
+            </div>
+            <div style={{ fontSize: 14 }}>Signal analysis for this game is in development.</div>
+          </div>
+        ) : loading ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
             {Array.from({ length: 6 }, (_, i) => <SkeletonCard key={i} />)}
           </div>

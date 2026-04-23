@@ -6,12 +6,12 @@ import { fetchAlerts } from '../api/api'
 export default function NavBar() {
   const nav = useNavigate()
   const { pathname } = useLocation()
-  const [hasUnread, setHasUnread] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => {
     fetchAlerts({ limit: 50 }).then(r => {
       const readIds = getReadAlertIds()
-      setHasUnread(r.alerts.some(a => !readIds.has(a.id)))
+      setUnreadCount(r.alerts.filter(a => !readIds.has(a.id)).length)
     }).catch(() => {})
   }, [pathname])
 
@@ -36,10 +36,19 @@ export default function NavBar() {
         <span className="nav-logo-sub">闪卡星球</span>
       </div>
       <div className="nav-links">
-        {link('/market', 'Market')}
+        {link('/market', '🎴 Market')}
         {link('/alerts', 'Alerts',
-          hasUnread && (
-            <span style={{ position: 'absolute', top: 4, right: 4, width: 6, height: 6, borderRadius: '50%', background: '#ef4444' }} />
+          unreadCount > 0 && (
+            <span style={{
+              position: 'absolute', top: 2, right: 2,
+              background: '#ef4444', color: 'white',
+              fontFamily: 'var(--font-mono)', fontSize: 9,
+              padding: '1px 4px', borderRadius: 8,
+              minWidth: 16, textAlign: 'center',
+              lineHeight: '14px',
+            }}>
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
           )
         )}
       </div>

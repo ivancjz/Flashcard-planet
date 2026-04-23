@@ -111,6 +111,73 @@ export default function LandingPage() {
           </div>
         </div>
 
+        {/* Plans */}
+        <div style={{ marginTop: 80 }}>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, marginBottom: 8, textAlign: 'center' }}>
+            Simple pricing
+          </h2>
+          <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 14, marginBottom: 40 }}>
+            Start free. Upgrade when you need more.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, maxWidth: 720, margin: '0 auto' }}>
+            {/* Free */}
+            <div className="surface" style={{ padding: 28 }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Free</div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>Everything you need to start.</div>
+              {['Market signals for all cards', 'TCGPlayer + eBay prices', 'Discord alerts', 'Price history charts'].map(f => (
+                <div key={f} style={{ display: 'flex', gap: 8, marginBottom: 10, fontSize: 13 }}>
+                  <span style={{ color: 'var(--breakout)' }}>✓</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>{f}</span>
+                </div>
+              ))}
+              {['AI trend analysis', 'Cross-game signals', 'Volume sort & advanced filters'].map(f => (
+                <div key={f} style={{ display: 'flex', gap: 8, marginBottom: 10, fontSize: 13 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                  <span style={{ color: 'var(--text-muted)' }}>{f}</span>
+                </div>
+              ))}
+              <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center', marginTop: 24 }} onClick={() => nav('/market')}>
+                Start free
+              </button>
+            </div>
+
+            {/* Pro */}
+            <div className="surface" style={{ padding: 28, border: '1px solid var(--gold)', boxShadow: '0 0 32px var(--gold-glow)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Pro</div>
+                <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--gold)', background: 'var(--gold-glow)', border: '1px solid rgba(240,180,41,0.3)', borderRadius: 10, padding: '2px 7px' }}>COMING SOON</span>
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>For serious TCG investors.</div>
+              {[
+                'Everything in Free',
+                'AI-powered trend analysis per card',
+                'Cross-game Franchise signals',
+                'Advanced sorting & filters',
+                'Priority Discord alerts',
+                'Early access to new games',
+              ].map(f => (
+                <div key={f} style={{ display: 'flex', gap: 8, marginBottom: 10, fontSize: 13 }}>
+                  <span style={{ color: 'var(--gold)' }}>✓</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>{f}</span>
+                </div>
+              ))}
+              <a
+                href="mailto:hello@flashcardplanet.com"
+                style={{
+                  display: 'flex', justifyContent: 'center', alignItems: 'center',
+                  fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13,
+                  color: 'var(--gold)', textDecoration: 'none',
+                  background: 'var(--gold-glow)', border: '1px solid rgba(240,180,41,0.4)',
+                  borderRadius: 6, padding: '10px 16px', marginTop: 24,
+                  transition: 'opacity 0.15s',
+                }}
+              >
+                Get early access →
+              </a>
+            </div>
+          </div>
+        </div>
+
         {/* Footer CTA */}
         <div style={{ marginTop: 80, textAlign: 'center' }}>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginBottom: 24 }}>

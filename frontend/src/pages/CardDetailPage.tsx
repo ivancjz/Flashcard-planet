@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import NavBar from '../components/NavBar'
 import CardArt from '../components/CardArt'
 import SignalBadge from '../components/SignalBadge'
+import AIAnalysisSection from '../components/AIAnalysisSection'
 import { fetchCard } from '../api/api'
 import { signalToMeta, formatDelta } from '../lib/utils'
 import type { CardDetail, PricePoint } from '../types/api'
@@ -185,6 +186,8 @@ export default function CardDetailPage() {
                 {SIGNAL_DESCRIPTION[card.signal]}
               </p>
             </div>
+
+            <AIAnalysisSection aiAnalysis={card.ai_analysis ?? null} />
           </div>
         </div>
       </div>
