@@ -553,7 +553,7 @@ def admin_diag_ygo_verify(
     _: None = Depends(require_admin_key),
     db: Session = Depends(get_database),
 ) -> dict[str, Any]:
-    """Post-merge verification: scheduler_run_log + YGO asset counts."""
+    """Post-merge verification: scheduler_run_log + YGO asset counts + ingestion orphan diagnosis."""
     sched = db.execute(text("""
         SELECT job_name, status, started_at, finished_at, records_written
         FROM scheduler_run_log
@@ -570,10 +570,30 @@ def admin_diag_ygo_verify(
         ORDER BY set_code
     """)).fetchall()
 
+    orphans = db.execute(text("""
+        SELECT id, job_name, started_at, finished_at, records_written, error_message
+        FROM scheduler_run_log
+        WHERE job_name = 'ingestion'
+          AND finished_at IS NULL
+        ORDER BY started_at DESC
+    """)).fetchall()
+
+    gaps = db.execute(text("""
+        SELECT started_at,
+          LAG(started_at) OVER (ORDER BY started_at) AS prev_run,
+          ROUND(EXTRACT(EPOCH FROM (started_at - LAG(started_at) OVER (ORDER BY started_at)))/60, 1) AS minutes_gap
+        FROM scheduler_run_log
+        WHERE job_name = 'ingestion'
+          AND started_at > NOW() - INTERVAL '4 hours'
+        ORDER BY started_at DESC
+    """)).fetchall()
+
     return {
         "scheduler_run_log": [dict(r._mapping) for r in sched],
         "ygo_assets_by_set": [dict(r._mapping) for r in assets],
         "ygo_total": sum(r.assets for r in assets),
+        "ingestion_orphans": [dict(r._mapping) for r in orphans],
+        "ingestion_gap_minutes": [dict(r._mapping) for r in gaps],
     }
 
 
