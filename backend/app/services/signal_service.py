@@ -129,13 +129,14 @@ def classify_signal(
     history_depth: int,
 ) -> SignalLabel:
     """Pure function — no I/O. Maps signal metrics to a label."""
-    abs_delta = abs(price_delta_pct) if price_delta_pct is not None else None
-
+    # Only positive delta triggers BREAKOUT/MOVE — a large price DROP has high
+    # abs_delta but is not a buy signal. Using signed comparison fixes the bug
+    # where 35/66 BREAKOUT cards had negative price_delta_pct.
     if (
         alert_confidence is not None
         and alert_confidence >= BREAKOUT_CONFIDENCE_MIN
-        and abs_delta is not None
-        and abs_delta >= BREAKOUT_DELTA_MIN
+        and price_delta_pct is not None
+        and price_delta_pct >= BREAKOUT_DELTA_MIN
         and liquidity_score >= BREAKOUT_LIQUIDITY_MIN
     ):
         return SignalLabel.BREAKOUT
@@ -143,8 +144,8 @@ def classify_signal(
     if (
         alert_confidence is not None
         and alert_confidence >= MOVE_CONFIDENCE_MIN
-        and abs_delta is not None
-        and abs_delta >= MOVE_DELTA_MIN
+        and price_delta_pct is not None
+        and price_delta_pct >= MOVE_DELTA_MIN
     ):
         return SignalLabel.MOVE
 
