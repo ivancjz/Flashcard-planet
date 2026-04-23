@@ -672,7 +672,7 @@ def admin_clean_charizard_base1(
     """Delete graded-price outliers (>$1500) and duplicate rows for Charizard base1."""
     deleted_high = db.execute(text("""
         DELETE FROM price_history
-        WHERE asset_id = (
+        WHERE asset_id IN (
             SELECT id FROM assets
             WHERE name = 'Charizard' AND metadata->>'set_id' = 'base1'
         )
@@ -690,7 +690,7 @@ def admin_clean_charizard_base1(
                         ORDER BY id
                     ) AS rn
                 FROM price_history
-                WHERE asset_id = (
+                WHERE asset_id IN (
                     SELECT id FROM assets
                     WHERE name = 'Charizard' AND metadata->>'set_id' = 'base1'
                 )
@@ -705,7 +705,7 @@ def admin_clean_charizard_base1(
                MIN(price)::text AS min_price,
                MAX(price)::text AS max_price
         FROM price_history
-        WHERE asset_id = (
+        WHERE asset_id IN (
             SELECT id FROM assets
             WHERE name = 'Charizard' AND metadata->>'set_id' = 'base1'
         )
