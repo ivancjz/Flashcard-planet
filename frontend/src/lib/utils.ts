@@ -42,10 +42,8 @@ export function relativeTime(isoString: string): string {
 
 export function formatDelta(pct: number | null): string {
   if (pct == null) return '—'
-  const abs = Math.abs(pct)
-  if (abs > 999) return pct > 0 ? '>+999%' : '<-999%'
-  const sign = pct >= 0 ? '+' : '-'
-  const raw = abs.toFixed(1)
+  const sign = pct >= 0 ? '+' : ''
+  const raw = pct.toFixed(1)
   const clean = raw.endsWith('.0') ? raw.slice(0, -2) : raw
   return `${sign}${clean}%`
 }

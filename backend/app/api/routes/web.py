@@ -69,7 +69,7 @@ def web_cards(
 ):
     signal_filter = "" if signal == "ALL" else "AND s.label = :signal"
     order_map = {
-        "change": "ABS(s.price_delta_pct) DESC NULLS LAST",
+        "change": "s.price_delta_pct DESC NULLS LAST",
         "price":  "tcg_price DESC NULLS LAST",
         "volume": "volume_24h DESC NULLS LAST",
     }
