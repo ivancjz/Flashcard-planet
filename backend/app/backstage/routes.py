@@ -588,12 +588,23 @@ def admin_diag_ygo_verify(
         ORDER BY started_at DESC
     """)).fetchall()
 
+    last_completed = db.execute(text("""
+        SELECT id, status, started_at, finished_at, records_written, errors, error_message
+        FROM scheduler_run_log
+        WHERE job_name = 'ingestion'
+          AND finished_at IS NOT NULL
+        ORDER BY finished_at DESC
+        LIMIT 3
+    """)).fetchall()
+
     return {
         "scheduler_run_log": [dict(r._mapping) for r in sched],
         "ygo_assets_by_set": [dict(r._mapping) for r in assets],
         "ygo_total": sum(r.assets for r in assets),
+        "ingestion_orphan_count": len(orphans),
         "ingestion_orphans": [dict(r._mapping) for r in orphans],
         "ingestion_gap_minutes": [dict(r._mapping) for r in gaps],
+        "ingestion_last_completed": [dict(r._mapping) for r in last_completed],
     }
 
 
