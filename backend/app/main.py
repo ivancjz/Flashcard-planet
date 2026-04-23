@@ -86,8 +86,10 @@ async def agent_chat(req: AgentChatRequest):
                 "Content-Type": "application/json",
             },
             json={
-                "model": "meta/llama-3.3-70b-instruct",
-                "max_tokens": 1000,
+                "model": "moonshotai/kimi-k2-instruct",
+                "max_tokens": 4096,
+                "temperature": 0.6,
+                "top_p": 0.9,
                 "messages": req.messages,
             },
             timeout=30,
