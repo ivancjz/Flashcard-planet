@@ -548,6 +548,35 @@ def admin_stats(
     }
 
 
+@router.get("/diag/ygo-verify")
+def admin_diag_ygo_verify(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    """Post-merge verification: scheduler_run_log + YGO asset counts."""
+    sched = db.execute(text("""
+        SELECT job_name, status, started_at, finished_at, records_written
+        FROM scheduler_run_log
+        WHERE job_name IN ('yugioh-ingestion', 'ingestion', 'signals')
+        ORDER BY started_at DESC
+        LIMIT 10
+    """)).fetchall()
+
+    assets = db.execute(text("""
+        SELECT metadata->>'set_code' AS set_code, COUNT(*) AS assets
+        FROM assets
+        WHERE external_id LIKE 'yugioh:%'
+        GROUP BY set_code
+        ORDER BY set_code
+    """)).fetchall()
+
+    return {
+        "scheduler_run_log": [dict(r._mapping) for r in sched],
+        "ygo_assets_by_set": [dict(r._mapping) for r in assets],
+        "ygo_total": sum(r.assets for r in assets),
+    }
+
+
 @router.get("/coverage")
 def admin_coverage(
     set_id: str = Query(..., description="Pokemon TCG set_id, e.g. swsh7"),
