@@ -86,7 +86,7 @@ async def agent_chat(req: AgentChatRequest):
                 "Content-Type": "application/json",
             },
             json={
-                "model": "llama-3.3-70b-versatile",
+                "model": "deepseek-r1-distill-llama-70b",
                 "max_tokens": 1000,
                 "messages": req.messages,
             },
