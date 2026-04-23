@@ -22,7 +22,7 @@ def web_stats(db: Session = Depends(get_database)):
 
     last_ingest = db.execute(text("""
         SELECT finished_at FROM scheduler_run_log
-        WHERE job_name = 'scheduled-ingestion' AND status = 'success'
+        WHERE job_name = 'ingestion' AND status = 'success'
         ORDER BY finished_at DESC LIMIT 1
     """)).scalar()
 
@@ -157,7 +157,7 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
             WHERE asset_id = a.id AND source = 'ebay_sold'
             ORDER BY captured_at DESC LIMIT 1
         ) ebay ON TRUE
-        WHERE a.id = :asset_id::uuid
+        WHERE a.id = CAST(:asset_id AS uuid)
     """), {"asset_id": asset_id}).fetchone()
 
     if not row:
@@ -169,7 +169,7 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
             AVG(price) FILTER (WHERE source = 'pokemon_tcg_api') AS tcg_price,
             AVG(price) FILTER (WHERE source = 'ebay_sold')       AS ebay_price
         FROM price_history
-        WHERE asset_id = :asset_id::uuid
+        WHERE asset_id = CAST(:asset_id AS uuid)
           AND captured_at >= NOW() - INTERVAL '30 days'
         GROUP BY DATE(captured_at)
         ORDER BY date ASC
