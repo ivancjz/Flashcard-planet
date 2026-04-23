@@ -5,7 +5,10 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
+import httpx
 import uvicorn
 
 from backend.app.api.router import api_router
@@ -59,6 +62,37 @@ app.include_router(api_router)
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok", "project": settings.project_name}
+
+
+_AGENT_HTML = Path(__file__).resolve().parent / "static" / "agent.html"
+
+
+@app.get("/agent")
+async def agent():
+    return FileResponse(str(_AGENT_HTML))
+
+
+class AgentChatRequest(BaseModel):
+    messages: list
+
+
+@app.post("/api/agent/chat")
+async def agent_chat(req: AgentChatRequest):
+    async with httpx.AsyncClient() as client:
+        res = await client.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {os.environ['GROQ_API_KEY']}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "max_tokens": 1000,
+                "messages": req.messages,
+            },
+            timeout=30,
+        )
+        return res.json()
 
 
 # SPA: serve all of frontend/dist/ at /.
