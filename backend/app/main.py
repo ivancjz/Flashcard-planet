@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
-import httpx
+from anthropic import AsyncAnthropic
 import uvicorn
 
 from backend.app.api.router import api_router
@@ -65,6 +65,7 @@ def healthz() -> dict[str, str]:
 
 
 _AGENT_HTML = Path(__file__).resolve().parent / "static" / "agent.html"
+anthropic_client = AsyncAnthropic()
 
 
 @app.get("/agent")
@@ -78,21 +79,23 @@ class AgentChatRequest(BaseModel):
 
 @app.post("/api/agent/chat")
 async def agent_chat(req: AgentChatRequest):
-    async with httpx.AsyncClient() as client:
-        res = await client.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {os.environ['GROQ_API_KEY']}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "deepseek-r1-distill-llama-70b",
-                "max_tokens": 1000,
-                "messages": req.messages,
-            },
-            timeout=30,
-        )
-        return res.json()
+    system = next((m["content"] for m in req.messages if m["role"] == "system"), "")
+    user_messages = [m for m in req.messages if m["role"] != "system"]
+
+    response = await anthropic_client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=1000,
+        system=system,
+        messages=user_messages,
+    )
+
+    return {
+        "choices": [{
+            "message": {
+                "content": response.content[0].text
+            }
+        }]
+    }
 
 
 # SPA: serve all of frontend/dist/ at /.
