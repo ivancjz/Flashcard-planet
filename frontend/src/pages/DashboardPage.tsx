@@ -6,18 +6,8 @@ import SignalBadge from '../components/SignalBadge'
 import CardArt from '../components/CardArt'
 import Sparkline from '../components/Sparkline'
 import { fetchStats, fetchCards, fetchTicker } from '../api/api'
-import { signalToMeta } from '../lib/utils'
+import { signalToMeta, formatDelta } from '../lib/utils'
 import type { Signal, CardSummary, MarketStats, TickerItem } from '../types/api'
-
-function formatDelta(pct: number | null): string {
-  if (pct == null) return '—'
-  const abs = Math.abs(pct)
-  if (abs > 999) return pct > 0 ? '>+999%' : '<-999%'
-  const sign = pct >= 0 ? '+' : '-'
-  const raw = abs.toFixed(1)
-  const clean = raw.endsWith('.0') ? raw.slice(0, -2) : raw
-  return `${sign}${clean}%`
-}
 
 type SortKey = 'change' | 'price' | 'volume'
 const FILTERS: Array<{ value: Signal | 'ALL'; label: string }> = [

@@ -4,7 +4,7 @@ import NavBar from '../components/NavBar'
 import CardArt from '../components/CardArt'
 import SignalBadge from '../components/SignalBadge'
 import { fetchCard } from '../api/api'
-import { signalToMeta } from '../lib/utils'
+import { signalToMeta, formatDelta } from '../lib/utils'
 import type { CardDetail, PricePoint } from '../types/api'
 
 const SIGNAL_DESCRIPTION: Record<string, string> = {
@@ -96,11 +96,13 @@ export default function CardDetailPage() {
   if (loading) return (
     <div>
       <NavBar />
-      <div className="page-content" style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 32 }}>
-        <div className="skeleton" style={{ height: 336 }} />
-        <div>
-          <div className="skeleton" style={{ height: 160, marginBottom: 16 }} />
-          <div className="skeleton" style={{ height: 200 }} />
+      <div className="page-content">
+        <div className="detail-grid">
+          <div className="skeleton" style={{ height: 336 }} />
+          <div>
+            <div className="skeleton" style={{ height: 160, marginBottom: 16 }} />
+            <div className="skeleton" style={{ height: 200 }} />
+          </div>
         </div>
       </div>
     </div>
@@ -119,10 +121,10 @@ export default function CardDetailPage() {
       <div className="page-content">
         <button className="btn btn-ghost btn-sm" onClick={() => nav('/market')} style={{ marginBottom: 24 }}>← Back to Market</button>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 32, alignItems: 'start' }}>
+        <div className="detail-grid">
           <div>
             <div className="holo float" style={{ marginBottom: 20 }}>
-              <CardArt name={card.name} type={card.card_type} rarity={card.rarity} size="lg" />
+              <CardArt name={card.name} type={card.card_type} rarity={card.rarity} imageUrl={card.image_url} size="lg" />
             </div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, marginBottom: 4 }}>{card.name}</h2>
             <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>{card.set_name}</div>
@@ -150,7 +152,7 @@ export default function CardDetailPage() {
               {[
                 { label: 'TCGPlayer', value: card.tcg_price != null ? `$${card.tcg_price.toFixed(2)}` : '—', color: 'var(--gold)' },
                 { label: 'eBay sold', value: card.ebay_price != null ? `$${card.ebay_price.toFixed(2)}` : '—', color: 'var(--breakout)' },
-                { label: 'Spread', value: card.spread_pct != null ? `${card.spread_pct.toFixed(1)}%` : '—', color: 'var(--text-secondary)' },
+                { label: 'Spread', value: card.spread_pct != null ? formatDelta(card.spread_pct) : '—', color: 'var(--text-secondary)' },
               ].map(tile => (
                 <div key={tile.label} className="surface" style={{ padding: '16px 20px' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>{tile.label}</div>
@@ -162,7 +164,7 @@ export default function CardDetailPage() {
             <div className="surface" style={{ padding: '12px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>24h change</span>
               <span className={up ? 'up' : 'down'} style={{ fontSize: 16, fontWeight: 700 }}>
-                {card.price_delta_pct != null ? `${up ? '+' : ''}${card.price_delta_pct.toFixed(1)}%` : '—'}
+                {formatDelta(card.price_delta_pct)}
               </span>
             </div>
 

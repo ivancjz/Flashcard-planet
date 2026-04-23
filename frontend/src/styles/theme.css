@@ -175,9 +175,38 @@ a { color: inherit; text-decoration: none; }
   padding: 32px 24px;
 }
 
+/* Landing hero: text left, floating cards right — stacks on mobile */
+.landing-hero-grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 48px;
+  align-items: center;
+}
+
+/* Card detail two-column layout — stacks on mobile */
+.detail-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 32px;
+  align-items: start;
+}
+
+@media (max-width: 640px) {
+  .landing-hero-grid {
+    grid-template-columns: 1fr;
+  }
+  .landing-hero-grid > :last-child {
+    display: none;
+  }
+}
+
 @media (max-width: 480px) {
   .page-content {
     padding: 20px 12px;
+  }
+  .detail-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
   }
 }
 

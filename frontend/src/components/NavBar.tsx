@@ -1,12 +1,19 @@
+import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getReadAlertIds } from '../lib/utils'
-import { MOCK_ALERTS } from '../lib/mockData'
+import { fetchAlerts } from '../api/api'
 
 export default function NavBar() {
   const nav = useNavigate()
   const { pathname } = useLocation()
-  const readIds = getReadAlertIds()
-  const hasUnread = MOCK_ALERTS.some(a => !readIds.has(a.id))
+  const [hasUnread, setHasUnread] = useState(false)
+
+  useEffect(() => {
+    fetchAlerts({ limit: 50 }).then(r => {
+      const readIds = getReadAlertIds()
+      setHasUnread(r.alerts.some(a => !readIds.has(a.id)))
+    }).catch(() => {})
+  }, [pathname])
 
   const link = (path: string, label: string, extra?: React.ReactNode) => (
     <span

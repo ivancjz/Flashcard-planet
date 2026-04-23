@@ -40,6 +40,16 @@ export function relativeTime(isoString: string): string {
   return `${Math.floor(h / 24)}d ago`
 }
 
+export function formatDelta(pct: number | null): string {
+  if (pct == null) return '—'
+  const abs = Math.abs(pct)
+  if (abs > 999) return pct > 0 ? '>+999%' : '<-999%'
+  const sign = pct >= 0 ? '+' : '-'
+  const raw = abs.toFixed(1)
+  const clean = raw.endsWith('.0') ? raw.slice(0, -2) : raw
+  return `${sign}${clean}%`
+}
+
 export function signalToMeta(signal: Signal): { label: string; badgeClass: string; color: string; rowGlow: string } {
   switch (signal) {
     case 'BREAKOUT':          return { label: '▲ Breakout', badgeClass: 'badge-breakout', color: 'var(--breakout)', rowGlow: 'rgba(34,197,94,0.05)' }

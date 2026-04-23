@@ -43,7 +43,7 @@ export default function LandingPage() {
 
       {/* Hero */}
       <div className="page-content" style={{ paddingTop: 60 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 48, alignItems: 'center' }}>
+        <div className="landing-hero-grid">
           {/* Left */}
           <div className="fade-up">
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16 }}>
@@ -60,7 +60,7 @@ export default function LandingPage() {
 
             {/* Stats row */}
             {stats && (
-              <div style={{ display: 'flex', gap: 32, marginBottom: 40 }}>
+              <div style={{ display: 'flex', gap: 32, marginBottom: 40, flexWrap: 'wrap' }}>
                 {[
                   { label: 'Cards tracked', value: stats.total_assets.toLocaleString() },
                   { label: 'Breakout signals', value: stats.signal_counts.BREAKOUT },
@@ -100,7 +100,7 @@ export default function LandingPage() {
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, marginBottom: 32, textAlign: 'center' }}>
             Built for serious collectors
           </h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
             {FEATURES.map(f => (
               <div key={f.title} className="surface" style={{ padding: 24 }}>
                 <div style={{ fontSize: 28, marginBottom: 12 }}>{f.icon}</div>

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import NavBar from '../components/NavBar'
 import SignalBadge from '../components/SignalBadge'
 import { fetchAlerts } from '../api/api'
-import { getReadAlertIds, markAlertRead, markAllAlertsRead, relativeTime, signalToMeta } from '../lib/utils'
+import { getReadAlertIds, markAlertRead, markAllAlertsRead, relativeTime, signalToMeta, formatDelta } from '../lib/utils'
 import type { AlertEvent } from '../types/api'
 
 type Filter = 'ALL' | 'UNREAD' | 'HIGH'
@@ -19,7 +19,8 @@ export default function AlertsPage() {
   const [readIds, setReadIds] = useState<Set<string>>(getReadAlertIds)
 
   const load = useCallback(() => {
-    fetchAlerts({ filter }).then(r => setAlerts(r.alerts))
+    // UNREAD is client-side only (read state is localStorage); pass ALL to API
+    fetchAlerts({ filter: filter === 'UNREAD' ? 'ALL' : filter }).then(r => setAlerts(r.alerts))
   }, [filter])
 
   useEffect(() => { load() }, [load])
@@ -36,6 +37,7 @@ export default function AlertsPage() {
   }
 
   const unreadCount = alerts.filter(a => !readIds.has(a.id)).length
+  const displayedAlerts = filter === 'UNREAD' ? alerts.filter(a => !readIds.has(a.id)) : alerts
 
   return (
     <div>
@@ -78,10 +80,10 @@ export default function AlertsPage() {
         </div>
 
         <div className="surface">
-          {alerts.length === 0 && (
+          {displayedAlerts.length === 0 && (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>No alerts match this filter.</div>
           )}
-          {alerts.map((alert, i) => {
+          {displayedAlerts.map((alert, i) => {
             const isRead = readIds.has(alert.id)
             const meta = signalToMeta(alert.current_signal)
             const prevMeta = alert.previous_signal ? signalToMeta(alert.previous_signal) : null
@@ -91,7 +93,7 @@ export default function AlertsPage() {
                 onClick={() => handleRead(alert.id)}
                 style={{
                   padding: '14px 20px',
-                  borderBottom: i < alerts.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                  borderBottom: i < displayedAlerts.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                   display: 'flex', alignItems: 'center', gap: 14,
                   cursor: 'pointer',
                   borderLeft: isRead ? '3px solid transparent' : `3px solid ${SEVERITY_COLOR[alert.severity]}`,
@@ -120,7 +122,7 @@ export default function AlertsPage() {
                     )}
                     {alert.price_delta_pct != null && (
                       <span style={{ marginLeft: 8 }} className={alert.price_delta_pct >= 0 ? 'up' : 'down'}>
-                        {alert.price_delta_pct >= 0 ? '+' : ''}{alert.price_delta_pct.toFixed(1)}%
+                        {formatDelta(alert.price_delta_pct)}
                       </span>
                     )}
                   </div>
