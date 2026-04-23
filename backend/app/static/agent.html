@@ -244,6 +244,10 @@ async function sendMessage() {
       })
     });
 
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+    }
     const data = await res.json();
     document.getElementById('thinking')?.remove();
 

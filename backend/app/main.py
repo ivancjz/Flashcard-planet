@@ -92,7 +92,7 @@ async def agent_chat(req: AgentChatRequest):
                 "top_p": 0.9,
                 "messages": req.messages,
             },
-            timeout=30,
+            timeout=120,
         )
         return res.json()
 
