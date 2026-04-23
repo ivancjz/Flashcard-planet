@@ -42,8 +42,10 @@ export default function DashboardPage() {
 
   useEffect(() => { fetchStats().then(setStats); fetchTicker().then(setTicker) }, [])
 
+  const LIVE_GAMES = ['pokemon', 'yugioh']
+
   useEffect(() => {
-    if (activeGame !== 'pokemon') return
+    if (!LIVE_GAMES.includes(activeGame)) return
     setLoading(true)
     fetchCards({ game: activeGame, signal, sort })
       .then(r => { setCards(r.cards); setLoading(false) })
@@ -108,11 +110,11 @@ export default function DashboardPage() {
         </div>
 
         {/* Card grid */}
-        {activeGame !== 'pokemon' ? (
+        {!LIVE_GAMES.includes(activeGame) ? (
           <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--text-muted)' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>⚔️</div>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🧙</div>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, color: 'var(--text-primary)', marginBottom: 8 }}>
-              {activeGame === 'yugioh' ? 'Yu-Gi-Oh' : activeGame} support is coming
+              {activeGame} support is coming
             </div>
             <div style={{ fontSize: 14 }}>Signal analysis for this game is in development.</div>
           </div>

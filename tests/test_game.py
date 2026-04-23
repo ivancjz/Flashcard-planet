@@ -42,9 +42,13 @@ class TestGameConfig(unittest.TestCase):
     def test_pokemon_is_live(self):
         self.assertEqual(GAME_CONFIG[Game.POKEMON].status, "live")
 
-    def test_non_pokemon_games_are_coming_soon(self):
+    def test_yugioh_is_live(self):
+        self.assertEqual(GAME_CONFIG[Game.YUGIOH].status, "live")
+
+    def test_non_live_games_are_coming_soon(self):
+        live_games = {Game.POKEMON, Game.YUGIOH}
         for game in Game:
-            if game is not Game.POKEMON:
+            if game not in live_games:
                 self.assertEqual(
                     GAME_CONFIG[game].status,
                     "coming_soon",

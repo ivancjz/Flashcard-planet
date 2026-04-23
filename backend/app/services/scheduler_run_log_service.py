@@ -24,6 +24,7 @@ JOB_SIGNALS      = "signals"
 JOB_EBAY         = "ebay-ingestion"
 JOB_BULK_REFRESH = "bulk-set-price-refresh"
 JOB_HEARTBEAT    = "alert-heartbeat"
+JOB_YGO          = "yugioh-ingestion"
 
 _KEEP_RUNS = 50
 

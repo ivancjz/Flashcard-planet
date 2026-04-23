@@ -16,6 +16,7 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_INGESTION,
     JOB_RETRY,
     JOB_SIGNALS,
+    JOB_YGO,
     finish_run,
     get_last_run,
     prune_old_runs,
@@ -47,6 +48,7 @@ _STARTUP_DELAY: dict[str, int] = {
     "signal-sweep":           600,   # 10 min
     "alert-heartbeat":        720,   # 12 min — receives first sweep result before sending
     "ebay-ingestion":         660,   # 11 min — after signal-sweep, before heartbeat reports it
+    "yugioh-ingestion":       780,   # 13 min — after heartbeat, YGO sets are small so runs fast
     # "retry-pass" intentionally omitted — resume separately when confidence is high
 }
 
@@ -757,6 +759,43 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
             prune_old_runs(_log_session, JOB_EBAY)
 
 
+def _run_ygo_ingestion() -> None:
+    from backend.app.ingestion.ygo import ingest_ygo_sets
+
+    with SessionLocal() as _log_session:
+        _run_id = start_run(_log_session, JOB_YGO)
+
+    _records = 0
+    _errors = 0
+    _error_message: str | None = None
+
+    try:
+        with SessionLocal() as session:
+            result = ingest_ygo_sets(session)
+        _records = result.price_points_inserted
+        if result.sets_failed:
+            _errors = len(result.sets_failed)
+            _error_message = f"Sets failed: {', '.join(result.sets_failed)}"
+        logger.info(
+            "yugioh_ingestion_complete assets_created=%s price_points=%s sets_failed=%s",
+            result.assets_created, result.price_points_inserted, result.sets_failed,
+        )
+    except Exception as exc:
+        _errors = 1
+        _error_message = str(exc)
+        logger.exception("yugioh_ingestion_failed")
+    finally:
+        with SessionLocal() as _log_session:
+            finish_run(
+                _log_session, _run_id,
+                status="success" if not _errors else "error",
+                records_written=_records,
+                errors=_errors,
+                error_message=_error_message,
+            )
+            prune_old_runs(_log_session, JOB_YGO)
+
+
 def _register_ebay_job(scheduler: BackgroundScheduler, settings: object) -> None:
     from backend.app.core.config import Settings
 
@@ -904,6 +943,18 @@ def build_scheduler() -> BackgroundScheduler:
     )
 
     _register_ebay_job(scheduler, settings)
+
+    scheduler.add_job(
+        _run_ygo_ingestion,
+        "interval",
+        hours=6,
+        id="yugioh-ingestion",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=None,
+    )
+
     return scheduler
 
 

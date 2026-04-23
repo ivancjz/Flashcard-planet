@@ -48,6 +48,41 @@ class YugiohClient:
         resp.raise_for_status()
         return [self._to_card_metadata(raw) for raw in resp.json()["data"]]
 
+    def fetch_set_entries(self, set_code: str) -> list[tuple[dict, dict]]:
+        """Return (raw_card, set_entry) pairs for a set, filtered to entries with real prices.
+
+        Each pair represents one investable asset: a specific card printing (set_code + rarity)
+        with a known market price. Entries where set_price is "0" or missing are skipped.
+        """
+        set_name = self._resolve_set_name(set_code)
+        resp = self.client.get(
+            f"{self.BASE_URL}/cardinfo.php",
+            params={"cardset": set_name, "misc": "yes"},
+        )
+        resp.raise_for_status()
+
+        prefix = f"{set_code}-"
+        results: list[tuple[dict, dict]] = []
+        for raw in resp.json()["data"]:
+            for entry in raw.get("card_sets") or []:
+                if not entry.get("set_code", "").startswith(prefix):
+                    continue
+                price_str = entry.get("set_price") or "0"
+                try:
+                    price = float(price_str)
+                except ValueError:
+                    continue
+                if price <= 0:
+                    continue
+                results.append((raw, entry))
+        return results
+
+    @staticmethod
+    def make_external_id(konami_id: int, set_entry_code: str, rarity: str) -> str:
+        """Canonical external_id for a YGO asset: yugioh:{konami_id}:{set_code}:{rarity_slug}."""
+        rarity_slug = rarity.lower().replace(" ", "_").replace("/", "_")
+        return f"yugioh:{konami_id}:{set_entry_code}:{rarity_slug}"
+
     def _resolve_set_name(self, set_code: str) -> str:
         """Map abbreviated set code to the full name that cardinfo.php's cardset param requires."""
         if self._set_code_map is None:

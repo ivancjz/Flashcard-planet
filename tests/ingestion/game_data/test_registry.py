@@ -100,10 +100,12 @@ class TestRegistryAllLiveGames:
     def test_all_live_games_returns_only_live_status(self):
         from backend.app.ingestion.game_data.registry import GameDataClientRegistry
         GameDataClientRegistry.register(_MockClient(Game.POKEMON))   # live
-        GameDataClientRegistry.register(_MockClient(Game.YUGIOH))    # coming_soon
+        GameDataClientRegistry.register(_MockClient(Game.YUGIOH))    # live (activated in Phase 2)
+        GameDataClientRegistry.register(_MockClient(Game.MTG))       # coming_soon
         live = GameDataClientRegistry.all_live_games()
         assert Game.POKEMON in live
-        assert Game.YUGIOH not in live
+        assert Game.YUGIOH in live
+        assert Game.MTG not in live
 
     def test_all_live_games_empty_when_no_clients_registered(self):
         from backend.app.ingestion.game_data.registry import GameDataClientRegistry

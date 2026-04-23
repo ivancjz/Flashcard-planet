@@ -37,7 +37,7 @@ GAME_CONFIG: dict[Game, GameMetadata] = {
     ),
     Game.YUGIOH: GameMetadata(
         display_name="Yu-Gi-Oh!",
-        status="coming_soon",
+        status="live",
         native_franchise="yu_gi_oh",
         # eBay: Collectible Card Games > Yu-Gi-Oh! > Individual Cards
         ebay_category_id="183454",

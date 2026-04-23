@@ -4,7 +4,7 @@ type Game = { id: string; label: string; icon: string; status: 'active' | 'comin
 
 const GAMES: Game[] = [
   { id: 'pokemon',  label: 'Pokémon',              icon: '🎴', status: 'active' },
-  { id: 'yugioh',   label: 'Yu-Gi-Oh',             icon: '⚔️', status: 'coming_soon' },
+  { id: 'yugioh',   label: 'Yu-Gi-Oh',             icon: '⚔️', status: 'active' },
   { id: 'mtg',      label: 'Magic: The Gathering',  icon: '🧙', status: 'coming_soon' },
   { id: 'onepiece', label: 'One Piece',             icon: '☠️', status: 'coming_soon' },
   { id: 'lorcana',  label: 'Lorcana',               icon: '✨', status: 'coming_soon' },
