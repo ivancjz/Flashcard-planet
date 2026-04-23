@@ -202,12 +202,17 @@ def _iqr_bounds(prices: list[Decimal]) -> tuple[Decimal, Decimal]:
     return q1 - multiplier * iqr, q3 + multiplier * iqr
 
 
+_UNGRADED_EXCLUSIONS = ["-PSA", "-BGS", "-CGC", "-SGC", "-GMA", "-graded", "-slab"]
+
+
 def _build_search_query(asset: Asset) -> str:
     parts = ["Pokemon", asset.name]
     if asset.set_name:
         parts.append(asset.set_name)
     if asset.grade_company and asset.grade_score:
         parts.append(f"{asset.grade_company} {int(asset.grade_score)}")
+    else:
+        parts.extend(_UNGRADED_EXCLUSIONS)
     return " ".join(parts)
 
 
