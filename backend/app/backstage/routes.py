@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Form, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, Header, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
@@ -545,4 +545,41 @@ def admin_stats(
             "latest_computed_at": latest_signal_at_val.isoformat() if latest_signal_at_val else None,
         },
         "scheduler": scheduler,
+    }
+
+
+@router.get("/coverage")
+def admin_coverage(
+    set_id: str = Query(..., description="Pokemon TCG set_id, e.g. swsh7"),
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    """eBay and TCG API price coverage for a given set."""
+    from sqlalchemy import exists
+
+    total = db.query(func.count(Asset.id)).filter(Asset.metadata["set_id"].as_string() == set_id).scalar() or 0
+
+    def _covered(source: str) -> int:
+        return (
+            db.query(func.count(Asset.id))
+            .filter(
+                Asset.metadata["set_id"].as_string() == set_id,
+                exists().where(
+                    (PriceHistory.asset_id == Asset.id) & (PriceHistory.source == source)
+                ),
+            )
+            .scalar()
+            or 0
+        )
+
+    ebay = _covered("ebay_sold")
+    tcg = _covered("pokemon_tcg_api")
+
+    return {
+        "set_id": set_id,
+        "total_assets": total,
+        "ebay_sold_covered": ebay,
+        "ebay_sold_pct": round(ebay / total * 100, 1) if total else 0,
+        "pokemon_tcg_api_covered": tcg,
+        "pokemon_tcg_api_pct": round(tcg / total * 100, 1) if total else 0,
     }
