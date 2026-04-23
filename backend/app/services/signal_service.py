@@ -149,7 +149,14 @@ def classify_signal(
     ):
         return SignalLabel.MOVE
 
-    if prediction in ("Up", "Down") and history_depth >= WATCH_MIN_HISTORY:
+    # WATCH requires non-negative delta — a falling card is never WATCH regardless
+    # of its directional prediction. Negative delta → IDLE, full stop.
+    if (
+        prediction in ("Up", "Down")
+        and history_depth >= WATCH_MIN_HISTORY
+        and price_delta_pct is not None
+        and price_delta_pct >= 0
+    ):
         return SignalLabel.WATCH
 
     return SignalLabel.IDLE
@@ -169,11 +176,13 @@ def _apply_signal_downgrade(
     Downgrade is chained (BREAKOUT→MOVE→WATCH→IDLE), never a jump.
     Returns (final_label, downgrade_reason | None).
     """
-    # Bulk gate: a card cheap historically produces noise deltas (e.g. $0.09 TCG → $12
-    # single eBay sale = 12000% BREAKOUT). Baseline price is the more stable indicator
-    # of card tier than the current eBay price, which may be a single outlier sale.
-    if candidate in (SignalLabel.BREAKOUT, SignalLabel.MOVE) and baseline_price < SIGNAL_BULK_FLOOR_PRICE:
-        return SignalLabel.IDLE, "bulk_baseline_price"
+    # Bulk gate: any signal from a card whose historical baseline is below $0.50 is
+    # noise (e.g. $0.09 TCG → $12 single eBay sale). Applies to all candidates, not
+    # just BREAKOUT/MOVE — a WATCH on a $0.04 card is equally meaningless.
+    # Returns INSUFFICIENT_DATA so delta is nulled and card sinks to the bottom of
+    # sort-by-change (NULLS LAST) rather than cluttering the top.
+    if baseline_price < SIGNAL_BULK_FLOOR_PRICE:
+        return SignalLabel.INSUFFICIENT_DATA, "bulk_baseline_price"
 
     breakout_min_price = Decimal(str(settings.signal_breakout_min_price_usd))
     move_min_price = Decimal(str(settings.signal_move_min_price_usd))
@@ -635,9 +644,9 @@ def _process_batch(
             ctx["original_candidate_label"] = candidate.value
             ctx["downgrade_reason"] = downgrade_reason
 
-        # Bulk-downgraded cards: delta is noise (e.g. $0.18 TCG vs $140 one-off eBay
-        # sale = 77678%). Storing it causes these IDLE cards to sort to the top of
-        # the dashboard. Null it out so they sort to the bottom (NULLS LAST).
+        # Bulk-downgraded cards become INSUFFICIENT_DATA with null delta so they
+        # sink to the bottom of sort-by-change (NULLS LAST) rather than polluting
+        # the top with noise like +77678%.
         stored_delta = None if downgrade_reason == "bulk_baseline_price" else delta
 
         signal = SignalRow(
@@ -659,6 +668,8 @@ def _process_batch(
             result.move += 1
         elif label == SignalLabel.WATCH:
             result.watch += 1
+        elif label == SignalLabel.INSUFFICIENT_DATA:
+            result.insufficient_data += 1
         else:
             result.idle += 1
 
