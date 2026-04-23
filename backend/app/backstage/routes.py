@@ -548,6 +548,33 @@ def admin_stats(
     }
 
 
+@router.get("/diag/ingestion-history")
+def admin_diag_ingestion_history(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    """Historical ingestion activity to diagnose crash loop onset."""
+    window = db.execute(text("""
+        SELECT job_name, status, started_at, finished_at, records_written, errors, error_message
+        FROM scheduler_run_log
+        WHERE started_at BETWEEN '2026-04-23 11:30'::timestamptz AND '2026-04-23 14:30'::timestamptz
+        ORDER BY started_at ASC
+    """)).fetchall()
+
+    last_success = db.execute(text("""
+        SELECT started_at, finished_at, records_written
+        FROM scheduler_run_log
+        WHERE job_name = 'ingestion' AND status = 'success'
+        ORDER BY started_at DESC
+        LIMIT 3
+    """)).fetchall()
+
+    return {
+        "window_11:30_to_14:30": [dict(r._mapping) for r in window],
+        "ingestion_last_success": [dict(r._mapping) for r in last_success],
+    }
+
+
 @router.get("/diag/ygo-verify")
 def admin_diag_ygo_verify(
     _: None = Depends(require_admin_key),
