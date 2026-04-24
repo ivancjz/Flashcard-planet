@@ -25,6 +25,8 @@ export default function CardArt({ name, type, rarity, imageUrl, size = 'md' }: C
       <img
         src={imageUrl}
         alt={name}
+        loading="lazy"
+        decoding="async"
         width={w}
         height={h}
         style={{ borderRadius: 8, display: 'block', flexShrink: 0, objectFit: 'cover' }}
