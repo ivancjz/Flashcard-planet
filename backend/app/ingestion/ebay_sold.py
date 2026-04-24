@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from xml.etree import ElementTree
@@ -191,6 +192,79 @@ def _is_grade_compatible(title: str, asset: Asset) -> bool:
         return not has_grade_keyword
 
 
+# Patterns that indicate a booster pack, sealed product, or multi-card lot.
+# "&" is intentionally excluded — it appears in legitimate single-card names
+# like "Pikachu & Friends promo".
+_MULTI_CARD_PATTERN = re.compile(
+    r"""(?:
+      \bbooster\b                              # booster pack / box
+    | \bsealed\s+(?:pack|booster|box)\b        # sealed pack / booster / box
+    | \bcard\s+lot\b                           # "card lot"
+    | \bcards\b                                # plural "cards" (multi-card listing)
+    | \b(?:2x|3x|4x|5x|\d+x)\s+cards?\b       # "2x cards", "3x card"
+    | \b(?:two|three|four|five)\s+cards?\b     # "two cards", "three card"
+    | \b\d+\s+cards\b                          # "5 cards" (numeric quantity)
+    )""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _is_single_card(title: str) -> bool:
+    """Return False when the listing title indicates a multi-card lot or sealed product."""
+    return not bool(_MULTI_CARD_PATTERN.search(title))
+
+
+# Matches "X/Y" card number patterns in listing titles (e.g. "2/102", "215/203").
+_CARD_NUM_PATTERN = re.compile(r"\b(\d+)/(\d+)\b")
+
+
+def _card_number_matches(title: str, asset: "Asset") -> bool:
+    """Return False when the title's explicit card number (X/Y) conflicts with the asset.
+
+    Only rejects if the title contains a card number AND it doesn't match the asset's
+    card_number.  When the title has the same card position (X) but a different set size
+    (Y), that indicates a different printing (e.g. Base Set 2 vs Base Set) and is rejected.
+    Titles with no card number are allowed through unchanged.
+    """
+    if not asset.card_number:
+        return True
+
+    try:
+        asset_num = int(asset.card_number)
+    except (ValueError, TypeError):
+        return True  # Non-numeric (e.g. "SM1") — skip validation
+
+    title_pairs = _CARD_NUM_PATTERN.findall(title)
+    if not title_pairs:
+        return True  # No card number in title — cannot validate, allow
+
+    # Extract expected set total from metadata (Pokemon TCG API stores set.total / set.printedTotal)
+    set_total: int | None = None
+    if asset.metadata_json:
+        set_info = asset.metadata_json.get("set") or {}
+        raw_total = set_info.get("printedTotal") or set_info.get("total")
+        if raw_total is not None:
+            try:
+                set_total = int(raw_total)
+            except (ValueError, TypeError):
+                pass
+
+    for num_str, total_str in title_pairs:
+        try:
+            title_num = int(num_str)
+            title_total = int(total_str)
+        except ValueError:
+            continue
+        if title_num != asset_num:
+            continue  # Different card number — keep checking
+        # Card number matches; validate set size if we have it
+        if set_total is not None and title_total != set_total:
+            continue  # Same card position but different set (e.g. 2/130 ≠ 2/102)
+        return True  # Match confirmed (or set total unavailable, allow)
+
+    return False  # All card numbers in title failed to match
+
+
 def _iqr_bounds(prices: list[Decimal]) -> tuple[Decimal, Decimal]:
     """Return (lower, upper) IQR-based outlier bounds for a list of prices."""
     sorted_prices = sorted(prices)
@@ -342,13 +416,19 @@ def ingest_ebay_sold_cards(
             )
             result.cards_processed += 1
 
-            # --- Filter: card name in title + grade compatibility ---
+            # --- Filter: single card check, preflight, name, grade, card number ---
             candidates: list[tuple[dict[str, str], datetime, Decimal]] = []
             for listing in raw_listings:
                 captured_at = _parse_iso_datetime(listing["captured_at"])
                 if captured_at is None or captured_at < lookback_cutoff:
                     continue
                 title = listing["title"]
+                if not _is_single_card(title):
+                    result.observations_unmatched += 1
+                    result.observation_match_status_counts["unmatched_multi_card"] = (
+                        result.observation_match_status_counts.get("unmatched_multi_card", 0) + 1
+                    )
+                    continue
                 _pf = preflight_observation(title)
                 if _pf.should_skip:
                     result.observations_unmatched += 1
@@ -368,6 +448,12 @@ def ingest_ebay_sold_cards(
                     result.observations_unmatched += 1
                     result.observation_match_status_counts["unmatched_grade_mismatch"] = (
                         result.observation_match_status_counts.get("unmatched_grade_mismatch", 0) + 1
+                    )
+                    continue
+                if not _card_number_matches(title, asset):
+                    result.observations_unmatched += 1
+                    result.observation_match_status_counts["unmatched_card_number_mismatch"] = (
+                        result.observation_match_status_counts.get("unmatched_card_number_mismatch", 0) + 1
                     )
                     continue
                 try:
