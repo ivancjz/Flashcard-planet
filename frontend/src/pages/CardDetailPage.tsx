@@ -16,58 +16,131 @@ const SIGNAL_DESCRIPTION: Record<string, string> = {
   INSUFFICIENT_DATA: 'Not enough recent sales data to compute a reliable signal.',
 }
 
-function AreaChart({ data }: { data: PricePoint[] }) {
-  const W = 560, H = 160
-  const PAD = { top: 12, right: 12, bottom: 28, left: 48 }
+function NormalizedChart({ data }: { data: PricePoint[] }) {
+  const W = 560, H = 180
+  const PAD = { top: 16, right: 16, bottom: 28, left: 52 }
   const IW = W - PAD.left - PAD.right
   const IH = H - PAD.top - PAD.bottom
 
-  const allPrices = data.flatMap(d => [d.tcg_price, d.ebay_price]).filter((v): v is number => v != null)
-  if (allPrices.length === 0) return <div style={{ color: 'var(--text-muted)', padding: 20 }}>No price history available.</div>
-
-  const minP = Math.min(...allPrices)
-  const maxP = Math.max(...allPrices)
-  const range = maxP - minP || 1
-  const xOf = (i: number) => (i / Math.max(data.length - 1, 1)) * IW
-  const yOf = (p: number) => IH - ((p - minP) / range) * IH
-
-  const linePoints = (prices: (number | null)[]) =>
-    prices.map((p, i) => p != null ? `${xOf(i)},${yOf(p)}` : null).filter(Boolean).join(' L ')
-
-  const areaPath = (prices: (number | null)[]) => {
-    const pts = prices.map((p, i) => p != null ? [xOf(i), yOf(p)] as [number, number] : null).filter((x): x is [number, number] => x != null)
-    if (!pts.length) return ''
-    return `M ${pts[0][0]},${IH} L ${pts.map(([x, y]) => `${x},${y}`).join(' L ')} L ${pts[pts.length - 1][0]},${IH} Z`
+  // Normalise a price series to % change from first valid (non-null, non-zero) price.
+  function normalize(prices: (number | null)[]): (number | null)[] {
+    const baseline = prices.find(p => p != null && p > 0)
+    if (baseline == null) return prices.map(() => null)
+    return prices.map(p => (p != null && p > 0 ? ((p - baseline) / baseline) * 100 : null))
   }
 
-  const tcgPrices = data.map(d => d.tcg_price)
-  const ebayPrices = data.map(d => d.ebay_price)
+  const tcgRaw = data.map(d => d.tcg_price)
+  const ebayRaw = data.map(d => d.ebay_price)
+  const tcgPct = normalize(tcgRaw)
+  const ebayPct = normalize(ebayRaw)
+  const tcgValid = tcgPct.filter(p => p != null).length >= 2
+  const ebayValid = ebayPct.filter(p => p != null).length >= 2
+
+  if (!tcgValid && !ebayValid) {
+    return (
+      <div style={{ height: H, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+        No price history available
+      </div>
+    )
+  }
+
+  const allPcts = [...tcgPct, ...ebayPct].filter((p): p is number => p != null)
+  const minY = Math.min(0, ...allPcts)
+  const maxY = Math.max(0, ...allPcts)
+  const rangeY = maxY - minY || 1
+
+  const xOf = (i: number) => (i / Math.max(data.length - 1, 1)) * IW
+  const yOf = (pct: number) => IH - ((pct - minY) / rangeY) * IH
+  // Clamp zero line to chart bounds — avoids overflow when all values are same sign
+  const zeroY = Math.min(IH, Math.max(0, yOf(0)))
+
+  function buildLinePath(pcts: (number | null)[]): string {
+    const cmds: string[] = []
+    let pen = false
+    for (let i = 0; i < pcts.length; i++) {
+      const p = pcts[i]
+      if (p != null) {
+        cmds.push(pen ? `L ${xOf(i)},${yOf(p)}` : `M ${xOf(i)},${yOf(p)}`)
+        pen = true
+      } else {
+        pen = false
+      }
+    }
+    return cmds.join(' ')
+  }
+
+  function buildAreaPath(pcts: (number | null)[]): string {
+    const pts = pcts
+      .map((p, i) => (p != null ? ([xOf(i), yOf(p)] as [number, number]) : null))
+      .filter((x): x is [number, number] => x != null)
+    if (pts.length < 2) return ''
+    return `M ${pts[0][0]},${zeroY} L ${pts.map(([x, y]) => `${x},${y}`).join(' L ')} L ${pts[pts.length - 1][0]},${zeroY} Z`
+  }
+
+  // Y-axis tick generation that always includes 0
+  const range = maxY - minY
+  const rawStep = range / 4
+  const mag = Math.pow(10, Math.floor(Math.log10(rawStep || 1)))
+  const tickStep = Math.ceil(rawStep / mag) * mag || 5
+  const ticks = new Set<number>([0])
+  for (let t = Math.floor(minY / tickStep) * tickStep; t <= maxY + tickStep; t += tickStep) ticks.add(Math.round(t))
+  const sortedTicks = [...ticks].filter(t => t >= minY - tickStep * 0.1 && t <= maxY + tickStep * 0.1).sort((a, b) => a - b)
+
   const lastIdx = data.length - 1
 
   return (
     <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}>
       <defs>
-        <linearGradient id="tcg-area" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--gold)" stopOpacity="0.3" />
+        <linearGradient id="tcg-norm-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--gold)" stopOpacity="0.22" />
           <stop offset="100%" stopColor="var(--gold)" stopOpacity="0" />
         </linearGradient>
-        <linearGradient id="ebay-area" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--breakout)" stopOpacity="0.15" />
+        <linearGradient id="ebay-norm-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--breakout)" stopOpacity="0.12" />
           <stop offset="100%" stopColor="var(--breakout)" stopOpacity="0" />
         </linearGradient>
       </defs>
       <g transform={`translate(${PAD.left},${PAD.top})`}>
-        {[minP, (minP + maxP) / 2, maxP].map((p, i) => (
-          <text key={i} x={-6} y={yOf(p) + 4} textAnchor="end" fontSize={9} fontFamily="'Space Mono', monospace" fill="var(--text-muted)">
-            ${p.toFixed(0)}
+        {/* Zero reference line */}
+        <line x1={0} y1={zeroY} x2={IW} y2={zeroY} stroke="rgba(255,255,255,0.18)" strokeWidth={1} strokeDasharray="4 3" />
+
+        {/* Y-axis ticks */}
+        {sortedTicks.map(t => (
+          <text key={t} x={-6} y={yOf(t) + 4} textAnchor="end" fontSize={9} fontFamily="'Space Mono', monospace"
+            fill={t === 0 ? 'var(--text-secondary)' : 'var(--text-muted)'}>
+            {t >= 0 ? `+${t}%` : `${t}%`}
           </text>
         ))}
-        {areaPath(ebayPrices) && <path d={areaPath(ebayPrices)} fill="url(#ebay-area)" />}
-        {linePoints(ebayPrices) && <path d={`M ${linePoints(ebayPrices)}`} fill="none" stroke="var(--breakout)" strokeWidth={1.5} strokeDasharray="4 2" opacity={0.7} />}
-        {areaPath(tcgPrices) && <path d={areaPath(tcgPrices)} fill="url(#tcg-area)" />}
-        {linePoints(tcgPrices) && <path d={`M ${linePoints(tcgPrices)}`} fill="none" stroke="var(--gold)" strokeWidth={2} />}
-        {tcgPrices[lastIdx] != null && <circle cx={xOf(lastIdx)} cy={yOf(tcgPrices[lastIdx]!)} r={4} fill="var(--gold)" stroke="var(--bg-base)" strokeWidth={2} />}
-        {ebayPrices[lastIdx] != null && <circle cx={xOf(lastIdx)} cy={yOf(ebayPrices[lastIdx]!)} r={3} fill="var(--breakout)" stroke="var(--bg-base)" strokeWidth={1.5} />}
+
+        {/* eBay series */}
+        {ebayValid && (() => {
+          const area = buildAreaPath(ebayPct)
+          const line = buildLinePath(ebayPct)
+          const last = ebayPct[lastIdx]
+          return (
+            <>
+              {area && <path d={area} fill="url(#ebay-norm-grad)" />}
+              {line && <path d={line} fill="none" stroke="var(--breakout)" strokeWidth={1.5} strokeDasharray="4 2" opacity={0.8} />}
+              {last != null && <circle cx={xOf(lastIdx)} cy={yOf(last)} r={3} fill="var(--breakout)" stroke="var(--bg-base)" strokeWidth={1.5} />}
+            </>
+          )
+        })()}
+
+        {/* TCG series */}
+        {tcgValid && (() => {
+          const area = buildAreaPath(tcgPct)
+          const line = buildLinePath(tcgPct)
+          const last = tcgPct[lastIdx]
+          return (
+            <>
+              {area && <path d={area} fill="url(#tcg-norm-grad)" />}
+              {line && <path d={line} fill="none" stroke="var(--gold)" strokeWidth={2} />}
+              {last != null && <circle cx={xOf(lastIdx)} cy={yOf(last)} r={4} fill="var(--gold)" stroke="var(--bg-base)" strokeWidth={2} />}
+            </>
+          )
+        })()}
+
+        {/* X-axis date labels */}
         {[0, Math.floor(data.length / 2), lastIdx].map(i => (
           <text key={i} x={xOf(i)} y={IH + 18} textAnchor="middle" fontSize={9} fontFamily="'Space Mono', monospace" fill="var(--text-muted)">
             {data[i]?.date?.slice(5)}
@@ -170,11 +243,14 @@ export default function CardDetailPage() {
             </div>
 
             <div className="surface" style={{ padding: 20, marginBottom: 20 }}>
-              <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
-                <span style={{ fontSize: 12, color: 'var(--gold)' }}>— TCGPlayer</span>
-                <span style={{ fontSize: 12, color: 'var(--breakout)' }}>-- eBay sold</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Price Trend (% change from first data point)</span>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <span style={{ fontSize: 11, color: 'var(--gold)' }}>— TCGPlayer</span>
+                  <span style={{ fontSize: 11, color: 'var(--breakout)' }}>-- eBay sold</span>
+                </div>
               </div>
-              <AreaChart data={card.price_history} />
+              <NormalizedChart data={card.price_history} />
             </div>
 
             <div className="surface" style={{ padding: 20, borderLeft: `4px solid ${meta.color}` }}>
