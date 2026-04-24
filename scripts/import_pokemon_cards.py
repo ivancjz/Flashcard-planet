@@ -300,6 +300,11 @@ def build_asset_payload(card: dict[str, Any]) -> dict[str, Any]:
             "pokemon_tcg_card_id": card["id"],
             "set_id": (card.get("set") or {}).get("id"),
             "release_date": (card.get("set") or {}).get("releaseDate"),
+            "set": {
+                "id": (card.get("set") or {}).get("id"),
+                "name": (card.get("set") or {}).get("name"),
+                "total": (card.get("set") or {}).get("total"),
+            },
             "rarity": card.get("rarity"),
             "subtypes": card.get("subtypes") or [],
             "supertype": card.get("supertype"),

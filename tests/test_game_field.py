@@ -118,6 +118,25 @@ class TestImportPokemonCardsDualWrite(unittest.TestCase):
         payload = script.build_asset_payload(self._make_card())
         self.assertNotIn("category", payload)
 
+    def test_build_asset_payload_stores_set_total_in_nested_set(self):
+        # Mirrors pokemon_tcg.py — set.total must activate _card_number_matches set-identity
+        import scripts.import_pokemon_cards as script
+        card = self._make_card()
+        card["set"]["total"] = 102
+        payload = script.build_asset_payload(card)
+        meta = payload["metadata_json"]
+        self.assertIn("set", meta)
+        self.assertIsInstance(meta["set"], dict)
+        self.assertEqual(meta["set"]["total"], 102)
+
+    def test_build_asset_payload_set_total_none_when_missing(self):
+        import scripts.import_pokemon_cards as script
+        card = self._make_card()  # no total field
+        payload = script.build_asset_payload(card)
+        meta = payload["metadata_json"]
+        self.assertIn("set", meta)
+        self.assertIsNone(meta["set"].get("total"))
+
 
 # ── d. Asset ORM model ────────────────────────────────────────────────────────
 
