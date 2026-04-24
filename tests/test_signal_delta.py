@@ -308,10 +308,12 @@ class TestClassifySignalUnchanged(unittest.TestCase):
         self.assertEqual(result, SignalLabel.MOVE)
 
     def test_watch(self):
+        # WATCH requires price_delta_pct >= 0 (cd64b4f: falling cards are never WATCH).
+        # Use 2.0% — below MOVE_DELTA_MIN (5%) but non-negative.
         from backend.app.models.enums import SignalLabel
         result = self._classify(
             alert_confidence=None,
-            price_delta_pct=None,
+            price_delta_pct=Decimal("2.0"),
             liquidity_score=30,
             prediction="Up",
             history_depth=4,
@@ -342,12 +344,13 @@ class TestApplySignalDowngrade(unittest.TestCase):
       signal_move_min_baseline_n     = 2
     """
 
-    def _downgrade(self, candidate, price, baseline_n):
+    def _downgrade(self, candidate, price, baseline_n, baseline_price="1.00"):
         from backend.app.services.signal_service import _apply_signal_downgrade
         from backend.app.models.enums import SignalLabel
         return _apply_signal_downgrade(
             candidate,
             current_price=Decimal(str(price)),
+            baseline_price=Decimal(str(baseline_price)),
             baseline_n=baseline_n,
         )
 
