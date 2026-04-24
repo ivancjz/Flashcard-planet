@@ -19,7 +19,7 @@ const SIGNAL_DESCRIPTION: Record<string, string> = {
 function NormalizedChart({ data }: { data: PricePoint[] }) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
-  const svgRef = useRef<SVGSVGElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   const W = 560, H = 180
   const PAD = { top: 16, right: 16, bottom: 28, left: 52 }
@@ -89,10 +89,10 @@ function NormalizedChart({ data }: { data: PricePoint[] }) {
 
   const lastIdx = data.length - 1
 
-  function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
-    const svg = svgRef.current
-    if (!svg || lastIdx < 1) return
-    const rect = svg.getBoundingClientRect()
+  function handleMouseMove(e: React.MouseEvent<HTMLDivElement>) {
+    const container = containerRef.current
+    if (!container || lastIdx < 1) return
+    const rect = container.getBoundingClientRect()
     const innerX = (e.clientX - rect.left) * (W / rect.width) - PAD.left
     const idx = Math.max(0, Math.min(lastIdx, Math.round((innerX / IW) * lastIdx)))
     setHoveredIdx(idx)
@@ -115,14 +115,16 @@ function NormalizedChart({ data }: { data: PricePoint[] }) {
   const tooltipTop = Math.max(4, mousePos.y - 56)
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div
+      ref={containerRef}
+      style={{ position: 'relative', cursor: 'crosshair' }}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={() => setHoveredIdx(null)}
+    >
       <svg
-        ref={svgRef}
         width="100%"
         viewBox={`0 0 ${W} ${H}`}
-        style={{ display: 'block', cursor: 'crosshair' }}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={() => setHoveredIdx(null)}
+        style={{ display: 'block' }}
       >
         <defs>
           <linearGradient id="tcg-norm-grad" x1="0" y1="0" x2="0" y2="1">
