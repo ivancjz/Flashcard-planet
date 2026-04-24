@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import NavBar from '../components/NavBar'
 import CardArt from '../components/CardArt'
@@ -17,12 +17,15 @@ const SIGNAL_DESCRIPTION: Record<string, string> = {
 }
 
 function NormalizedChart({ data }: { data: PricePoint[] }) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
+  const svgRef = useRef<SVGSVGElement>(null)
+
   const W = 560, H = 180
   const PAD = { top: 16, right: 16, bottom: 28, left: 52 }
   const IW = W - PAD.left - PAD.right
   const IH = H - PAD.top - PAD.bottom
 
-  // Normalise a price series to % change from first valid (non-null, non-zero) price.
   function normalize(prices: (number | null)[]): (number | null)[] {
     const baseline = prices.find(p => p != null && p > 0)
     if (baseline == null) return prices.map(() => null)
@@ -51,7 +54,6 @@ function NormalizedChart({ data }: { data: PricePoint[] }) {
 
   const xOf = (i: number) => (i / Math.max(data.length - 1, 1)) * IW
   const yOf = (pct: number) => IH - ((pct - minY) / rangeY) * IH
-  // Clamp zero line to chart bounds — avoids overflow when all values are same sign
   const zeroY = Math.min(IH, Math.max(0, yOf(0)))
 
   function buildLinePath(pcts: (number | null)[]): string {
@@ -77,7 +79,6 @@ function NormalizedChart({ data }: { data: PricePoint[] }) {
     return `M ${pts[0][0]},${zeroY} L ${pts.map(([x, y]) => `${x},${y}`).join(' L ')} L ${pts[pts.length - 1][0]},${zeroY} Z`
   }
 
-  // Y-axis tick generation that always includes 0
   const range = maxY - minY
   const rawStep = range / 4
   const mag = Math.pow(10, Math.floor(Math.log10(rawStep || 1)))
@@ -88,66 +89,153 @@ function NormalizedChart({ data }: { data: PricePoint[] }) {
 
   const lastIdx = data.length - 1
 
+  function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
+    const svg = svgRef.current
+    if (!svg || lastIdx < 1) return
+    const rect = svg.getBoundingClientRect()
+    const innerX = (e.clientX - rect.left) * (W / rect.width) - PAD.left
+    const idx = Math.max(0, Math.min(lastIdx, Math.round((innerX / IW) * lastIdx)))
+    setHoveredIdx(idx)
+    setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+  }
+
+  const hPoint = hoveredIdx != null ? data[hoveredIdx] : null
+  const hTcgRaw = hoveredIdx != null ? tcgRaw[hoveredIdx] : null
+  const hEbayRaw = hoveredIdx != null ? ebayRaw[hoveredIdx] : null
+  const hTcgPct = hoveredIdx != null ? tcgPct[hoveredIdx] : null
+  const hEbayPct = hoveredIdx != null ? ebayPct[hoveredIdx] : null
+  const showTooltip = hPoint != null && (hTcgPct != null || hEbayPct != null)
+
+  const fmtPct = (p: number) => (p >= 0 ? `+${p.toFixed(1)}%` : `${p.toFixed(1)}%`)
+  const fmtPrice = (p: number) => `$${p.toFixed(2)}`
+
+  // Flip tooltip to left side when hovering the right 60% of the chart
+  const flipLeft = hoveredIdx != null && hoveredIdx > data.length * 0.6
+  const tooltipLeft = flipLeft ? mousePos.x - 164 : mousePos.x + 14
+  const tooltipTop = Math.max(4, mousePos.y - 56)
+
   return (
-    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}>
-      <defs>
-        <linearGradient id="tcg-norm-grad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--gold)" stopOpacity="0.22" />
-          <stop offset="100%" stopColor="var(--gold)" stopOpacity="0" />
-        </linearGradient>
-        <linearGradient id="ebay-norm-grad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--breakout)" stopOpacity="0.12" />
-          <stop offset="100%" stopColor="var(--breakout)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <g transform={`translate(${PAD.left},${PAD.top})`}>
-        {/* Zero reference line */}
-        <line x1={0} y1={zeroY} x2={IW} y2={zeroY} stroke="rgba(255,255,255,0.18)" strokeWidth={1} strokeDasharray="4 3" />
+    <div style={{ position: 'relative' }}>
+      <svg
+        ref={svgRef}
+        width="100%"
+        viewBox={`0 0 ${W} ${H}`}
+        style={{ display: 'block', cursor: 'crosshair' }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setHoveredIdx(null)}
+      >
+        <defs>
+          <linearGradient id="tcg-norm-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--gold)" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="var(--gold)" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="ebay-norm-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--breakout)" stopOpacity="0.12" />
+            <stop offset="100%" stopColor="var(--breakout)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <g transform={`translate(${PAD.left},${PAD.top})`}>
+          {/* Zero reference line */}
+          <line x1={0} y1={zeroY} x2={IW} y2={zeroY} stroke="rgba(255,255,255,0.18)" strokeWidth={1} strokeDasharray="4 3" />
 
-        {/* Y-axis ticks */}
-        {sortedTicks.map(t => (
-          <text key={t} x={-6} y={yOf(t) + 4} textAnchor="end" fontSize={9} fontFamily="'Space Mono', monospace"
-            fill={t === 0 ? 'var(--text-secondary)' : 'var(--text-muted)'}>
-            {t >= 0 ? `+${t}%` : `${t}%`}
-          </text>
-        ))}
+          {/* Y-axis ticks */}
+          {sortedTicks.map(t => (
+            <text key={t} x={-6} y={yOf(t) + 4} textAnchor="end" fontSize={9} fontFamily="'Space Mono', monospace"
+              fill={t === 0 ? 'var(--text-secondary)' : 'var(--text-muted)'}>
+              {t >= 0 ? `+${t}%` : `${t}%`}
+            </text>
+          ))}
 
-        {/* eBay series */}
-        {ebayValid && (() => {
-          const area = buildAreaPath(ebayPct)
-          const line = buildLinePath(ebayPct)
-          const last = ebayPct[lastIdx]
-          return (
-            <>
-              {area && <path d={area} fill="url(#ebay-norm-grad)" />}
-              {line && <path d={line} fill="none" stroke="var(--breakout)" strokeWidth={1.5} strokeDasharray="4 2" opacity={0.8} />}
-              {last != null && <circle cx={xOf(lastIdx)} cy={yOf(last)} r={3} fill="var(--breakout)" stroke="var(--bg-base)" strokeWidth={1.5} />}
-            </>
-          )
-        })()}
+          {/* eBay series */}
+          {ebayValid && (() => {
+            const area = buildAreaPath(ebayPct)
+            const line = buildLinePath(ebayPct)
+            const last = ebayPct[lastIdx]
+            return (
+              <>
+                {area && <path d={area} fill="url(#ebay-norm-grad)" />}
+                {line && <path d={line} fill="none" stroke="var(--breakout)" strokeWidth={1.5} strokeDasharray="4 2" opacity={0.8} />}
+                {last != null && <circle cx={xOf(lastIdx)} cy={yOf(last)} r={3} fill="var(--breakout)" stroke="var(--bg-base)" strokeWidth={1.5} />}
+              </>
+            )
+          })()}
 
-        {/* TCG series */}
-        {tcgValid && (() => {
-          const area = buildAreaPath(tcgPct)
-          const line = buildLinePath(tcgPct)
-          const last = tcgPct[lastIdx]
-          return (
-            <>
-              {area && <path d={area} fill="url(#tcg-norm-grad)" />}
-              {line && <path d={line} fill="none" stroke="var(--gold)" strokeWidth={2} />}
-              {last != null && <circle cx={xOf(lastIdx)} cy={yOf(last)} r={4} fill="var(--gold)" stroke="var(--bg-base)" strokeWidth={2} />}
-            </>
-          )
-        })()}
+          {/* TCG series */}
+          {tcgValid && (() => {
+            const area = buildAreaPath(tcgPct)
+            const line = buildLinePath(tcgPct)
+            const last = tcgPct[lastIdx]
+            return (
+              <>
+                {area && <path d={area} fill="url(#tcg-norm-grad)" />}
+                {line && <path d={line} fill="none" stroke="var(--gold)" strokeWidth={2} />}
+                {last != null && <circle cx={xOf(lastIdx)} cy={yOf(last)} r={4} fill="var(--gold)" stroke="var(--bg-base)" strokeWidth={2} />}
+              </>
+            )
+          })()}
 
-        {/* X-axis date labels */}
-        {[0, Math.floor(data.length / 2), lastIdx].map(i => (
-          <text key={i} x={xOf(i)} y={IH + 18} textAnchor="middle" fontSize={9} fontFamily="'Space Mono', monospace" fill="var(--text-muted)">
-            {data[i]?.date?.slice(5)}
-          </text>
-        ))}
-      </g>
-    </svg>
+          {/* Hover: vertical rule */}
+          {hoveredIdx != null && (
+            <line x1={xOf(hoveredIdx)} y1={0} x2={xOf(hoveredIdx)} y2={IH}
+              stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
+          )}
+
+          {/* Hover: enlarged data point circles (rendered above series) */}
+          {hoveredIdx != null && hEbayPct != null && ebayValid && (
+            <circle cx={xOf(hoveredIdx)} cy={yOf(hEbayPct)} r={5}
+              fill="var(--breakout)" stroke="var(--bg-base)" strokeWidth={2} />
+          )}
+          {hoveredIdx != null && hTcgPct != null && tcgValid && (
+            <circle cx={xOf(hoveredIdx)} cy={yOf(hTcgPct)} r={5.5}
+              fill="var(--gold)" stroke="var(--bg-base)" strokeWidth={2} />
+          )}
+
+          {/* Transparent hit area — must be last to sit on top of all series */}
+          <rect x={0} y={0} width={IW} height={IH} fill="transparent" />
+
+          {/* X-axis date labels */}
+          {[0, Math.floor(data.length / 2), lastIdx].map(i => (
+            <text key={i} x={xOf(i)} y={IH + 18} textAnchor="middle" fontSize={9} fontFamily="'Space Mono', monospace" fill="var(--text-muted)">
+              {data[i]?.date?.slice(5)}
+            </text>
+          ))}
+        </g>
+      </svg>
+
+      {showTooltip && (
+        <div style={{
+          position: 'absolute',
+          left: tooltipLeft,
+          top: tooltipTop,
+          pointerEvents: 'none',
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--border-default)',
+          borderRadius: 6,
+          padding: '7px 10px',
+          fontSize: 11,
+          fontFamily: "'Space Mono', monospace",
+          lineHeight: 1.7,
+          whiteSpace: 'nowrap',
+          zIndex: 10,
+        }}>
+          <div style={{ color: 'var(--text-muted)', marginBottom: 2, fontSize: 10 }}>
+            {hPoint!.date}
+          </div>
+          {hTcgRaw != null && hTcgPct != null && (
+            <div style={{ color: 'var(--gold)' }}>
+              TCG: {fmtPrice(hTcgRaw)}{' '}
+              <span style={{ color: 'var(--text-muted)' }}>({fmtPct(hTcgPct)})</span>
+            </div>
+          )}
+          {hEbayRaw != null && hEbayPct != null && (
+            <div style={{ color: 'var(--breakout)' }}>
+              eBay: {fmtPrice(hEbayRaw)}{' '}
+              <span style={{ color: 'var(--text-muted)' }}>({fmtPct(hEbayPct)})</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
