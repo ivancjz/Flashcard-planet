@@ -323,38 +323,37 @@ def web_alerts(
     limit: int = Query(default=50, le=200),
     db: Session = Depends(get_database),
 ):
-    extra = ""
-    if filter == "HIGH":
-        extra = "AND sub.current_signal = 'BREAKOUT'"
+    high_only = "AND h.label = 'BREAKOUT'" if filter == "HIGH" else ""
 
+    # Replaced LAG-over-full-table with LATERAL lookup.
+    # ix_asset_signal_history_computed_at allows newest-first index scan;
+    # ix_asset_signal_history_asset_computed serves the LATERAL prev lookup.
+    # Postgres stops after LIMIT rows are found — no full-table scan needed.
     rows = db.execute(text(f"""
         SELECT
-            sub.id::text        AS id,
-            sub.asset_id::text  AS asset_id,
+            h.id::text          AS id,
+            h.asset_id::text    AS asset_id,
             a.name              AS card_name,
-            sub.previous_signal,
-            sub.current_signal,
-            sub.price_delta_pct,
-            sub.computed_at     AS created_at,
-            CASE sub.current_signal
+            prev.label          AS previous_signal,
+            h.label             AS current_signal,
+            h.price_delta_pct,
+            h.computed_at       AS created_at,
+            CASE h.label
                 WHEN 'BREAKOUT' THEN 'high'
                 WHEN 'MOVE'     THEN 'medium'
                 ELSE 'low'
             END                 AS severity
-        FROM (
-            SELECT
-                id, asset_id,
-                label AS current_signal,
-                LAG(label) OVER (PARTITION BY asset_id ORDER BY computed_at) AS previous_signal,
-                price_delta_pct,
-                computed_at
-            FROM asset_signal_history
-        ) sub
-        JOIN assets a ON a.id = sub.asset_id
-        WHERE sub.previous_signal IS DISTINCT FROM sub.current_signal
-          AND sub.previous_signal IS NOT NULL
-          {extra}
-        ORDER BY sub.computed_at DESC
+        FROM asset_signal_history h
+        JOIN assets a ON a.id = h.asset_id
+        LEFT JOIN LATERAL (
+            SELECT label FROM asset_signal_history
+            WHERE asset_id = h.asset_id AND computed_at < h.computed_at
+            ORDER BY computed_at DESC LIMIT 1
+        ) prev ON TRUE
+        WHERE prev.label IS NOT NULL
+          AND h.label IS DISTINCT FROM prev.label
+          {high_only}
+        ORDER BY h.computed_at DESC
         LIMIT :limit
     """), {"limit": limit}).fetchall()
 
