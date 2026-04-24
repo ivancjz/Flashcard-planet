@@ -141,8 +141,15 @@ def web_cards(
             ) vol ON TRUE
         """), params).fetchall()
     elif sort == "price":
-        # Inner subquery pages by TCG price (one LATERAL); outer fills ebay+vol for 50 rows only
+        # Pre-aggregate latest TCG price per asset once (DISTINCT ON), then join + page.
+        # Avoids 5205 correlated LATERAL calls; relies only on the existing asset_id index.
         rows = db.execute(text(f"""
+            WITH latest_tcg AS (
+                SELECT DISTINCT ON (asset_id) asset_id, price
+                FROM price_history
+                WHERE source = :primary_source
+                ORDER BY asset_id, captured_at DESC
+            )
             SELECT
                 sub.asset_id::text,
                 sub.name,
@@ -170,11 +177,7 @@ def web_cards(
                     tcg.price    AS tcg_price
                 FROM assets a
                 JOIN asset_signals s ON s.asset_id = a.id
-                LEFT JOIN LATERAL (
-                    SELECT price FROM price_history
-                    WHERE asset_id = a.id AND source = :primary_source
-                    ORDER BY captured_at DESC LIMIT 1
-                ) tcg ON TRUE
+                LEFT JOIN latest_tcg tcg ON tcg.asset_id = a.id
                 WHERE a.game = :game
                   {signal_filter}
                 ORDER BY tcg.price DESC NULLS LAST
@@ -192,8 +195,16 @@ def web_cards(
             ) vol ON TRUE
         """), params).fetchall()
     else:
-        # sort=volume: inner pages by eBay 24h volume (one LATERAL); outer fills tcg+ebay for 50 rows
+        # sort=volume: pre-aggregate eBay 24h count per asset (cheap, ebay_sold is small).
+        # LATERAL only runs for the 50 returned rows to fetch TCG and eBay prices.
         rows = db.execute(text(f"""
+            WITH vol_24h AS (
+                SELECT asset_id, COUNT(*) AS cnt
+                FROM price_history
+                WHERE source = 'ebay_sold'
+                  AND captured_at >= NOW() - INTERVAL '24 hours'
+                GROUP BY asset_id
+            )
             SELECT
                 sub.asset_id::text,
                 sub.name,
@@ -218,14 +229,10 @@ def web_cards(
                     s.price_delta_pct,
                     s.liquidity_score,
                     a.metadata->'images'->>'small' AS image_url,
-                    vol.cnt      AS volume_24h
+                    COALESCE(vol.cnt, 0) AS volume_24h
                 FROM assets a
                 JOIN asset_signals s ON s.asset_id = a.id
-                LEFT JOIN LATERAL (
-                    SELECT COUNT(*) AS cnt FROM price_history
-                    WHERE asset_id = a.id AND source = 'ebay_sold'
-                      AND captured_at >= NOW() - INTERVAL '24 hours'
-                ) vol ON TRUE
+                LEFT JOIN vol_24h vol ON vol.asset_id = a.id
                 WHERE a.game = :game
                   {signal_filter}
                 ORDER BY vol.cnt DESC NULLS LAST
