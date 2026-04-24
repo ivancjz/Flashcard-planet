@@ -51,6 +51,12 @@ WATCH_MIN_HISTORY = 3
 # have no investment meaning.
 SIGNAL_BULK_FLOOR_PRICE = Decimal("0.50")
 
+# Minimum number of price points in the current 24-hour window to compute a
+# signal. Single-sale spikes ($0.70 baseline → $350 one-off) produce thousands-
+# of-percent false BREAKOUT/MOVE labels. Three points is the smallest sample
+# that lets IQR filtering have any effect.
+MIN_CURRENT_N_FOR_SIGNAL = 3
+
 # ── Sweep config ──────────────────────────────────────────────────────────────
 
 ACTIVE_WINDOW_DAYS = 30
@@ -600,6 +606,25 @@ def _process_batch(
         baseline_n = ctx.get("baseline_n", 0)
         if baseline_n < settings.signal_move_min_baseline_n:
             ctx["downgrade_reason"] = "insufficient_baseline_n"
+            signal = SignalRow(
+                asset_id=asset_id,
+                label=SignalLabel.INSUFFICIENT_DATA,
+                confidence=None,
+                price_delta_pct=delta,
+                liquidity_score=None,
+                prediction=None,
+                computed_at=now,
+                signal_context=ctx,
+            )
+            _upsert_signal(db, signal=signal)
+            _append_history(db, signal=signal)
+            result.insufficient_data += 1
+            continue
+
+        # Hard floor: too few current samples → single-sale noise, not a signal.
+        current_n = ctx.get("current_n", 0)
+        if current_n < MIN_CURRENT_N_FOR_SIGNAL:
+            ctx["downgrade_reason"] = "insufficient_current_n"
             signal = SignalRow(
                 asset_id=asset_id,
                 label=SignalLabel.INSUFFICIENT_DATA,
