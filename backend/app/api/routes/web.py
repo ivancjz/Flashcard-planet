@@ -104,8 +104,7 @@ def web_cards(
             WHERE asset_id = a.id AND source = 'ebay_sold'
               AND captured_at >= NOW() - INTERVAL '24 hours'
         ) vol ON TRUE
-        WHERE a.external_id NOT LIKE 'pokemontcg:%'
-          AND a.game = :game
+        WHERE a.game = :game
           {signal_filter}
     """
 
