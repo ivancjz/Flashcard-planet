@@ -224,6 +224,7 @@ def build_asset_payload(card: dict[str, Any], price_source: str, price_field: st
                 "id": card.get("set", {}).get("id"),
                 "name": card.get("set", {}).get("name"),
                 "total": card.get("set", {}).get("total"),
+                "printedTotal": card.get("set", {}).get("printedTotal"),
             },
             "images": card.get("images") or {},
             "tcgplayer_url": card.get("tcgplayer", {}).get("url"),

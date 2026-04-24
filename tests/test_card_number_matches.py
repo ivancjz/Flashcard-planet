@@ -74,3 +74,25 @@ def test_missing_set_total_falls_back_to_card_num_reject() -> None:
 def test_malformed_external_id_returns_true() -> None:
     asset = _asset("non-numeric-id", {"set": {"total": 165}})
     assert _card_number_matches(asset, "Pokemon Dragonite 149/165 Holo") is True
+
+
+# ── printedTotal preferred over total (sv3pt5 case) ──────────────────────────
+# sv3pt5 (Pokemon 151): printedTotal=165 (on card backs), total=207 (full set).
+# eBay titles use the printed number ("149/165"), so printedTotal must win.
+
+def test_printed_total_used_when_listing_uses_printed_numbering() -> None:
+    # Asset has both: printedTotal=165, total=207. Title says 149/165.
+    asset = _asset("sv3pt5-149", {"set": {"printedTotal": 165, "total": 207}})
+    assert _card_number_matches(asset, "Pokemon Dragonite 149/165 sv3pt5 Holo") is True
+
+
+def test_total_207_does_not_reject_valid_165_listing() -> None:
+    # If only total=207 is checked, a valid 149/165 listing would be wrongly rejected.
+    asset = _asset("sv3pt5-149", {"set": {"printedTotal": 165, "total": 207}})
+    assert _card_number_matches(asset, "Pokemon Dragonite 149/165 Pokemon 151") is not False
+
+
+def test_printed_total_fallback_to_total_when_only_total_present() -> None:
+    # No printedTotal → fall back to total (Base Set behaviour)
+    asset = _asset("base1-2", {"set": {"total": 102}})
+    assert _card_number_matches(asset, "Blastoise 2/102 Base Set Holo Rare") is True

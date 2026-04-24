@@ -304,6 +304,7 @@ def build_asset_payload(card: dict[str, Any]) -> dict[str, Any]:
                 "id": (card.get("set") or {}).get("id"),
                 "name": (card.get("set") or {}).get("name"),
                 "total": (card.get("set") or {}).get("total"),
+                "printedTotal": (card.get("set") or {}).get("printedTotal"),
             },
             "rarity": card.get("rarity"),
             "subtypes": card.get("subtypes") or [],

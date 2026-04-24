@@ -242,9 +242,11 @@ def _card_number_matches(asset: "Asset", title: str) -> bool:
     metadata = asset.metadata_json or {}
     set_info = metadata.get("set") or {}
     if isinstance(set_info, dict):
-        total = set_info.get("total")
-        if isinstance(total, int) and total > 0:
-            asset_set_total = total
+        # printedTotal is what appears on card backs and in eBay titles (e.g. 165 for sv3pt5).
+        # total includes secret rares and may differ (e.g. 207 for sv3pt5). Prefer printedTotal.
+        raw = set_info.get("printedTotal") or set_info.get("total")
+        if isinstance(raw, int) and raw > 0:
+            asset_set_total = raw
 
     if asset_set_total is None:
         # Set total unavailable — fall back to card number only (previous behaviour)
