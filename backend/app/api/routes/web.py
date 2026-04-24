@@ -325,16 +325,15 @@ def web_alerts(
 ):
     high_only = "AND h.label = 'BREAKOUT'" if filter == "HIGH" else ""
 
-    # Replaced LAG-over-full-table with LATERAL lookup.
-    # ix_asset_signal_history_computed_at allows newest-first index scan;
-    # ix_asset_signal_history_asset_computed serves the LATERAL prev lookup.
-    # Postgres stops after LIMIT rows are found — no full-table scan needed.
+    # previous_label stored at write time (signal_service._append_history) — no
+    # LAG/LATERAL needed. ix_asset_signal_history_computed_at drives ORDER BY.
+    # Old rows (pre-0020 migration) have previous_label=NULL and are excluded.
     rows = db.execute(text(f"""
         SELECT
             h.id::text          AS id,
             h.asset_id::text    AS asset_id,
             a.name              AS card_name,
-            prev.label          AS previous_signal,
+            h.previous_label    AS previous_signal,
             h.label             AS current_signal,
             h.price_delta_pct,
             h.computed_at       AS created_at,
@@ -345,13 +344,8 @@ def web_alerts(
             END                 AS severity
         FROM asset_signal_history h
         JOIN assets a ON a.id = h.asset_id
-        LEFT JOIN LATERAL (
-            SELECT label FROM asset_signal_history
-            WHERE asset_id = h.asset_id AND computed_at < h.computed_at
-            ORDER BY computed_at DESC LIMIT 1
-        ) prev ON TRUE
-        WHERE prev.label IS NOT NULL
-          AND h.label IS DISTINCT FROM prev.label
+        WHERE h.previous_label IS NOT NULL
+          AND h.label IS DISTINCT FROM h.previous_label
           {high_only}
         ORDER BY h.computed_at DESC
         LIMIT :limit

@@ -470,11 +470,12 @@ def _upsert_signal(db: Session, *, signal: SignalRow) -> None:
     db.execute(stmt)
 
 
-def _append_history(db: Session, *, signal: SignalRow) -> None:
+def _append_history(db: Session, *, signal: SignalRow, previous_label: str | None = None) -> None:
     db.add(
         AssetSignalHistory(
             asset_id=signal.asset_id,
             label=signal.label.value,
+            previous_label=previous_label,
             confidence=signal.confidence,
             price_delta_pct=signal.price_delta_pct,
             liquidity_score=signal.liquidity_score,
@@ -582,8 +583,17 @@ def _process_batch(
     # Recent price history for prediction (batched)
     price_history = _get_recent_prices_for_prediction(db, asset_ids)
 
+    # Bulk-load current labels BEFORE any upsert — these become previous_label
+    # in asset_signal_history so the alerts query can filter without LAG/LATERAL.
+    prev_labels: dict[Any, str] = {}
+    for row in db.execute(
+        select(AssetSignal.asset_id, AssetSignal.label).where(AssetSignal.asset_id.in_(asset_ids))
+    ).fetchall():
+        prev_labels[row.asset_id] = row.label
+
     for asset_id in asset_ids:
         delta, ctx = delta_batch.get(asset_id, (None, {"reason": "no_data"}))
+        prev_label = prev_labels.get(asset_id)
 
         # Assets with no delta → INSUFFICIENT_DATA, skip classification
         if delta is None:
@@ -598,7 +608,7 @@ def _process_batch(
                 signal_context=ctx,
             )
             _upsert_signal(db, signal=signal)
-            _append_history(db, signal=signal)
+            _append_history(db, signal=signal, previous_label=prev_label)
             result.insufficient_data += 1
             continue
 
@@ -617,7 +627,7 @@ def _process_batch(
                 signal_context=ctx,
             )
             _upsert_signal(db, signal=signal)
-            _append_history(db, signal=signal)
+            _append_history(db, signal=signal, previous_label=prev_label)
             result.insufficient_data += 1
             continue
 
@@ -636,7 +646,7 @@ def _process_batch(
                 signal_context=ctx,
             )
             _upsert_signal(db, signal=signal)
-            _append_history(db, signal=signal)
+            _append_history(db, signal=signal, previous_label=prev_label)
             result.insufficient_data += 1
             continue
 
@@ -685,7 +695,7 @@ def _process_batch(
             signal_context=ctx,
         )
         _upsert_signal(db, signal=signal)
-        _append_history(db, signal=signal)
+        _append_history(db, signal=signal, previous_label=prev_label)
 
         if label == SignalLabel.BREAKOUT:
             result.breakout += 1

@@ -22,6 +22,7 @@ class AssetSignalHistory(Base):
         UUID(as_uuid=True), ForeignKey("assets.id"), nullable=False, index=True
     )
     label: Mapped[str] = mapped_column(String(32), nullable=False)
+    previous_label: Mapped[str | None] = mapped_column(String(32), nullable=True)
     confidence: Mapped[int | None] = mapped_column(Integer)
     price_delta_pct: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
     liquidity_score: Mapped[int | None] = mapped_column(Integer)
