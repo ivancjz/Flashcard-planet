@@ -214,55 +214,44 @@ def _is_single_card(title: str) -> bool:
     return not bool(_MULTI_CARD_PATTERN.search(title))
 
 
-# Matches "X/Y" card number patterns in listing titles (e.g. "2/102", "215/203").
+# Matches the first "X/Y" card number pattern in listing titles (e.g. "2/102", "149/165").
 _CARD_NUM_PATTERN = re.compile(r"\b(\d+)/(\d+)\b")
 
 
-def _card_number_matches(title: str, asset: "Asset") -> bool:
+def _card_number_matches(asset: "Asset", title: str) -> bool:
     """Return False when the title's explicit card number (X/Y) conflicts with the asset.
 
-    Only rejects if the title contains a card number AND it doesn't match the asset's
-    card_number.  When the title has the same card position (X) but a different set size
-    (Y), that indicates a different printing (e.g. Base Set 2 vs Base Set) and is rejected.
-    Titles with no card number are allowed through unchanged.
+    Uses set identity (card number AND set total) as a hard boundary when metadata
+    provides the set total.  Falls back to card number only when set total is unavailable.
+    Titles with no X/Y pattern are allowed through unchanged — other filters handle them.
     """
-    if not asset.card_number:
-        return True
+    match = _CARD_NUM_PATTERN.search(title)
+    if not match:
+        return True  # No card number in title — cannot use this check
+
+    title_card_num = int(match.group(1))
+    title_set_total = int(match.group(2))
 
     try:
-        asset_num = int(asset.card_number)
-    except (ValueError, TypeError):
-        return True  # Non-numeric (e.g. "SM1") — skip validation
+        asset_card_num = int(asset.external_id.split("-")[-1])
+    except (ValueError, IndexError):
+        return True  # Malformed external_id — don't block, let other filters handle
 
-    title_pairs = _CARD_NUM_PATTERN.findall(title)
-    if not title_pairs:
-        return True  # No card number in title — cannot validate, allow
+    # Extract asset's set total from metadata (nested set dict when available)
+    asset_set_total: int | None = None
+    metadata = asset.metadata_json or {}
+    set_info = metadata.get("set") or {}
+    if isinstance(set_info, dict):
+        total = set_info.get("total")
+        if isinstance(total, int) and total > 0:
+            asset_set_total = total
 
-    # Extract expected set total from metadata (Pokemon TCG API stores set.total / set.printedTotal)
-    set_total: int | None = None
-    if asset.metadata_json:
-        set_info = asset.metadata_json.get("set") or {}
-        raw_total = set_info.get("printedTotal") or set_info.get("total")
-        if raw_total is not None:
-            try:
-                set_total = int(raw_total)
-            except (ValueError, TypeError):
-                pass
+    if asset_set_total is None:
+        # Set total unavailable — fall back to card number only (previous behaviour)
+        return title_card_num == asset_card_num
 
-    for num_str, total_str in title_pairs:
-        try:
-            title_num = int(num_str)
-            title_total = int(total_str)
-        except ValueError:
-            continue
-        if title_num != asset_num:
-            continue  # Different card number — keep checking
-        # Card number matches; validate set size if we have it
-        if set_total is not None and title_total != set_total:
-            continue  # Same card position but different set (e.g. 2/130 ≠ 2/102)
-        return True  # Match confirmed (or set total unavailable, allow)
-
-    return False  # All card numbers in title failed to match
+    # Hard boundary: both card number AND set total must match
+    return title_card_num == asset_card_num and title_set_total == asset_set_total
 
 
 def _iqr_bounds(prices: list[Decimal]) -> tuple[Decimal, Decimal]:
@@ -450,7 +439,7 @@ def ingest_ebay_sold_cards(
                         result.observation_match_status_counts.get("unmatched_grade_mismatch", 0) + 1
                     )
                     continue
-                if not _card_number_matches(title, asset):
+                if not _card_number_matches(asset, title):
                     result.observations_unmatched += 1
                     result.observation_match_status_counts["unmatched_card_number_mismatch"] = (
                         result.observation_match_status_counts.get("unmatched_card_number_mismatch", 0) + 1
