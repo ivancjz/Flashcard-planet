@@ -71,6 +71,26 @@ class TestPokemonTcgDualWrite(unittest.TestCase):
         payload = build_asset_payload(self._make_card(), "tcgplayer", "market")
         self.assertNotIn("category", payload)
 
+    def test_build_asset_payload_stores_set_total_in_nested_set(self):
+        # set.total must be stored so _card_number_matches set-identity check activates
+        from backend.app.ingestion.pokemon_tcg import build_asset_payload
+        card = self._make_card()
+        card["set"]["total"] = 102
+        payload = build_asset_payload(card, "tcgplayer", "market")
+        meta = payload["metadata_json"]
+        self.assertIn("set", meta)
+        self.assertIsInstance(meta["set"], dict)
+        self.assertEqual(meta["set"]["total"], 102)
+
+    def test_build_asset_payload_set_total_none_when_missing(self):
+        # When TCG API returns no total, metadata.set.total must be None (not KeyError)
+        from backend.app.ingestion.pokemon_tcg import build_asset_payload
+        card = self._make_card()  # _make_card has no total field
+        payload = build_asset_payload(card, "tcgplayer", "market")
+        meta = payload["metadata_json"]
+        self.assertIn("set", meta)
+        self.assertIsNone(meta["set"].get("total"))
+
 
 # ── c. Dual-write: import_pokemon_cards.py ───────────────────────────────────
 
