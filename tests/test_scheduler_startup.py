@@ -48,32 +48,7 @@ class TestPrepareSchedulerForStartup(unittest.TestCase):
         self.assertEqual(modified, set(all_jobs))
 
     def test_first_run_times_are_strictly_increasing(self):
-        all_jobs = [
-            "scheduled-ingestion",
-            "bulk-set-price-refresh",
-            "signal-sweep",
-            "alert-heartbeat",
-        ]
-        now = datetime(2026, 4, 19, 12, 0, 0, tzinfo=UTC)
-        scheduler = self._make_scheduler(all_jobs)
-        self._call(scheduler, now=now)
-
-        # Collect {job_id: next_run_time} from modify_job calls
-        run_times: dict[str, datetime] = {}
-        for c in scheduler.modify_job.call_args_list:
-            job_id = c.args[0]
-            run_times[job_id] = c.kwargs["next_run_time"]
-
-        ordered = [
-            run_times["scheduled-ingestion"],
-            run_times["bulk-set-price-refresh"],
-            run_times["signal-sweep"],
-            run_times["alert-heartbeat"],
-        ]
-        for i in range(len(ordered) - 1):
-            self.assertLess(ordered[i], ordered[i + 1])
-
-    def test_ingestion_is_first_signal_is_third(self):
+        # New startup order: ingestion(120s) < signal(600s) < heartbeat(720s) < bulk(900s)
         all_jobs = [
             "scheduled-ingestion",
             "bulk-set-price-refresh",
@@ -88,16 +63,39 @@ class TestPrepareSchedulerForStartup(unittest.TestCase):
         for c in scheduler.modify_job.call_args_list:
             run_times[c.args[0]] = c.kwargs["next_run_time"]
 
-        # signal-sweep first run must be > 5 minutes after startup (bulk is at 5 min)
-        self.assertGreater(
-            run_times["signal-sweep"],
-            run_times["bulk-set-price-refresh"],
-        )
-        # alert-heartbeat is last (receives first sweep result before sending)
-        self.assertGreater(
-            run_times["alert-heartbeat"],
-            run_times["signal-sweep"],
-        )
+        # Verify the correct stagger order
+        ordered = [
+            run_times["scheduled-ingestion"],   # 120s
+            run_times["signal-sweep"],           # 600s
+            run_times["alert-heartbeat"],        # 720s
+            run_times["bulk-set-price-refresh"], # 900s
+        ]
+        for i in range(len(ordered) - 1):
+            self.assertLess(ordered[i], ordered[i + 1])
+
+    def test_ingestion_is_first_bulk_is_last(self):
+        # bulk-set-price-refresh moved to 900s to avoid deadlock with ingestion (120s)
+        # New order: ingestion(120) < signal(600) < heartbeat(720) < bulk(900)
+        all_jobs = [
+            "scheduled-ingestion",
+            "bulk-set-price-refresh",
+            "signal-sweep",
+            "alert-heartbeat",
+        ]
+        now = datetime(2026, 4, 19, 12, 0, 0, tzinfo=UTC)
+        scheduler = self._make_scheduler(all_jobs)
+        self._call(scheduler, now=now)
+
+        run_times: dict[str, datetime] = {}
+        for c in scheduler.modify_job.call_args_list:
+            run_times[c.args[0]] = c.kwargs["next_run_time"]
+
+        # ingestion is first
+        self.assertLess(run_times["scheduled-ingestion"], run_times["signal-sweep"])
+        # bulk is last — after both signal and heartbeat so no INSERT overlap
+        self.assertGreater(run_times["bulk-set-price-refresh"], run_times["alert-heartbeat"])
+        # heartbeat fires after signal-sweep (receives first sweep result before sending)
+        self.assertGreater(run_times["alert-heartbeat"], run_times["signal-sweep"])
 
     def test_signal_sweep_first_run_is_10_minutes_after_now(self):
         now = datetime(2026, 4, 19, 12, 0, 0, tzinfo=UTC)

@@ -43,12 +43,12 @@ from backend.app.services.signal_service import sweep_signals
 logger = logging.getLogger(__name__)
 ebay_logger = logging.getLogger("backend.app.ingestion.ebay_scheduled")
 _STARTUP_DELAY: dict[str, int] = {
-    "scheduled-ingestion":    120,   # 2 min
-    "bulk-set-price-refresh": 300,   # 5 min
+    "scheduled-ingestion":    120,   #  2 min — first mover
     "signal-sweep":           600,   # 10 min
     "alert-heartbeat":        720,   # 12 min — receives first sweep result before sending
     "ebay-ingestion":         660,   # 11 min — after signal-sweep, before heartbeat reports it
     "yugioh-ingestion":       780,   # 13 min — after heartbeat, YGO sets are small so runs fast
+    "bulk-set-price-refresh": 900,   # 15 min — after ingestion (120s+~5min run) and signal (600s)
     # "retry-pass" intentionally omitted — resume separately when confidence is high
 }
 
@@ -113,8 +113,13 @@ def _run_signal_sweep() -> None:
         return
 
     logger.info("Signal sweep tick started.")
-    with SessionLocal() as _log_session:
-        _run_id = start_run(_log_session, JOB_SIGNALS)
+    try:
+        with SessionLocal() as _log_session:
+            _run_id = start_run(_log_session, JOB_SIGNALS)
+    except Exception as exc:
+        logger.exception("start_run_failed job=%s", JOB_SIGNALS)
+        send_discord_alert("error", f"CRITICAL: start_run 失败 — {JOB_SIGNALS}", f"error={exc}\nJob 已跳过，本次无 run_log 记录")
+        return
     try:
         with SessionLocal() as session:
             result = sweep_signals(session)
@@ -181,8 +186,13 @@ def _run_retry_pass() -> None:
     if not get_settings().retry_pass_enabled:
         logger.info("retry_pass_skipped reason=kill_switch")
         return
-    with SessionLocal() as _log_session:
-        _run_id = start_run(_log_session, JOB_RETRY)
+    try:
+        with SessionLocal() as _log_session:
+            _run_id = start_run(_log_session, JOB_RETRY)
+    except Exception as exc:
+        logger.exception("start_run_failed job=%s", JOB_RETRY)
+        send_discord_alert("error", f"CRITICAL: start_run 失败 — {JOB_RETRY}", f"error={exc}\nJob 已跳过，本次无 run_log 记录")
+        return
     try:
         with SessionLocal() as session:
             result = run_retry_pass(session, backfill_fn=backfill_single_card)
@@ -217,8 +227,13 @@ def _send_heartbeat() -> None:
     """
     settings = get_settings()
 
-    with SessionLocal() as _log_session:
-        _run_id = start_run(_log_session, JOB_HEARTBEAT)
+    try:
+        with SessionLocal() as _log_session:
+            _run_id = start_run(_log_session, JOB_HEARTBEAT)
+    except Exception as exc:
+        logger.exception("start_run_failed job=%s", JOB_HEARTBEAT)
+        send_discord_alert("error", f"CRITICAL: start_run 失败 — {JOB_HEARTBEAT}", f"error={exc}\nJob 已跳过，本次无 run_log 记录")
+        return
 
     _exc: BaseException | None = None
     _log_meta: dict | None = None
@@ -340,8 +355,13 @@ def _run_bulk_set_price_refresh() -> None:
         price_history_available,
     )
 
-    with SessionLocal() as _log_session:
-        _run_id = start_run(_log_session, JOB_BULK_REFRESH)
+    try:
+        with SessionLocal() as _log_session:
+            _run_id = start_run(_log_session, JOB_BULK_REFRESH)
+    except Exception as exc:
+        logger.exception("start_run_failed job=%s", JOB_BULK_REFRESH)
+        send_discord_alert("error", f"CRITICAL: start_run 失败 — {JOB_BULK_REFRESH}", f"error={exc}\nJob 已跳过，本次无 run_log 记录")
+        return
 
     _records_written = 0
     _errors = 0
@@ -451,8 +471,13 @@ def _run_bulk_set_price_refresh() -> None:
 
 
 def _run_scheduled_ingestion() -> None:
-    with SessionLocal() as _log_session:
-        _run_id = start_run(_log_session, JOB_INGESTION)
+    try:
+        with SessionLocal() as _log_session:
+            _run_id = start_run(_log_session, JOB_INGESTION)
+    except Exception as exc:
+        logger.exception("start_run_failed job=%s", JOB_INGESTION)
+        send_discord_alert("error", f"CRITICAL: start_run 失败 — {JOB_INGESTION}", f"error={exc}\nJob 已跳过，本次无 run_log 记录")
+        return
     tracked_pools = get_tracked_pokemon_pools()
     implemented_providers = get_configured_provider_ingestors()
     run = ScheduledIngestionRun(started_at=datetime.now(UTC).replace(microsecond=0))
@@ -569,8 +594,13 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
 
     settings = get_settings()
 
-    with SessionLocal() as _log_session:
-        _run_id = start_run(_log_session, JOB_EBAY)
+    try:
+        with SessionLocal() as _log_session:
+            _run_id = start_run(_log_session, JOB_EBAY)
+    except Exception as exc:
+        logger.exception("start_run_failed job=%s", JOB_EBAY)
+        send_discord_alert("error", f"CRITICAL: start_run 失败 — {JOB_EBAY}", f"error={exc}\nJob 已跳过，本次无 run_log 记录")
+        return EbayScheduledRunSummary(run_status="failed", job_blocked_reason="start_run_failed")
 
     _summary: EbayScheduledRunSummary | None = None
 
@@ -762,8 +792,13 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
 def _run_ygo_ingestion() -> None:
     from backend.app.ingestion.ygo import ingest_ygo_sets
 
-    with SessionLocal() as _log_session:
-        _run_id = start_run(_log_session, JOB_YGO)
+    try:
+        with SessionLocal() as _log_session:
+            _run_id = start_run(_log_session, JOB_YGO)
+    except Exception as exc:
+        logger.exception("start_run_failed job=%s", JOB_YGO)
+        send_discord_alert("error", f"CRITICAL: start_run 失败 — {JOB_YGO}", f"error={exc}\nJob 已跳过，本次无 run_log 记录")
+        return
 
     _records = 0
     _errors = 0
