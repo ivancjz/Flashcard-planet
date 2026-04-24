@@ -19,13 +19,13 @@ export async function fetchCards(params: {
   game?: string
   signal?: Signal | 'ALL'
   sort?: 'change' | 'price' | 'volume'
+  search?: string
   limit?: number
   offset?: number
 }): Promise<CardsResponse> {
-  const { game = 'pokemon', signal = 'ALL', sort = 'change', limit = 50, offset = 0 } = params
-  const qs = new URLSearchParams({
-    game, signal, sort, limit: String(limit), offset: String(offset),
-  })
+  const { game = 'pokemon', signal = 'ALL', sort = 'change', search, limit = 50, offset = 0 } = params
+  const qs = new URLSearchParams({ game, signal, sort, limit: String(limit), offset: String(offset) })
+  if (search && search.trim()) qs.set('search', search.trim())
   const res = await fetch(`${BASE}/api/v1/web/cards?${qs}`)
   if (!res.ok) throw new Error('cards fetch failed')
   return res.json()

@@ -70,6 +70,7 @@ def web_cards(
     signal: str = Query(default="ALL"),
     sort: str = Query(default="change"),
     game: str = Query(default="pokemon"),
+    search: str | None = Query(default=None),
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0),
     db: Session = Depends(get_database),
@@ -80,6 +81,15 @@ def web_cards(
     if signal != "ALL":
         params["signal"] = signal
 
+    search_term = (search or "").strip()
+    if search_term:
+        # Escape SQL LIKE wildcards in user input before wrapping in %...%
+        escaped = search_term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        search_filter = "AND a.name ILIKE :search"
+        params["search"] = f"%{escaped}%"
+    else:
+        search_filter = ""
+
     # COUNT does not need LATERAL join results — simple join is sufficient
     total = db.execute(text(f"""
         SELECT COUNT(*)
@@ -87,6 +97,7 @@ def web_cards(
         JOIN asset_signals s ON s.asset_id = a.id
         WHERE a.game = :game
           {signal_filter}
+          {search_filter}
     """), params).scalar() or 0
 
     if sort == "change":
@@ -121,6 +132,7 @@ def web_cards(
                 JOIN asset_signals s ON s.asset_id = a.id
                 WHERE a.game = :game
                   {signal_filter}
+                  {search_filter}
                 ORDER BY s.price_delta_pct DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub
@@ -180,6 +192,7 @@ def web_cards(
                 LEFT JOIN latest_tcg tcg ON tcg.asset_id = a.id
                 WHERE a.game = :game
                   {signal_filter}
+                  {search_filter}
                 ORDER BY tcg.price DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub
@@ -235,6 +248,7 @@ def web_cards(
                 LEFT JOIN vol_24h vol ON vol.asset_id = a.id
                 WHERE a.game = :game
                   {signal_filter}
+                  {search_filter}
                 ORDER BY vol.cnt DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub

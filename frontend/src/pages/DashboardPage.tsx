@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import NavBar from '../components/NavBar'
 import TickerBar from '../components/TickerBar'
@@ -39,23 +39,38 @@ export default function DashboardPage() {
   const [signal, setSignal] = useState<Signal | 'ALL'>('ALL')
   const [sort, setSort] = useState<SortKey>('change')
   const [activeGame, setActiveGame] = useState('pokemon')
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { fetchStats().then(setStats); fetchTicker().then(setTicker) }, [])
+
+  // Debounce search: wait 300ms after last keystroke before hitting API
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(t)
+  }, [search])
 
   const LIVE_GAMES = ['pokemon', 'yugioh']
 
   useEffect(() => {
     if (!LIVE_GAMES.includes(activeGame)) return
     setLoading(true)
-    fetchCards({ game: activeGame, signal, sort })
+    fetchCards({ game: activeGame, signal, sort, search: debouncedSearch })
       .then(r => { setCards(r.cards); setLoading(false) })
       .catch(() => setLoading(false))
-  }, [signal, sort, activeGame])
+  }, [signal, sort, activeGame, debouncedSearch])
+
+  function handleGameChange(gameId: string) {
+    setActiveGame(gameId)
+    setSearch('')        // different card namespace — reset search
+    setDebouncedSearch('')
+  }
 
   return (
     <div>
       <NavBar />
-      <GameSwitcher activeGame={activeGame} onGameChange={setActiveGame} />
+      <GameSwitcher activeGame={activeGame} onGameChange={handleGameChange} />
       <TickerBar items={ticker} />
       <div className="page-content">
         {/* Stat tiles */}
@@ -76,6 +91,45 @@ export default function DashboardPage() {
             ))}
           </div>
         )}
+
+        {/* Search */}
+        <div style={{ position: 'relative', marginBottom: 16 }}>
+          <svg
+            width={16} height={16} viewBox="0 0 24 24"
+            style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }}
+            fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          >
+            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            ref={searchRef}
+            type="search"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search cards by name…"
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              padding: '9px 36px 9px 38px',
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--text-primary)',
+              fontFamily: 'var(--font-body)',
+              fontSize: 14,
+              outline: 'none',
+              transition: 'border-color 0.15s',
+            }}
+            onFocus={e => (e.target.style.borderColor = 'var(--gold)')}
+            onBlur={e => (e.target.style.borderColor = 'var(--border-subtle)')}
+          />
+          {search && (
+            <button
+              onClick={() => { setSearch(''); searchRef.current?.focus() }}
+              aria-label="Clear search"
+              style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 18, lineHeight: 1, padding: '0 2px' }}
+            >×</button>
+          )}
+        </div>
 
         {/* Filters + sort */}
         <div className="filter-sort-bar">
@@ -123,7 +177,17 @@ export default function DashboardPage() {
             {Array.from({ length: 6 }, (_, i) => <SkeletonCard key={i} />)}
           </div>
         ) : cards.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 80, color: 'var(--text-muted)' }}>No cards match this filter</div>
+          debouncedSearch ? (
+            <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, marginBottom: 8, color: 'var(--text-secondary)' }}>
+                No cards match "{debouncedSearch}"
+              </div>
+              <div style={{ fontSize: 13 }}>Try a different name, or clear the search to see all cards.</div>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 80, color: 'var(--text-muted)' }}>No cards match this filter</div>
+          )
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
             {cards.map(card => {
