@@ -2,6 +2,17 @@
 export type Signal = 'BREAKOUT' | 'MOVE' | 'WATCH' | 'IDLE' | 'INSUFFICIENT_DATA'
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'holo' | 'ultra' | 'secret'
 
+export interface SetOption {
+  id: string
+  name: string
+  count: number
+}
+
+export interface RarityOption {
+  value: string
+  count: number
+}
+
 export interface MarketStats {
   total_assets: number
   signal_counts: Record<Signal, number>

@@ -65,12 +65,53 @@ _GAME_PRIMARY_SOURCE = {
 }
 
 
+@router.get("/filters/sets")
+def web_filter_sets(
+    game: str = Query(default="pokemon"),
+    db: Session = Depends(get_database),
+):
+    """Distinct sets with card counts ordered by count desc."""
+    rows = db.execute(text("""
+        SELECT
+            metadata->'set'->>'id'   AS set_id,
+            metadata->'set'->>'name' AS set_name,
+            COUNT(*)                 AS card_count
+        FROM assets
+        WHERE game = :game
+          AND metadata->'set'->>'id' IS NOT NULL
+        GROUP BY set_id, set_name
+        ORDER BY card_count DESC
+    """), {"game": game}).fetchall()
+    return {"sets": [{"id": r.set_id, "name": r.set_name, "count": r.card_count} for r in rows]}
+
+
+@router.get("/filters/rarities")
+def web_filter_rarities(
+    game: str = Query(default="pokemon"),
+    db: Session = Depends(get_database),
+):
+    """Distinct rarities (variant column) with card counts ordered by count desc."""
+    rows = db.execute(text("""
+        SELECT variant AS rarity, COUNT(*) AS card_count
+        FROM assets
+        WHERE game = :game
+          AND variant IS NOT NULL AND variant != ''
+        GROUP BY variant
+        ORDER BY card_count DESC
+    """), {"game": game}).fetchall()
+    return {"rarities": [{"value": r.rarity, "count": r.card_count} for r in rows]}
+
+
 @router.get("/cards")
 def web_cards(
     signal: str = Query(default="ALL"),
     sort: str = Query(default="change"),
     game: str = Query(default="pokemon"),
     search: str | None = Query(default=None),
+    set_id: str | None = Query(default=None),
+    rarity: str | None = Query(default=None),
+    price_min: float | None = Query(default=None),
+    price_max: float | None = Query(default=None),
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0),
     db: Session = Depends(get_database),
@@ -90,6 +131,36 @@ def web_cards(
     else:
         search_filter = ""
 
+    # Set filter — comma-separated list of set_id values
+    set_ids_list = [s.strip() for s in (set_id or "").split(",") if s.strip()]
+    if set_ids_list:
+        placeholders = ", ".join(f":set_id_{i}" for i in range(len(set_ids_list)))
+        set_filter = f"AND a.metadata->'set'->>'id' IN ({placeholders})"
+        for i, sid in enumerate(set_ids_list):
+            params[f"set_id_{i}"] = sid
+    else:
+        set_filter = ""
+
+    # Rarity filter — comma-separated list of variant values
+    rarities_list = [r.strip() for r in (rarity or "").split(",") if r.strip()]
+    if rarities_list:
+        placeholders = ", ".join(f":rarity_{i}" for i in range(len(rarities_list)))
+        rarity_filter = f"AND a.variant IN ({placeholders})"
+        for i, r in enumerate(rarities_list):
+            params[f"rarity_{i}"] = r
+    else:
+        rarity_filter = ""
+
+    # Price filter — uses current_price stored in signal_context at sweep time
+    price_parts: list[str] = []
+    if price_min is not None:
+        price_parts.append("AND (s.signal_context->>'current_price')::numeric >= :price_min")
+        params["price_min"] = price_min
+    if price_max is not None:
+        price_parts.append("AND (s.signal_context->>'current_price')::numeric <= :price_max")
+        params["price_max"] = price_max
+    price_filter = " ".join(price_parts)
+
     # COUNT does not need LATERAL join results — simple join is sufficient
     total = db.execute(text(f"""
         SELECT COUNT(*)
@@ -98,6 +169,9 @@ def web_cards(
         WHERE a.game = :game
           {signal_filter}
           {search_filter}
+          {set_filter}
+          {rarity_filter}
+          {price_filter}
     """), params).scalar() or 0
 
     if sort == "change":
@@ -133,6 +207,9 @@ def web_cards(
                 WHERE a.game = :game
                   {signal_filter}
                   {search_filter}
+                  {set_filter}
+                  {rarity_filter}
+                  {price_filter}
                 ORDER BY s.price_delta_pct DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub
@@ -193,6 +270,9 @@ def web_cards(
                 WHERE a.game = :game
                   {signal_filter}
                   {search_filter}
+                  {set_filter}
+                  {rarity_filter}
+                  {price_filter}
                 ORDER BY tcg.price DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub
@@ -249,6 +329,9 @@ def web_cards(
                 WHERE a.game = :game
                   {signal_filter}
                   {search_filter}
+                  {set_filter}
+                  {rarity_filter}
+                  {price_filter}
                 ORDER BY vol.cnt DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub

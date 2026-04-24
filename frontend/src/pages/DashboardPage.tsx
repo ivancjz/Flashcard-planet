@@ -7,7 +7,9 @@ import SignalBadge from '../components/SignalBadge'
 import CardArt from '../components/CardArt'
 import Sparkline from '../components/Sparkline'
 import ProGate from '../components/ProGate'
-import { fetchStats, fetchCards, fetchTicker } from '../api/api'
+import FilterDrawer from '../components/FilterDrawer'
+import type { FilterState } from '../components/FilterDrawer'
+import { fetchStats, fetchCards, fetchTicker, fetchSetOptions } from '../api/api'
 import { signalToMeta, formatDelta } from '../lib/utils'
 import type { Signal, CardSummary, MarketStats, TickerItem } from '../types/api'
 
@@ -42,8 +44,24 @@ export default function DashboardPage() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [selectedSets, setSelectedSets] = useState<string[]>([])
+  const [selectedRarities, setSelectedRarities] = useState<string[]>([])
+  const [priceMin, setPriceMin] = useState<number | null>(null)
+  const [priceMax, setPriceMax] = useState<number | null>(null)
+  const [setNameMap, setSetNameMap] = useState<Record<string, string>>({})
 
   useEffect(() => { fetchStats().then(setStats); fetchTicker().then(setTicker) }, [])
+
+  // Load set name map when drawer is first opened (for chip labels)
+  useEffect(() => {
+    if (!drawerOpen) return
+    fetchSetOptions(activeGame).then(sets => {
+      const map: Record<string, string> = {}
+      sets.forEach(s => { map[s.id] = s.name })
+      setSetNameMap(map)
+    })
+  }, [drawerOpen, activeGame])
 
   // Debounce search: wait 300ms after last keystroke before hitting API
   useEffect(() => {
@@ -53,18 +71,43 @@ export default function DashboardPage() {
 
   const LIVE_GAMES = ['pokemon', 'yugioh']
 
+  const activeFilterCount =
+    (selectedSets.length > 0 ? 1 : 0) +
+    (selectedRarities.length > 0 ? 1 : 0) +
+    (priceMin != null || priceMax != null ? 1 : 0)
+
   useEffect(() => {
     if (!LIVE_GAMES.includes(activeGame)) return
     setLoading(true)
-    fetchCards({ game: activeGame, signal, sort, search: debouncedSearch })
+    fetchCards({
+      game: activeGame,
+      signal,
+      sort,
+      search: debouncedSearch,
+      set_id: selectedSets.length ? selectedSets : undefined,
+      rarity: selectedRarities.length ? selectedRarities : undefined,
+      price_min: priceMin ?? undefined,
+      price_max: priceMax ?? undefined,
+    })
       .then(r => { setCards(r.cards); setLoading(false) })
       .catch(() => setLoading(false))
-  }, [signal, sort, activeGame, debouncedSearch])
+  }, [signal, sort, activeGame, debouncedSearch, selectedSets, selectedRarities, priceMin, priceMax])
 
   function handleGameChange(gameId: string) {
     setActiveGame(gameId)
-    setSearch('')        // different card namespace — reset search
+    setSearch('')
     setDebouncedSearch('')
+    setSelectedSets([])
+    setSelectedRarities([])
+    setPriceMin(null)
+    setPriceMax(null)
+  }
+
+  function handleFilterChange(state: FilterState) {
+    setSelectedSets(state.selectedSets)
+    setSelectedRarities(state.selectedRarities)
+    setPriceMin(state.priceMin)
+    setPriceMax(state.priceMax)
   }
 
   return (
@@ -92,8 +135,9 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Search */}
-        <div style={{ position: 'relative', marginBottom: 16 }}>
+        {/* Search + Filters button */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: activeFilterCount > 0 ? 10 : 16, alignItems: 'stretch' }}>
+        <div style={{ position: 'relative', flex: 1 }}>
           <svg
             width={16} height={16} viewBox="0 0 24 24"
             style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }}
@@ -130,6 +174,39 @@ export default function DashboardPage() {
             >×</button>
           )}
         </div>
+
+        {/* Filters button */}
+        <button
+          onClick={() => setDrawerOpen(true)}
+          className="btn btn-ghost"
+          style={{ position: 'relative', whiteSpace: 'nowrap', flexShrink: 0 }}
+        >
+          Filters
+          {activeFilterCount > 0 && (
+            <span style={{ marginLeft: 6, background: 'var(--gold)', color: '#0c0c10', fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10 }}>
+              {activeFilterCount}
+            </span>
+          )}
+        </button>
+        </div>
+
+        {/* Active filter chips */}
+        {activeFilterCount > 0 && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+            {selectedSets.map(id => (
+              <Chip key={id} label={setNameMap[id] ?? id} onRemove={() => setSelectedSets(selectedSets.filter(s => s !== id))} />
+            ))}
+            {selectedRarities.map(r => (
+              <Chip key={r} label={r} onRemove={() => setSelectedRarities(selectedRarities.filter(x => x !== r))} />
+            ))}
+            {(priceMin != null || priceMax != null) && (
+              <Chip
+                label={`$${priceMin ?? 0}–${priceMax != null ? '$' + priceMax : '∞'}`}
+                onRemove={() => { setPriceMin(null); setPriceMax(null) }}
+              />
+            )}
+          </div>
+        )}
 
         {/* Filters + sort */}
         <div className="filter-sort-bar">
@@ -184,6 +261,16 @@ export default function DashboardPage() {
                 No cards match "{debouncedSearch}"
               </div>
               <div style={{ fontSize: 13 }}>Try a different name, or clear the search to see all cards.</div>
+            </div>
+          ) : activeFilterCount > 0 ? (
+            <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>🔎</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, marginBottom: 8, color: 'var(--text-secondary)' }}>
+                No cards match these filters
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setSelectedSets([]); setSelectedRarities([]); setPriceMin(null); setPriceMax(null) }}>
+                Clear filters
+              </button>
             </div>
           ) : (
             <div style={{ textAlign: 'center', padding: 80, color: 'var(--text-muted)' }}>No cards match this filter</div>
@@ -244,6 +331,32 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      <FilterDrawer
+        open={drawerOpen}
+        game={activeGame}
+        onClose={() => setDrawerOpen(false)}
+        selectedSets={selectedSets}
+        selectedRarities={selectedRarities}
+        priceMin={priceMin}
+        priceMax={priceMax}
+        onChange={handleFilterChange}
+      />
     </div>
+  )
+}
+
+function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      background: 'var(--gold-glow)', color: 'var(--gold)',
+      border: '1px solid rgba(240,180,41,0.3)',
+      borderRadius: 12, padding: '2px 8px 2px 10px', fontSize: 12,
+      maxWidth: 220, overflow: 'hidden',
+    }}>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      <button onClick={onRemove} style={{ background: 'none', border: 'none', color: 'var(--gold)', cursor: 'pointer', padding: 0, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
+    </span>
   )
 }
