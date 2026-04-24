@@ -140,44 +140,107 @@ def web_cards(
                   AND captured_at >= NOW() - INTERVAL '24 hours'
             ) vol ON TRUE
         """), params).fetchall()
-    else:
-        # price/volume sort keys come from LATERAL results — must evaluate before ORDER BY
-        order = "tcg_price DESC NULLS LAST" if sort == "price" else "volume_24h DESC NULLS LAST"
+    elif sort == "price":
+        # Inner subquery pages by TCG price (one LATERAL); outer fills ebay+vol for 50 rows only
         rows = db.execute(text(f"""
             SELECT
-                a.id::text   AS asset_id,
-                a.name,
-                a.set_name,
-                a.variant    AS rarity,
-                a.category   AS card_type,
-                s.label      AS signal,
-                s.price_delta_pct,
-                s.liquidity_score,
-                tcg.price    AS tcg_price,
+                sub.asset_id::text,
+                sub.name,
+                sub.set_name,
+                sub.rarity,
+                sub.card_type,
+                sub.signal,
+                sub.price_delta_pct,
+                sub.liquidity_score,
+                sub.image_url,
+                sub.tcg_price,
                 ebay.price   AS ebay_price,
-                vol.cnt      AS volume_24h,
-                a.metadata->'images'->>'small' AS image_url
-            FROM assets a
-            JOIN asset_signals s ON s.asset_id = a.id
+                vol.cnt      AS volume_24h
+            FROM (
+                SELECT
+                    a.id         AS asset_id,
+                    a.name,
+                    a.set_name,
+                    a.variant    AS rarity,
+                    a.category   AS card_type,
+                    s.label      AS signal,
+                    s.price_delta_pct,
+                    s.liquidity_score,
+                    a.metadata->'images'->>'small' AS image_url,
+                    tcg.price    AS tcg_price
+                FROM assets a
+                JOIN asset_signals s ON s.asset_id = a.id
+                LEFT JOIN LATERAL (
+                    SELECT price FROM price_history
+                    WHERE asset_id = a.id AND source = :primary_source
+                    ORDER BY captured_at DESC LIMIT 1
+                ) tcg ON TRUE
+                WHERE a.game = :game
+                  {signal_filter}
+                ORDER BY tcg.price DESC NULLS LAST
+                LIMIT :limit OFFSET :offset
+            ) sub
             LEFT JOIN LATERAL (
                 SELECT price FROM price_history
-                WHERE asset_id = a.id AND source = :primary_source
-                ORDER BY captured_at DESC LIMIT 1
-            ) tcg ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT price FROM price_history
-                WHERE asset_id = a.id AND source = 'ebay_sold'
+                WHERE asset_id = sub.asset_id AND source = 'ebay_sold'
                 ORDER BY captured_at DESC LIMIT 1
             ) ebay ON TRUE
             LEFT JOIN LATERAL (
                 SELECT COUNT(*) AS cnt FROM price_history
-                WHERE asset_id = a.id AND source = 'ebay_sold'
+                WHERE asset_id = sub.asset_id AND source = 'ebay_sold'
                   AND captured_at >= NOW() - INTERVAL '24 hours'
             ) vol ON TRUE
-            WHERE a.game = :game
-              {signal_filter}
-            ORDER BY {order}
-            LIMIT :limit OFFSET :offset
+        """), params).fetchall()
+    else:
+        # sort=volume: inner pages by eBay 24h volume (one LATERAL); outer fills tcg+ebay for 50 rows
+        rows = db.execute(text(f"""
+            SELECT
+                sub.asset_id::text,
+                sub.name,
+                sub.set_name,
+                sub.rarity,
+                sub.card_type,
+                sub.signal,
+                sub.price_delta_pct,
+                sub.liquidity_score,
+                sub.image_url,
+                sub.volume_24h,
+                tcg.price    AS tcg_price,
+                ebay.price   AS ebay_price
+            FROM (
+                SELECT
+                    a.id         AS asset_id,
+                    a.name,
+                    a.set_name,
+                    a.variant    AS rarity,
+                    a.category   AS card_type,
+                    s.label      AS signal,
+                    s.price_delta_pct,
+                    s.liquidity_score,
+                    a.metadata->'images'->>'small' AS image_url,
+                    vol.cnt      AS volume_24h
+                FROM assets a
+                JOIN asset_signals s ON s.asset_id = a.id
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(*) AS cnt FROM price_history
+                    WHERE asset_id = a.id AND source = 'ebay_sold'
+                      AND captured_at >= NOW() - INTERVAL '24 hours'
+                ) vol ON TRUE
+                WHERE a.game = :game
+                  {signal_filter}
+                ORDER BY vol.cnt DESC NULLS LAST
+                LIMIT :limit OFFSET :offset
+            ) sub
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = sub.asset_id AND source = :primary_source
+                ORDER BY captured_at DESC LIMIT 1
+            ) tcg ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = sub.asset_id AND source = 'ebay_sold'
+                ORDER BY captured_at DESC LIMIT 1
+            ) ebay ON TRUE
         """), params).fetchall()
 
     return {
