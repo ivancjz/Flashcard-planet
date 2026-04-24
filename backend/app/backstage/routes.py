@@ -29,6 +29,7 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_SIGNALS,
 )
 from backend.app.services.diagnostics_summary_service import build_standardized_diagnostics_summary
+from backend.app.services.signal_service import sweep_signals
 from backend.app.services.smart_pool_service import get_smart_pool_candidates
 from backend.app.services.upgrade_service import (
     approve_upgrade_request,
@@ -669,4 +670,22 @@ def admin_coverage(
         "ebay_sold_pct": round(ebay / total * 100, 1) if total else 0,
         "pokemon_tcg_api_covered": tcg,
         "pokemon_tcg_api_pct": round(tcg / total * 100, 1) if total else 0,
+    }
+
+
+@router.post("/trigger/signal-sweep")
+def admin_trigger_signal_sweep(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Run a signal sweep immediately and return the result counts."""
+    result = sweep_signals(db)
+    return {
+        "ok": True,
+        "total": result.total,
+        "breakout": result.breakout,
+        "move": result.move,
+        "watch": result.watch,
+        "idle": result.idle,
+        "insufficient_data": result.insufficient_data,
     }
