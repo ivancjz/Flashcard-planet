@@ -76,57 +76,109 @@ def web_cards(
 ):
     primary_source = _GAME_PRIMARY_SOURCE.get(game, "pokemon_tcg_api")
     signal_filter = "" if signal == "ALL" else "AND s.label = :signal"
-    order_map = {
-        "change": "s.price_delta_pct DESC NULLS LAST",
-        "price":  "tcg_price DESC NULLS LAST",
-        "volume": "volume_24h DESC NULLS LAST",
-    }
-    order = order_map.get(sort, order_map["change"])
     params: dict = {"limit": limit, "offset": offset, "game": game, "primary_source": primary_source}
     if signal != "ALL":
         params["signal"] = signal
 
-    base = f"""
+    # COUNT does not need LATERAL join results — simple join is sufficient
+    total = db.execute(text(f"""
+        SELECT COUNT(*)
         FROM assets a
         JOIN asset_signals s ON s.asset_id = a.id
-        LEFT JOIN LATERAL (
-            SELECT price FROM price_history
-            WHERE asset_id = a.id AND source = :primary_source
-            ORDER BY captured_at DESC LIMIT 1
-        ) tcg ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT price FROM price_history
-            WHERE asset_id = a.id AND source = 'ebay_sold'
-            ORDER BY captured_at DESC LIMIT 1
-        ) ebay ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT COUNT(*) AS cnt FROM price_history
-            WHERE asset_id = a.id AND source = 'ebay_sold'
-              AND captured_at >= NOW() - INTERVAL '24 hours'
-        ) vol ON TRUE
         WHERE a.game = :game
           {signal_filter}
-    """
+    """), params).scalar() or 0
 
-    total = db.execute(text(f"SELECT COUNT(*) {base}"), params).scalar() or 0
-    rows = db.execute(text(f"""
-        SELECT
-            a.id::text      AS asset_id,
-            a.name,
-            a.set_name,
-            a.variant       AS rarity,
-            a.category      AS card_type,
-            s.label         AS signal,
-            s.price_delta_pct,
-            s.liquidity_score,
-            tcg.price       AS tcg_price,
-            ebay.price      AS ebay_price,
-            vol.cnt         AS volume_24h,
-            a.metadata->'images'->>'small' AS image_url
-        {base}
-        ORDER BY {order}
-        LIMIT :limit OFFSET :offset
-    """), params).fetchall()
+    if sort == "change":
+        # Sort key (price_delta_pct) is on asset_signals — no LATERAL needed before LIMIT.
+        # Inner subquery pages first; outer LATERAL runs only for the returned rows.
+        rows = db.execute(text(f"""
+            SELECT
+                sub.asset_id::text,
+                sub.name,
+                sub.set_name,
+                sub.rarity,
+                sub.card_type,
+                sub.signal,
+                sub.price_delta_pct,
+                sub.liquidity_score,
+                sub.image_url,
+                tcg.price    AS tcg_price,
+                ebay.price   AS ebay_price,
+                vol.cnt      AS volume_24h
+            FROM (
+                SELECT
+                    a.id         AS asset_id,
+                    a.name,
+                    a.set_name,
+                    a.variant    AS rarity,
+                    a.category   AS card_type,
+                    s.label      AS signal,
+                    s.price_delta_pct,
+                    s.liquidity_score,
+                    a.metadata->'images'->>'small' AS image_url
+                FROM assets a
+                JOIN asset_signals s ON s.asset_id = a.id
+                WHERE a.game = :game
+                  {signal_filter}
+                ORDER BY s.price_delta_pct DESC NULLS LAST
+                LIMIT :limit OFFSET :offset
+            ) sub
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = sub.asset_id AND source = :primary_source
+                ORDER BY captured_at DESC LIMIT 1
+            ) tcg ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = sub.asset_id AND source = 'ebay_sold'
+                ORDER BY captured_at DESC LIMIT 1
+            ) ebay ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS cnt FROM price_history
+                WHERE asset_id = sub.asset_id AND source = 'ebay_sold'
+                  AND captured_at >= NOW() - INTERVAL '24 hours'
+            ) vol ON TRUE
+        """), params).fetchall()
+    else:
+        # price/volume sort keys come from LATERAL results — must evaluate before ORDER BY
+        order = "tcg_price DESC NULLS LAST" if sort == "price" else "volume_24h DESC NULLS LAST"
+        rows = db.execute(text(f"""
+            SELECT
+                a.id::text   AS asset_id,
+                a.name,
+                a.set_name,
+                a.variant    AS rarity,
+                a.category   AS card_type,
+                s.label      AS signal,
+                s.price_delta_pct,
+                s.liquidity_score,
+                tcg.price    AS tcg_price,
+                ebay.price   AS ebay_price,
+                vol.cnt      AS volume_24h,
+                a.metadata->'images'->>'small' AS image_url
+            FROM assets a
+            JOIN asset_signals s ON s.asset_id = a.id
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = a.id AND source = :primary_source
+                ORDER BY captured_at DESC LIMIT 1
+            ) tcg ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = a.id AND source = 'ebay_sold'
+                ORDER BY captured_at DESC LIMIT 1
+            ) ebay ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS cnt FROM price_history
+                WHERE asset_id = a.id AND source = 'ebay_sold'
+                  AND captured_at >= NOW() - INTERVAL '24 hours'
+            ) vol ON TRUE
+            WHERE a.game = :game
+              {signal_filter}
+            ORDER BY {order}
+            LIMIT :limit OFFSET :offset
+        """), params).fetchall()
 
     return {
         "cards": [dict(r._mapping) for r in rows],
