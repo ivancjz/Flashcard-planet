@@ -210,7 +210,7 @@ def build_asset_payload(card: dict[str, Any], price_source: str, price_field: st
         "variant": _extract_tcg_variant(card),
         "grade_company": None,
         "grade_score": None,
-        "external_id": f"pokemontcg:{card_id}:{price_field}",
+        "external_id": card_id,
         "metadata_json": {
             "provider": POKEMON_TCG_PRICE_SOURCE,
             "provider_card_id": card_id,
