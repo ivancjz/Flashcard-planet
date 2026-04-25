@@ -164,6 +164,10 @@ def web_cards(
         params["price_max"] = price_max
     price_filter = " ".join(price_parts)
 
+    # Validate sort — unknown values fall back to change
+    if sort not in {"change", "price", "volume", "recent"}:
+        sort = "change"
+
     # COUNT does not need LATERAL join results — simple join is sufficient
     total = db.execute(text(f"""
         SELECT COUNT(*)
@@ -290,17 +294,10 @@ def web_cards(
                   AND captured_at >= NOW() - INTERVAL '24 hours'
             ) vol ON TRUE
         """), params).fetchall()
-    else:
-        # sort=volume: pre-aggregate eBay 24h count per asset (cheap, ebay_sold is small).
-        # LATERAL only runs for the 50 returned rows to fetch TCG and eBay prices.
+    elif sort == "volume":
+        # Sort by current_n from signal_context (eBay 24h count at last sweep).
+        # Simpler than a full price_history CTE — avoids scanning 200k+ rows.
         rows = db.execute(text(f"""
-            WITH vol_24h AS (
-                SELECT asset_id, COUNT(*) AS cnt
-                FROM price_history
-                WHERE source = 'ebay_sold'
-                  AND captured_at >= NOW() - INTERVAL '24 hours'
-                GROUP BY asset_id
-            )
             SELECT
                 sub.asset_id::text,
                 sub.name,
@@ -325,17 +322,16 @@ def web_cards(
                     s.price_delta_pct,
                     s.liquidity_score,
                     a.metadata->'images'->>'small' AS image_url,
-                    COALESCE(vol.cnt, 0) AS volume_24h
+                    (s.signal_context->>'current_n')::int AS volume_24h
                 FROM assets a
                 JOIN asset_signals s ON s.asset_id = a.id
-                LEFT JOIN vol_24h vol ON vol.asset_id = a.id
                 WHERE a.game = :game
                   {signal_filter}
                   {search_filter}
                   {set_filter}
                   {rarity_filter}
                   {price_filter}
-                        ORDER BY vol.cnt DESC NULLS LAST
+                ORDER BY (s.signal_context->>'current_n')::int DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub
             LEFT JOIN LATERAL (
@@ -349,6 +345,75 @@ def web_cards(
                 ORDER BY captured_at DESC LIMIT 1
             ) ebay ON TRUE
         """), params).fetchall()
+    elif sort == "recent":
+        # sort=recent: cards ordered by their most recent signal transition.
+        # CTE pre-aggregates MAX(computed_at) per asset for transitions only —
+        # 110ms on 1.7M history rows via parallel seq scan + hash aggregate.
+        # A LATERAL-per-asset approach was tested and took 4.8s (3966 × index seek).
+        rows = db.execute(text(f"""
+            WITH last_transitions AS (
+                SELECT asset_id, MAX(computed_at) AS last_transition_at
+                FROM asset_signal_history
+                WHERE previous_label IS NOT NULL
+                  AND label IS DISTINCT FROM previous_label
+                GROUP BY asset_id
+            )
+            SELECT
+                sub.asset_id::text,
+                sub.name,
+                sub.set_name,
+                sub.rarity,
+                sub.card_type,
+                sub.signal,
+                sub.price_delta_pct,
+                sub.liquidity_score,
+                sub.image_url,
+                tcg.price    AS tcg_price,
+                ebay.price   AS ebay_price,
+                vol.cnt      AS volume_24h
+            FROM (
+                SELECT
+                    a.id         AS asset_id,
+                    a.name,
+                    a.set_name,
+                    a.variant    AS rarity,
+                    a.category   AS card_type,
+                    s.label      AS signal,
+                    s.price_delta_pct,
+                    s.liquidity_score,
+                    a.metadata->'images'->>'small' AS image_url
+                FROM assets a
+                JOIN asset_signals s ON s.asset_id = a.id
+                LEFT JOIN last_transitions lt ON lt.asset_id = a.id
+                WHERE a.game = :game
+                  {signal_filter}
+                  {search_filter}
+                  {set_filter}
+                  {rarity_filter}
+                  {price_filter}
+                ORDER BY lt.last_transition_at DESC NULLS LAST
+                LIMIT :limit OFFSET :offset
+            ) sub
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = sub.asset_id AND source = :primary_source
+                ORDER BY captured_at DESC LIMIT 1
+            ) tcg ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = sub.asset_id AND source = 'ebay_sold'
+                ORDER BY captured_at DESC LIMIT 1
+            ) ebay ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS cnt FROM price_history
+                WHERE asset_id = sub.asset_id AND source = 'ebay_sold'
+                  AND captured_at >= NOW() - INTERVAL '24 hours'
+            ) vol ON TRUE
+        """), params).fetchall()
+    else:
+        # Defensive fallback — should be unreachable after sort validation above.
+        # Guards against someone adding to SORT_OPTIONS without adding an elif branch.
+        rows = []
 
     return {
         "cards": [dict(r._mapping) for r in rows],

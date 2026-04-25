@@ -18,7 +18,7 @@ export async function fetchTicker(): Promise<TickerItem[]> {
 export async function fetchCards(params: {
   game?: string
   signal?: Signal | 'ALL'
-  sort?: 'change' | 'price' | 'volume'
+  sort?: 'change' | 'price' | 'volume' | 'recent'
   search?: string
   set_id?: string[]
   rarity?: string[]

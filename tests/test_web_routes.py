@@ -171,6 +171,25 @@ class WebCardsTests(TestCase):
         self.assertEqual(body["limit"], 10)
         self.assertEqual(body["offset"], 20)
 
+    def test_sort_volume_returns_200(self):
+        db = self._make_db()
+        app, client = _make_app(db)
+        resp = client.get("/api/v1/web/cards?sort=volume")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_sort_recent_returns_200(self):
+        db = self._make_db()
+        app, client = _make_app(db)
+        resp = client.get("/api/v1/web/cards?sort=recent")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_sort_invalid_falls_back_to_change_returns_200(self):
+        # Backend normalises unknown sort values to 'change' — should not 422 or 500.
+        db = self._make_db()
+        app, client = _make_app(db)
+        resp = client.get("/api/v1/web/cards?sort=garbage")
+        self.assertEqual(resp.status_code, 200)
+
 
 class WebCardDetailTests(TestCase):
     def _make_db(self, card_row, history_rows=None):
