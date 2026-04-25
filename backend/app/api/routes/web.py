@@ -473,8 +473,7 @@ def export_cards(
     db: Session = Depends(get_database),
 ):
     """Export filtered cards as CSV (UTF-8 BOM, Excel-compatible). Max 5000 rows."""
-    primary_source = _GAME_PRIMARY_SOURCE.get(game, "pokemon_tcg_api")
-    params: dict = {"game": game, "primary_source": primary_source, "limit": _EXPORT_LIMIT}
+    params: dict = {"game": game, "limit": _EXPORT_LIMIT}
 
     signal_filter = "" if signal == "ALL" else "AND s.label = :signal"
     if signal != "ALL":
@@ -562,10 +561,12 @@ def export_cards(
             GROUP BY asset_id
         ),
         latest_tcg AS (
-            SELECT DISTINCT ON (asset_id) asset_id, price AS tcg_price
+            -- Per-source DISTINCT ON; joined with CASE a.game so mixed-game
+            -- watchlists get correct TCG source per asset (mirrors /cards/batch).
+            SELECT DISTINCT ON (asset_id, source) asset_id, source, price
             FROM price_history
-            WHERE source = :primary_source
-            ORDER BY asset_id, captured_at DESC
+            WHERE source IN ('pokemon_tcg_api', 'ygoprodeck_api')
+            ORDER BY asset_id, source, captured_at DESC
         ),
         latest_ebay AS (
             SELECT DISTINCT ON (asset_id) asset_id, price AS ebay_price
@@ -589,12 +590,13 @@ def export_cards(
             s.label                 AS signal,
             s.price_delta_pct,
             lt.last_transition_at,
-            tcg.tcg_price,
+            tcg.price               AS tcg_price,
             ebay.ebay_price,
             COALESCE(vol.cnt, 0)    AS volume_24h
         FROM assets a
         JOIN asset_signals s ON s.asset_id = a.id
         LEFT JOIN latest_tcg tcg ON tcg.asset_id = a.id
+          AND tcg.source = CASE a.game WHEN 'yugioh' THEN 'ygoprodeck_api' ELSE 'pokemon_tcg_api' END
         LEFT JOIN latest_ebay ebay ON ebay.asset_id = a.id
         LEFT JOIN vol_24h vol ON vol.asset_id = a.id
         {recent_sort_join}
