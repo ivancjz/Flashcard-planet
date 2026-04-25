@@ -366,8 +366,9 @@ class TestWatchPredictionGate(unittest.TestCase):
         )
         self.assertEqual(result, SignalLabel.WATCH)
 
-    def test_idle_with_prediction_down(self):
-        """prediction='Down' overrides positive delta → IDLE (falling trend = no WATCH)."""
+    def test_watch_with_prediction_down(self):
+        """prediction='Down' + positive delta → WATCH. Down accuracy = 39.8% (n=128,
+        2026-04-25), below random — not reliable enough to block WATCH."""
         from backend.app.models.enums import SignalLabel
         result = self._classify(
             alert_confidence=None,
@@ -376,7 +377,7 @@ class TestWatchPredictionGate(unittest.TestCase):
             prediction="Down",
             history_depth=5,
         )
-        self.assertEqual(result, SignalLabel.IDLE)
+        self.assertEqual(result, SignalLabel.WATCH)
 
     def test_idle_with_negative_delta_and_no_prediction(self):
         """Negative delta + None → IDLE (negative delta always wins)."""

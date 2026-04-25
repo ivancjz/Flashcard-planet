@@ -157,12 +157,11 @@ def classify_signal(
 
     # WATCH requires non-negative delta — a falling card is never WATCH regardless
     # of its directional prediction. Negative delta → IDLE, full stop.
-    # At WATCH tier: prediction="Down" → IDLE (contradictory signal: falling trend
-    # despite positive delta); prediction=None → WATCH (trend unknown, benefit of
-    # the doubt for new data). Note: "Down" cards can still be BREAKOUT/MOVE
-    # because those gates run earlier and do not consult prediction.
+    # prediction is not used as a gate here: Down accuracy = 39.8% over 3d (n=128,
+    # 2026-04-25), below random — using it to block WATCH hides rising cards.
+    # prediction="Down" can still suppress via future hysteresis if accuracy improves.
     if (
-        prediction in ("Up", None)
+        prediction in ("Up", "Down", None)
         and history_depth >= WATCH_MIN_HISTORY
         and price_delta_pct is not None
         and price_delta_pct >= 0
