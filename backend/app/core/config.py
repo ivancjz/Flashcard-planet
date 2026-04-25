@@ -4,7 +4,7 @@ from functools import lru_cache
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from backend.app.core.set_registry import P1_P2_BULK_SET_IDS, P1_P2_CARD_IDS, TIER1_BULK_SET_IDS
+from backend.app.core.set_registry import P1_P2_CARD_IDS, TIER1_BULK_SET_IDS
 
 # P1+P2 sets from set_registry: Base Set (102), Jungle (64), Fossil (62), Team Rocket (83).
 # Operators can override via POKEMON_TCG_CARD_IDS env var.

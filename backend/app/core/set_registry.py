@@ -301,12 +301,6 @@ P1_P2_CARD_IDS: list[str] = [
     for card_id in _card_ids_for_set(s.set_id, s.card_count)
 ]
 
-# All sets — used as DEFAULT_BULK_SET_IDS in config.py
-ALL_BULK_SET_IDS: str = ",".join(s.set_id for s in SUPPORTED_SETS)
-
-# P1+P2 only bulk IDs (conservative default)
-P1_P2_BULK_SET_IDS: str = ",".join(s.set_id for s in P1_P2_SETS)
-
 # Tier 1 expansion — all sets currently tracked in production (2026-04-25).
 # Covers all sets in the DB; ensures bulk refresh runs even without env var override.
 TIER1_BULK_SET_IDS: str = ",".join([
@@ -324,18 +318,3 @@ TIER1_BULK_SET_IDS: str = ",".join([
     "rsv10pt5", "zsv10pt5", "me1", "me2", "me2pt5", "me3",
 ])
 
-
-# ── Lookup helpers ────────────────────────────────────────────────────────
-
-_SET_BY_ID: dict[str, SetConfig] = {s.set_id: s for s in SUPPORTED_SETS}
-
-
-def get_set(set_id: str) -> SetConfig | None:
-    return _SET_BY_ID.get(set_id)
-
-
-def sets_by_priority(max_priority: int = 4) -> list[SetConfig]:
-    return sorted(
-        [s for s in SUPPORTED_SETS if s.priority <= max_priority],
-        key=lambda s: (s.priority, s.release_year),
-    )
