@@ -157,8 +157,12 @@ def classify_signal(
 
     # WATCH requires non-negative delta — a falling card is never WATCH regardless
     # of its directional prediction. Negative delta → IDLE, full stop.
+    # At WATCH tier: prediction="Down" → IDLE (contradictory signal: falling trend
+    # despite positive delta); prediction=None → WATCH (trend unknown, benefit of
+    # the doubt for new data). Note: "Down" cards can still be BREAKOUT/MOVE
+    # because those gates run earlier and do not consult prediction.
     if (
-        prediction in ("Up", "Down")
+        prediction in ("Up", None)
         and history_depth >= WATCH_MIN_HISTORY
         and price_delta_pct is not None
         and price_delta_pct >= 0

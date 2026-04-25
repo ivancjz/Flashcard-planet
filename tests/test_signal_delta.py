@@ -332,6 +332,65 @@ class TestClassifySignalUnchanged(unittest.TestCase):
         self.assertEqual(result, SignalLabel.IDLE)
 
 
+# ── h1. WATCH prediction gate (fix/watch-prediction-gate) ────────────────────
+
+class TestWatchPredictionGate(unittest.TestCase):
+    """Cards with prediction=None and non-negative delta should classify as WATCH,
+    not IDLE. prediction='Down' overrides positive delta → IDLE."""
+
+    def _classify(self, **kwargs):
+        from backend.app.services.signal_service import classify_signal
+        return classify_signal(**kwargs)
+
+    def test_watch_with_prediction_none(self):
+        """prediction=None + positive delta → WATCH (benefit of the doubt for new data)."""
+        from backend.app.models.enums import SignalLabel
+        result = self._classify(
+            alert_confidence=None,
+            price_delta_pct=Decimal("2.5"),
+            liquidity_score=30,
+            prediction=None,
+            history_depth=5,
+        )
+        self.assertEqual(result, SignalLabel.WATCH)
+
+    def test_watch_with_prediction_up(self):
+        """prediction='Up' + positive delta → WATCH (existing path, no regression)."""
+        from backend.app.models.enums import SignalLabel
+        result = self._classify(
+            alert_confidence=None,
+            price_delta_pct=Decimal("2.5"),
+            liquidity_score=30,
+            prediction="Up",
+            history_depth=5,
+        )
+        self.assertEqual(result, SignalLabel.WATCH)
+
+    def test_idle_with_prediction_down(self):
+        """prediction='Down' overrides positive delta → IDLE (falling trend = no WATCH)."""
+        from backend.app.models.enums import SignalLabel
+        result = self._classify(
+            alert_confidence=None,
+            price_delta_pct=Decimal("2.5"),
+            liquidity_score=30,
+            prediction="Down",
+            history_depth=5,
+        )
+        self.assertEqual(result, SignalLabel.IDLE)
+
+    def test_idle_with_negative_delta_and_no_prediction(self):
+        """Negative delta + None → IDLE (negative delta always wins)."""
+        from backend.app.models.enums import SignalLabel
+        result = self._classify(
+            alert_confidence=None,
+            price_delta_pct=Decimal("-1.0"),
+            liquidity_score=30,
+            prediction=None,
+            history_depth=5,
+        )
+        self.assertEqual(result, SignalLabel.IDLE)
+
+
 # ── h. Downgrade rules (_apply_signal_downgrade) ──────────────────────────────
 
 class TestApplySignalDowngrade(unittest.TestCase):
