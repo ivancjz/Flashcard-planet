@@ -157,8 +157,10 @@ def classify_signal(
 
     # WATCH requires non-negative delta — a falling card is never WATCH regardless
     # of its directional prediction. Negative delta → IDLE, full stop.
+    # prediction="Down" → IDLE: falling trend overrides positive short-term delta.
+    # prediction=None → WATCH: trend unknown, give benefit of the doubt to new data.
     if (
-        prediction in ("Up", "Down")
+        prediction in ("Up", None)
         and history_depth >= WATCH_MIN_HISTORY
         and price_delta_pct is not None
         and price_delta_pct >= 0
