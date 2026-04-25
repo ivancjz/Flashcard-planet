@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchCardsById } from '../api/api'
+import { fetchCardsById, exportCardsCsv } from '../api/api'
 import { useWatchlist } from '../hooks/useWatchlist'
 import NavBar from '../components/NavBar'
 import CardGrid from '../components/CardGrid'
@@ -99,6 +99,18 @@ export default function WatchlistPage() {
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>⭐ Watchlist</div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>{count} card{count !== 1 ? 's' : ''} watched</div>
           </div>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => exportCardsCsv({
+              asset_ids: entries.map(e => e.asset_id),
+              sort: sort === 'recently_added' ? 'change' : sort,
+              search: debouncedSearch || undefined,
+            })}
+            disabled={count === 0}
+            title="Export watchlist as CSV"
+          >
+            ↓ Export
+          </button>
         </div>
 
         {count === 0 ? (

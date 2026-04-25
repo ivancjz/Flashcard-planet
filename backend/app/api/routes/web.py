@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import csv
+import io
+import logging
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from backend.app.api.deps import get_database
 
@@ -425,6 +432,198 @@ def web_cards(
         "limit": limit,
         "offset": offset,
     }
+
+
+_EXPORT_LIMIT = 5000
+_EXPORT_COLUMNS = [
+    "Card Name", "Set", "Rarity", "Game", "Signal",
+    "TCG Price (USD)", "eBay Price (USD)", "24h Change %",
+    "Volume (24h sales)", "Last Transition (UTC)", "Asset ID",
+]
+
+
+@router.get("/cards/export")
+def export_cards(
+    signal: str = Query(default="ALL"),
+    sort: str = Query(default="change"),
+    game: str = Query(default="pokemon"),
+    search: str | None = Query(default=None),
+    set_id: str | None = Query(default=None),
+    rarity: str | None = Query(default=None),
+    price_min: float | None = Query(default=None),
+    price_max: float | None = Query(default=None),
+    asset_ids: str | None = Query(default=None),
+    db: Session = Depends(get_database),
+):
+    """Export filtered cards as CSV (UTF-8 BOM, Excel-compatible). Max 5000 rows."""
+    primary_source = _GAME_PRIMARY_SOURCE.get(game, "pokemon_tcg_api")
+    params: dict = {"game": game, "primary_source": primary_source, "limit": _EXPORT_LIMIT}
+
+    signal_filter = "" if signal == "ALL" else "AND s.label = :signal"
+    if signal != "ALL":
+        params["signal"] = signal
+
+    search_term = (search or "").strip()
+    if search_term:
+        escaped = search_term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        search_filter = "AND a.name ILIKE :search"
+        params["search"] = f"%{escaped}%"
+    else:
+        search_filter = ""
+
+    set_ids_list = [s.strip() for s in (set_id or "").split(",") if s.strip()]
+    if set_ids_list:
+        placeholders = ", ".join(f":set_id_{i}" for i in range(len(set_ids_list)))
+        set_filter = f"AND a.metadata->'set'->>'id' IN ({placeholders})"
+        for i, sid in enumerate(set_ids_list):
+            params[f"set_id_{i}"] = sid
+    else:
+        set_filter = ""
+
+    rarities_list = [r.strip() for r in (rarity or "").split(",") if r.strip()]
+    if rarities_list:
+        placeholders = ", ".join(f":rarity_{i}" for i in range(len(rarities_list)))
+        rarity_filter = f"AND a.variant IN ({placeholders})"
+        for i, r in enumerate(rarities_list):
+            params[f"rarity_{i}"] = r
+    else:
+        rarity_filter = ""
+
+    price_parts: list[str] = []
+    if price_min is not None:
+        price_parts.append("AND (s.signal_context->>'current_price')::numeric >= :price_min")
+        params["price_min"] = price_min
+    if price_max is not None:
+        price_parts.append("AND (s.signal_context->>'current_price')::numeric <= :price_max")
+        params["price_max"] = price_max
+    price_filter = " ".join(price_parts)
+
+    # asset_ids filter — for watchlist export (comma-separated UUIDs)
+    asset_ids_filter = ""
+    if asset_ids:
+        ids_raw = [s.strip() for s in asset_ids.split(",") if s.strip()]
+        valid_ids: list[str] = []
+        for s in ids_raw:
+            try:
+                uuid.UUID(s)
+                valid_ids.append(s)
+            except ValueError:
+                continue
+        if valid_ids:
+            placeholders = ", ".join(f"CAST(:aid_{i} AS uuid)" for i in range(len(valid_ids)))
+            asset_ids_filter = f"AND a.id IN ({placeholders})"
+            for i, vid in enumerate(valid_ids):
+                params[f"aid_{i}"] = vid
+
+    if sort not in {"change", "price", "volume", "recent"}:
+        sort = "change"
+
+    # Export uses CTE pre-aggregation — no per-row LATERAL joins.
+    # With 3966 rows, LATERAL would take ~6s; CTEs take ~1.3s.
+    order_by = {
+        "price": "tcg.tcg_price DESC NULLS LAST",
+        "volume": "COALESCE(vol.cnt, 0) DESC NULLS LAST",
+        "recent": "lt.last_transition_at DESC NULLS LAST",
+    }.get(sort, "s.price_delta_pct DESC NULLS LAST")
+
+    recent_cte = ""
+    recent_join = ""
+    if sort == "recent":
+        recent_cte = """
+        last_transitions AS (
+            SELECT asset_id, MAX(computed_at) AS last_transition_at
+            FROM asset_signal_history
+            WHERE previous_label IS NOT NULL
+              AND label IS DISTINCT FROM previous_label
+            GROUP BY asset_id
+        ),"""
+        recent_join = "LEFT JOIN last_transitions lt ON lt.asset_id = a.id"
+
+    last_transition_col = "lt.last_transition_at" if sort == "recent" else "NULL"
+
+    rows = db.execute(text(f"""
+        WITH {recent_cte}
+        latest_tcg AS (
+            SELECT DISTINCT ON (asset_id) asset_id, price AS tcg_price
+            FROM price_history
+            WHERE source = :primary_source
+            ORDER BY asset_id, captured_at DESC
+        ),
+        latest_ebay AS (
+            SELECT DISTINCT ON (asset_id) asset_id, price AS ebay_price
+            FROM price_history
+            WHERE source = 'ebay_sold'
+            ORDER BY asset_id, captured_at DESC
+        ),
+        vol_24h AS (
+            SELECT asset_id, COUNT(*) AS cnt
+            FROM price_history
+            WHERE source = 'ebay_sold'
+              AND captured_at >= NOW() - INTERVAL '24 hours'
+            GROUP BY asset_id
+        )
+        SELECT
+            a.id::text              AS asset_id,
+            a.name,
+            a.set_name,
+            a.variant               AS rarity,
+            a.game,
+            s.label                 AS signal,
+            s.price_delta_pct,
+            {last_transition_col}   AS last_transition_at,
+            tcg.tcg_price,
+            ebay.ebay_price,
+            COALESCE(vol.cnt, 0)    AS volume_24h
+        FROM assets a
+        JOIN asset_signals s ON s.asset_id = a.id
+        LEFT JOIN latest_tcg tcg ON tcg.asset_id = a.id
+        LEFT JOIN latest_ebay ebay ON ebay.asset_id = a.id
+        LEFT JOIN vol_24h vol ON vol.asset_id = a.id
+        {recent_join}
+        WHERE a.game = :game
+          {signal_filter}
+          {search_filter}
+          {set_filter}
+          {rarity_filter}
+          {price_filter}
+          {asset_ids_filter}
+        ORDER BY {order_by}
+        LIMIT :limit
+    """), params).fetchall()
+
+    if len(rows) >= _EXPORT_LIMIT:
+        logger.warning("export_cards: hit %d row cap (game=%s signal=%s)", _EXPORT_LIMIT, game, signal)
+
+    output = io.StringIO()
+    output.write('﻿')  # UTF-8 BOM for Excel
+    writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(_EXPORT_COLUMNS)
+
+    for row in rows:
+        last_t = row.last_transition_at
+        writer.writerow([
+            row.name or "",
+            row.set_name or "",
+            row.rarity or "",
+            row.game or "",
+            row.signal or "",
+            f"{row.tcg_price:.2f}" if row.tcg_price is not None else "",
+            f"{row.ebay_price:.2f}" if row.ebay_price is not None else "",
+            f"{row.price_delta_pct:.2f}" if row.price_delta_pct is not None else "",
+            str(int(row.volume_24h)) if row.volume_24h else "",
+            last_t.isoformat() if last_t else "",
+            row.asset_id or "",
+        ])
+
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    filename = f"flashcard-planet-export-{timestamp}.csv"
+    content = output.getvalue()
+
+    return StreamingResponse(
+        iter([content.encode("utf-8")]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 class CardsBatchRequest(BaseModel):
