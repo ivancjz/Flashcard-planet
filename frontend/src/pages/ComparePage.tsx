@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { fetchCard } from '../api/api'
 import NavBar from '../components/NavBar'
 import ComparisonChart from '../components/ComparisonChart'
+import CardPickerModal from '../components/CardPickerModal'
 import SignalBadge from '../components/SignalBadge'
 import CardArt from '../components/CardArt'
 import { formatDelta } from '../lib/utils'
@@ -28,6 +29,7 @@ export default function ComparePage() {
   const [cards, setCards] = useState<CardDetail[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   useEffect(() => {
     if (ids.length === 0) {
@@ -63,6 +65,11 @@ export default function ComparePage() {
     }
   }
 
+  const addCard = (assetId: string) => {
+    const newIds = Array.from(new Set([...ids, assetId])).slice(0, MAX_COMPARE)
+    setSearchParams({ ids: newIds.join(',') })
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-base)' }}>
       <NavBar />
@@ -86,10 +93,10 @@ export default function ComparePage() {
               No cards selected
             </div>
             <div style={{ color: 'var(--text-muted)', marginBottom: 24, fontSize: 14 }}>
-              Open any card and tap "Compare with…" to start
+              Search for cards to compare, or open a card and tap "Compare with…"
             </div>
-            <button className="btn btn-primary" onClick={() => navigate('/market')}>
-              Browse the market
+            <button className="btn btn-primary" onClick={() => setPickerOpen(true)}>
+              + Add cards
             </button>
           </div>
         )}
@@ -131,7 +138,7 @@ export default function ComparePage() {
             fontSize: 13, color: 'var(--text-muted)',
           }}>
             Add at least one more card to see a comparison.
-            <button className="btn btn-ghost btn-sm" onClick={() => navigate('/market')}>
+            <button className="btn btn-ghost btn-sm" onClick={() => setPickerOpen(true)}>
               + Add card
             </button>
           </div>
@@ -155,10 +162,10 @@ export default function ComparePage() {
               />
             ))}
 
-            {/* Add slot when room remains */}
+            {/* Add slot when room remains — opens picker modal, no navigation away */}
             {cards.length < MAX_COMPARE && (
               <button
-                onClick={() => navigate('/market')}
+                onClick={() => setPickerOpen(true)}
                 style={{
                   border: '2px dashed var(--border-default)',
                   borderRadius: 'var(--radius-md)',
@@ -197,6 +204,13 @@ export default function ComparePage() {
           </div>
         )}
       </div>
+
+      <CardPickerModal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={card => addCard(card.asset_id)}
+        excludeIds={ids}
+      />
     </div>
   )
 }
