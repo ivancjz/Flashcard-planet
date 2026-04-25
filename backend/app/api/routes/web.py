@@ -82,7 +82,7 @@ def web_filter_sets(
         FROM assets
         WHERE game = :game
           AND metadata->'set'->>'id' IS NOT NULL
-        GROUP BY set_id, set_name
+        GROUP BY metadata->'set'->>'id', metadata->'set'->>'name'
         ORDER BY card_count DESC
     """), {"game": game}).fetchall()
     return {"sets": [{"id": r.set_id, "name": r.set_name, "count": r.card_count} for r in rows]}
