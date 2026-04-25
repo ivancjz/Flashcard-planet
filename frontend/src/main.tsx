@@ -6,6 +6,7 @@ import LandingPage from './pages/LandingPage'
 import DashboardPage from './pages/DashboardPage'
 import CardDetailPage from './pages/CardDetailPage'
 import AlertsPage from './pages/AlertsPage'
+import WatchlistPage from './pages/WatchlistPage'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -15,6 +16,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/market" element={<DashboardPage />} />
         <Route path="/market/:assetId" element={<CardDetailPage />} />
         <Route path="/alerts" element={<AlertsPage />} />
+        <Route path="/watchlist" element={<WatchlistPage />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>

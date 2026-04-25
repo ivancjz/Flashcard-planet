@@ -6,6 +6,7 @@ import SignalBadge from '../components/SignalBadge'
 import AIAnalysisSection from '../components/AIAnalysisSection'
 import { fetchCard } from '../api/api'
 import { signalToMeta, formatDelta } from '../lib/utils'
+import { useWatchlist } from '../hooks/useWatchlist'
 import type { CardDetail, PricePoint } from '../types/api'
 
 const SIGNAL_DESCRIPTION: Record<string, string> = {
@@ -247,6 +248,7 @@ export default function CardDetailPage() {
   const [card, setCard] = useState<CardDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { isWatched, toggle } = useWatchlist()
 
   useEffect(() => {
     if (!assetId) return
@@ -307,7 +309,19 @@ export default function CardDetailPage() {
             </table>
             <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>Set Alert</button>
-              <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center' }}>Add to Watchlist</button>
+              <button
+                className="btn btn-ghost"
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={() => {
+                  const result = toggle(card.asset_id)
+                  if (!result.ok) {
+                    if (result.reason === 'cap') alert('Watchlist is full (max 500 cards). Remove some to add more.')
+                    else if (result.reason === 'storage') alert('Could not save watchlist. Storage may be disabled.')
+                  }
+                }}
+              >
+                {isWatched(card.asset_id) ? '⭐ Watching' : '☆ Add to Watchlist'}
+              </button>
             </div>
           </div>
 

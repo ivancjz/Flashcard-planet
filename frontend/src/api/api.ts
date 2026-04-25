@@ -39,6 +39,25 @@ export async function fetchCards(params: {
   return res.json()
 }
 
+export async function fetchCardsById(params: {
+  asset_ids: string[]
+  signalFilter?: Signal | 'ALL'
+  sort?: 'change' | 'price' | 'volume'
+  search?: string
+  limit?: number
+  signal?: AbortSignal
+}): Promise<CardsResponse> {
+  const { asset_ids, signalFilter = 'ALL', sort = 'change', search, limit = 200, signal } = params
+  const res = await fetch(`${BASE}/api/v1/web/cards/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ asset_ids, signal: signalFilter, sort, search: search ?? null, limit }),
+    signal,
+  })
+  if (!res.ok) throw new Error('cards batch fetch failed')
+  return res.json()
+}
+
 export async function fetchSetOptions(game: string): Promise<SetOption[]> {
   const res = await fetch(`${BASE}/api/v1/web/filters/sets?game=${game}`)
   if (!res.ok) throw new Error('set options fetch failed')

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -210,7 +213,7 @@ def web_cards(
                   {set_filter}
                   {rarity_filter}
                   {price_filter}
-                ORDER BY s.price_delta_pct DESC NULLS LAST
+                        ORDER BY s.price_delta_pct DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub
             LEFT JOIN LATERAL (
@@ -273,7 +276,7 @@ def web_cards(
                   {set_filter}
                   {rarity_filter}
                   {price_filter}
-                ORDER BY tcg.price DESC NULLS LAST
+                        ORDER BY tcg.price DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub
             LEFT JOIN LATERAL (
@@ -332,7 +335,7 @@ def web_cards(
                   {set_filter}
                   {rarity_filter}
                   {price_filter}
-                ORDER BY vol.cnt DESC NULLS LAST
+                        ORDER BY vol.cnt DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub
             LEFT JOIN LATERAL (
@@ -352,6 +355,243 @@ def web_cards(
         "total": total,
         "limit": limit,
         "offset": offset,
+    }
+
+
+class CardsBatchRequest(BaseModel):
+    asset_ids: list[str] = Field(max_length=500)
+    signal: str = "ALL"
+    sort: str = "change"
+    search: str | None = None
+    limit: int = Field(default=200, ge=1, le=500)
+
+
+@router.post("/cards/batch")
+def web_cards_batch(body: CardsBatchRequest, db: Session = Depends(get_database)):
+    """Fetch cards by explicit asset_ids list (for Watchlist).
+    No game filter — asset UUIDs are game-agnostic.
+    Primary source (TCG price) is determined per-asset via SQL CASE on a.game.
+    Cap: 500 asset_ids per request.
+    """
+    # Validate UUIDs; silently skip invalid ones
+    valid_ids: list[str] = []
+    for s in body.asset_ids:
+        try:
+            uuid.UUID(s)
+            valid_ids.append(s)
+        except ValueError:
+            continue
+
+    if not valid_ids:
+        return {"cards": [], "total": 0, "limit": body.limit, "offset": 0}
+
+    if len(valid_ids) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many asset_ids: {len(valid_ids)}. Maximum 500 per request.",
+        )
+
+    placeholders = ", ".join(f"CAST(:asset_id_{i} AS uuid)" for i in range(len(valid_ids)))
+    ids_filter = f"a.id IN ({placeholders})"
+
+    params: dict = {"limit": body.limit}
+    for i, vid in enumerate(valid_ids):
+        params[f"asset_id_{i}"] = vid
+
+    signal_filter = "" if body.signal == "ALL" else "AND s.label = :signal"
+    if body.signal != "ALL":
+        params["signal"] = body.signal
+
+    search_term = (body.search or "").strip()
+    if search_term:
+        escaped = search_term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        search_filter = "AND a.name ILIKE :search"
+        params["search"] = f"%{escaped}%"
+    else:
+        search_filter = ""
+
+    # Primary source is per-asset: derived from a.game column.
+    # inner_source_expr: use when `a` is in scope (inside subquery / same FROM clause).
+    # sub_source_expr:   use when only `sub` is in scope (outer query referencing subquery).
+    inner_source_expr = "CASE a.game WHEN 'yugioh' THEN 'ygoprodeck_api' ELSE 'pokemon_tcg_api' END"
+    sub_source_expr = "CASE sub.game WHEN 'yugioh' THEN 'ygoprodeck_api' ELSE 'pokemon_tcg_api' END"
+
+    total = db.execute(text(f"""
+        SELECT COUNT(*)
+        FROM assets a
+        JOIN asset_signals s ON s.asset_id = a.id
+        WHERE {ids_filter}
+          {signal_filter}
+          {search_filter}
+    """), params).scalar() or 0
+
+    if body.sort == "price":
+        rows = db.execute(text(f"""
+            SELECT
+                sub.asset_id::text,
+                sub.name,
+                sub.set_name,
+                sub.rarity,
+                sub.card_type,
+                sub.signal,
+                sub.price_delta_pct,
+                sub.liquidity_score,
+                sub.image_url,
+                sub.tcg_price,
+                ebay.price   AS ebay_price,
+                vol.cnt      AS volume_24h
+            FROM (
+                SELECT
+                    a.id         AS asset_id,
+                    a.name,
+                    a.set_name,
+                    a.variant    AS rarity,
+                    a.category   AS card_type,
+                    s.label      AS signal,
+                    s.price_delta_pct,
+                    s.liquidity_score,
+                    a.metadata->'images'->>'small' AS image_url,
+                    tcg_l.price  AS tcg_price
+                FROM assets a
+                JOIN asset_signals s ON s.asset_id = a.id
+                LEFT JOIN LATERAL (
+                    SELECT price FROM price_history
+                    WHERE asset_id = a.id
+                      AND source = {inner_source_expr}
+                    ORDER BY captured_at DESC LIMIT 1
+                ) tcg_l ON TRUE
+                WHERE {ids_filter}
+                  {signal_filter}
+                  {search_filter}
+                ORDER BY tcg_l.price DESC NULLS LAST
+                LIMIT :limit
+            ) sub
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = sub.asset_id AND source = 'ebay_sold'
+                ORDER BY captured_at DESC LIMIT 1
+            ) ebay ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS cnt FROM price_history
+                WHERE asset_id = sub.asset_id AND source = 'ebay_sold'
+                  AND captured_at >= NOW() - INTERVAL '24 hours'
+            ) vol ON TRUE
+        """), params).fetchall()
+    elif body.sort == "volume":
+        rows = db.execute(text(f"""
+            WITH vol_24h AS (
+                SELECT asset_id, COUNT(*) AS cnt
+                FROM price_history
+                WHERE source = 'ebay_sold'
+                  AND captured_at >= NOW() - INTERVAL '24 hours'
+                GROUP BY asset_id
+            )
+            SELECT
+                sub.asset_id::text,
+                sub.name,
+                sub.set_name,
+                sub.rarity,
+                sub.card_type,
+                sub.signal,
+                sub.price_delta_pct,
+                sub.liquidity_score,
+                sub.image_url,
+                sub.volume_24h,
+                tcg.price    AS tcg_price,
+                ebay.price   AS ebay_price
+            FROM (
+                SELECT
+                    a.id         AS asset_id,
+                    a.name,
+                    a.set_name,
+                    a.variant    AS rarity,
+                    a.category   AS card_type,
+                    s.label      AS signal,
+                    s.price_delta_pct,
+                    s.liquidity_score,
+                    a.metadata->'images'->>'small' AS image_url,
+                    a.game,
+                    COALESCE(vol.cnt, 0) AS volume_24h
+                FROM assets a
+                JOIN asset_signals s ON s.asset_id = a.id
+                LEFT JOIN vol_24h vol ON vol.asset_id = a.id
+                WHERE {ids_filter}
+                  {signal_filter}
+                  {search_filter}
+                ORDER BY vol.cnt DESC NULLS LAST
+                LIMIT :limit
+            ) sub
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = sub.asset_id
+                  AND source = {sub_source_expr}
+                ORDER BY captured_at DESC LIMIT 1
+            ) tcg ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = sub.asset_id AND source = 'ebay_sold'
+                ORDER BY captured_at DESC LIMIT 1
+            ) ebay ON TRUE
+        """), params).fetchall()
+    else:
+        # Default: sort=change
+        rows = db.execute(text(f"""
+            SELECT
+                sub.asset_id::text,
+                sub.name,
+                sub.set_name,
+                sub.rarity,
+                sub.card_type,
+                sub.signal,
+                sub.price_delta_pct,
+                sub.liquidity_score,
+                sub.image_url,
+                tcg.price    AS tcg_price,
+                ebay.price   AS ebay_price,
+                vol.cnt      AS volume_24h
+            FROM (
+                SELECT
+                    a.id         AS asset_id,
+                    a.name,
+                    a.set_name,
+                    a.variant    AS rarity,
+                    a.category   AS card_type,
+                    s.label      AS signal,
+                    s.price_delta_pct,
+                    s.liquidity_score,
+                    a.metadata->'images'->>'small' AS image_url,
+                    a.game
+                FROM assets a
+                JOIN asset_signals s ON s.asset_id = a.id
+                WHERE {ids_filter}
+                  {signal_filter}
+                  {search_filter}
+                ORDER BY s.price_delta_pct DESC NULLS LAST
+                LIMIT :limit
+            ) sub
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = sub.asset_id
+                  AND source = {sub_source_expr}
+                ORDER BY captured_at DESC LIMIT 1
+            ) tcg ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = sub.asset_id AND source = 'ebay_sold'
+                ORDER BY captured_at DESC LIMIT 1
+            ) ebay ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS cnt FROM price_history
+                WHERE asset_id = sub.asset_id AND source = 'ebay_sold'
+                  AND captured_at >= NOW() - INTERVAL '24 hours'
+            ) vol ON TRUE
+        """), params).fetchall()
+
+    return {
+        "cards": [dict(r._mapping) for r in rows],
+        "total": total,
+        "limit": body.limit,
+        "offset": 0,
     }
 
 
