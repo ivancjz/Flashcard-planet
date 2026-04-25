@@ -440,6 +440,23 @@ _EXPORT_COLUMNS = [
     "TCG Price (USD)", "eBay Price (USD)", "24h Change %",
     "Volume (24h sales)", "Last Transition (UTC)", "Asset ID",
 ]
+_CSV_FORMULA_CHARS = frozenset("=+-@\t\r")
+
+
+def _sanitize_csv_cell(value: str) -> str:
+    """Prefix cells that start with formula-triggering characters to prevent CSV injection."""
+    if value and value[0] in _CSV_FORMULA_CHARS:
+        return "'" + value
+    return value
+
+
+def _empty_csv_response() -> StreamingResponse:
+    content = "﻿" + ",".join(_EXPORT_COLUMNS) + "\r\n"
+    return StreamingResponse(
+        iter([content.encode("utf-8")]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="flashcard-planet-export.csv"'},
+    )
 
 
 @router.get("/cards/export")
@@ -466,7 +483,7 @@ def export_cards(
     search_term = (search or "").strip()
     if search_term:
         escaped = search_term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        search_filter = "AND a.name ILIKE :search"
+        search_filter = "AND a.name ILIKE :search ESCAPE '\\'"
         params["search"] = f"%{escaped}%"
     else:
         search_filter = ""
@@ -509,11 +526,13 @@ def export_cards(
                 valid_ids.append(s)
             except ValueError:
                 continue
-        if valid_ids:
-            placeholders = ", ".join(f"CAST(:aid_{i} AS uuid)" for i in range(len(valid_ids)))
-            asset_ids_filter = f"AND a.id IN ({placeholders})"
-            for i, vid in enumerate(valid_ids):
-                params[f"aid_{i}"] = vid
+        if not valid_ids:
+            # All submitted IDs were invalid — fail closed (empty result, not full export)
+            return _empty_csv_response()
+        placeholders = ", ".join(f"CAST(:aid_{i} AS uuid)" for i in range(len(valid_ids)))
+        asset_ids_filter = f"AND a.id IN ({placeholders})"
+        for i, vid in enumerate(valid_ids):
+            params[f"aid_{i}"] = vid
 
     if sort not in {"change", "price", "volume", "recent"}:
         sort = "change"
@@ -595,16 +614,16 @@ def export_cards(
         logger.warning("export_cards: hit %d row cap (game=%s signal=%s)", _EXPORT_LIMIT, game, signal)
 
     output = io.StringIO()
-    output.write('﻿')  # UTF-8 BOM for Excel
+    output.write("﻿")  # UTF-8 BOM so Excel detects encoding automatically
     writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
     writer.writerow(_EXPORT_COLUMNS)
 
     for row in rows:
         last_t = row.last_transition_at
         writer.writerow([
-            row.name or "",
-            row.set_name or "",
-            row.rarity or "",
+            _sanitize_csv_cell(row.name or ""),
+            _sanitize_csv_cell(row.set_name or ""),
+            _sanitize_csv_cell(row.rarity or ""),
             row.game or "",
             row.signal or "",
             f"{row.tcg_price:.2f}" if row.tcg_price is not None else "",
