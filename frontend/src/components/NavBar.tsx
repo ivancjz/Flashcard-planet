@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getReadAlertIds } from '../lib/utils'
 import { fetchAlerts } from '../api/api'
+import { useWatchlist } from '../hooks/useWatchlist'
 
 export default function NavBar() {
   const nav = useNavigate()
   const { pathname } = useLocation()
   const [unreadCount, setUnreadCount] = useState(0)
+  const { count: watchlistCount } = useWatchlist()
 
   useEffect(() => {
     fetchAlerts({ limit: 50 }).then(r => {
@@ -37,6 +39,20 @@ export default function NavBar() {
       </div>
       <div className="nav-links">
         {link('/market', '🎴 Market')}
+        {link('/watchlist', '⭐ Watchlist',
+          watchlistCount > 0 && (
+            <span style={{
+              marginLeft: 6,
+              background: 'var(--gold)',
+              color: 'var(--text-inverse, #0c0c10)',
+              fontSize: 10, fontWeight: 700,
+              padding: '1px 6px', borderRadius: 10,
+              lineHeight: '16px',
+            }}>
+              {watchlistCount}
+            </span>
+          )
+        )}
         {link('/alerts', 'Alerts',
           unreadCount > 0 && (
             <span style={{

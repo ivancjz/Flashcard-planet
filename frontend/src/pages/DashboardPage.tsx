@@ -3,14 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import NavBar from '../components/NavBar'
 import TickerBar from '../components/TickerBar'
 import GameSwitcher from '../components/GameSwitcher'
-import SignalBadge from '../components/SignalBadge'
-import CardArt from '../components/CardArt'
-import Sparkline from '../components/Sparkline'
 import ProGate from '../components/ProGate'
 import FilterDrawer from '../components/FilterDrawer'
+import CardGrid from '../components/CardGrid'
 import type { FilterState } from '../components/FilterDrawer'
 import { fetchStats, fetchCards, fetchTicker, fetchSetOptions } from '../api/api'
-import { signalToMeta, formatDelta } from '../lib/utils'
 import type { Signal, CardSummary, MarketStats, TickerItem } from '../types/api'
 
 type SortKey = 'change' | 'price' | 'volume'
@@ -21,16 +18,6 @@ const FILTERS: Array<{ value: Signal | 'ALL'; label: string }> = [
   { value: 'WATCH', label: '◆ Watch' },
   { value: 'IDLE', label: '— Idle' },
 ]
-
-function SkeletonCard() {
-  return (
-    <div className="surface" style={{ padding: 16 }}>
-      <div className="skeleton" style={{ height: 168, marginBottom: 12, borderRadius: 8 }} />
-      <div className="skeleton" style={{ height: 14, width: '70%', marginBottom: 8 }} />
-      <div className="skeleton" style={{ height: 12, width: '50%' }} />
-    </div>
-  )
-}
 
 export default function DashboardPage() {
   const nav = useNavigate()
@@ -109,6 +96,28 @@ export default function DashboardPage() {
     setPriceMin(state.priceMin)
     setPriceMax(state.priceMax)
   }
+
+  const emptyState = debouncedSearch ? (
+    <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
+      <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
+      <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, marginBottom: 8, color: 'var(--text-secondary)' }}>
+        No cards match "{debouncedSearch}"
+      </div>
+      <div style={{ fontSize: 13 }}>Try a different name, or clear the search to see all cards.</div>
+    </div>
+  ) : activeFilterCount > 0 ? (
+    <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
+      <div style={{ fontSize: 32, marginBottom: 12 }}>🔎</div>
+      <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, marginBottom: 8, color: 'var(--text-secondary)' }}>
+        No cards match these filters
+      </div>
+      <button className="btn btn-ghost btn-sm" onClick={() => { setSelectedSets([]); setSelectedRarities([]); setPriceMin(null); setPriceMax(null) }}>
+        Clear filters
+      </button>
+    </div>
+  ) : (
+    <div style={{ textAlign: 'center', padding: 80, color: 'var(--text-muted)' }}>No cards match this filter</div>
+  )
 
   return (
     <div>
@@ -249,86 +258,13 @@ export default function DashboardPage() {
             </div>
             <div style={{ fontSize: 14 }}>Signal analysis for this game is in development.</div>
           </div>
-        ) : loading ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
-            {Array.from({ length: 6 }, (_, i) => <SkeletonCard key={i} />)}
-          </div>
-        ) : cards.length === 0 ? (
-          debouncedSearch ? (
-            <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, marginBottom: 8, color: 'var(--text-secondary)' }}>
-                No cards match "{debouncedSearch}"
-              </div>
-              <div style={{ fontSize: 13 }}>Try a different name, or clear the search to see all cards.</div>
-            </div>
-          ) : activeFilterCount > 0 ? (
-            <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>🔎</div>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, marginBottom: 8, color: 'var(--text-secondary)' }}>
-                No cards match these filters
-              </div>
-              <button className="btn btn-ghost btn-sm" onClick={() => { setSelectedSets([]); setSelectedRarities([]); setPriceMin(null); setPriceMax(null) }}>
-                Clear filters
-              </button>
-            </div>
-          ) : (
-            <div style={{ textAlign: 'center', padding: 80, color: 'var(--text-muted)' }}>No cards match this filter</div>
-          )
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
-            {cards.map(card => {
-              const meta = signalToMeta(card.signal)
-              // 2-point sparkline derived from delta: direction always matches signal
-              const pct = card.price_delta_pct ?? 0
-              const sparkData = [100, 100 + Math.max(-80, Math.min(300, pct))]
-              const up = pct >= 0
-              return (
-                <div
-                  key={card.asset_id}
-                  className="surface"
-                  onClick={() => nav(`/market/${card.asset_id}`)}
-                  style={{
-                    padding: 16, cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'flex-start',
-                    background: `linear-gradient(135deg, ${meta.rowGlow} 0%, var(--bg-surface) 60%)`,
-                    borderLeft: `3px solid ${meta.color}`,
-                    transition: 'transform 0.15s, box-shadow 0.15s',
-                  }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'; (e.currentTarget as HTMLDivElement).style.boxShadow = `0 8px 32px ${meta.color}20` }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = ''; (e.currentTarget as HTMLDivElement).style.boxShadow = '' }}
-                >
-                  <CardArt name={card.name} type={card.card_type} rarity={card.rarity} imageUrl={card.image_url} size="sm" />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 4 }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.set_name}</div>
-                      </div>
-                      <SignalBadge signal={card.signal} />
-                    </div>
-                    <div style={{ display: 'flex', gap: 16, marginTop: 10, marginBottom: 10 }}>
-                      <div>
-                        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>TCG</div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)' }}>{card.tcg_price != null ? `$${card.tcg_price.toFixed(2)}` : '—'}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>eBay</div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)' }}>{card.ebay_price != null ? `$${card.ebay_price.toFixed(2)}` : '—'}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>24h</div>
-                        <div className={up ? 'up' : 'down'}>{formatDelta(card.price_delta_pct)}</div>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Sparkline data={sparkData} width={80} height={28} />
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{card.volume_24h != null ? `${card.volume_24h} sales` : ''}</div>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+          <CardGrid
+            cards={cards}
+            loading={loading}
+            onCardClick={id => nav(`/market/${id}`)}
+            emptyState={emptyState}
+          />
         )}
       </div>
 

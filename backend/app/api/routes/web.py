@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -112,6 +114,7 @@ def web_cards(
     rarity: str | None = Query(default=None),
     price_min: float | None = Query(default=None),
     price_max: float | None = Query(default=None),
+    asset_ids: str | None = Query(default=None),
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0),
     db: Session = Depends(get_database),
@@ -161,6 +164,29 @@ def web_cards(
         params["price_max"] = price_max
     price_filter = " ".join(price_parts)
 
+    # Asset IDs filter — validate UUIDs, cap at 200, build IN clause
+    asset_ids_filter = ""
+    if asset_ids:
+        ids_raw = [s.strip() for s in asset_ids.split(",") if s.strip()]
+        valid_ids: list[str] = []
+        for s in ids_raw:
+            try:
+                uuid.UUID(s)
+                valid_ids.append(s)
+            except ValueError:
+                continue
+        if len(valid_ids) > 200:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Too many asset_ids: {len(valid_ids)}. Maximum 200 per request.",
+            )
+        if not valid_ids:
+            return {"cards": [], "total": 0, "limit": limit, "offset": offset}
+        placeholders = ", ".join(f"CAST(:asset_id_{i} AS uuid)" for i in range(len(valid_ids)))
+        asset_ids_filter = f"AND a.id IN ({placeholders})"
+        for i, vid in enumerate(valid_ids):
+            params[f"asset_id_{i}"] = vid
+
     # COUNT does not need LATERAL join results — simple join is sufficient
     total = db.execute(text(f"""
         SELECT COUNT(*)
@@ -172,6 +198,7 @@ def web_cards(
           {set_filter}
           {rarity_filter}
           {price_filter}
+          {asset_ids_filter}
     """), params).scalar() or 0
 
     if sort == "change":
@@ -210,6 +237,7 @@ def web_cards(
                   {set_filter}
                   {rarity_filter}
                   {price_filter}
+                  {asset_ids_filter}
                 ORDER BY s.price_delta_pct DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub
@@ -273,6 +301,7 @@ def web_cards(
                   {set_filter}
                   {rarity_filter}
                   {price_filter}
+                  {asset_ids_filter}
                 ORDER BY tcg.price DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub
@@ -332,6 +361,7 @@ def web_cards(
                   {set_filter}
                   {rarity_filter}
                   {price_filter}
+                  {asset_ids_filter}
                 ORDER BY vol.cnt DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub
