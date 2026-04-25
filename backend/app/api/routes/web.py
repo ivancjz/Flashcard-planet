@@ -537,7 +537,7 @@ def export_cards(
         sort = "change"
 
     order_by = {
-        "price": "tcg.tcg_price DESC NULLS LAST",
+        "price": "tcg.price DESC NULLS LAST",
         "volume": "COALESCE(vol.cnt, 0) DESC NULLS LAST",
         "recent": "lt.last_transition_at DESC NULLS LAST",
     }.get(sort, "s.price_delta_pct DESC NULLS LAST")
