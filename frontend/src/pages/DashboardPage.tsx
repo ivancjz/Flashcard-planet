@@ -10,7 +10,7 @@ import type { FilterState } from '../components/FilterDrawer'
 import { fetchStats, fetchCards, fetchTicker, fetchSetOptions } from '../api/api'
 import type { Signal, CardSummary, MarketStats, TickerItem } from '../types/api'
 
-type SortKey = 'change' | 'price' | 'volume'
+type SortKey = 'change' | 'price' | 'volume' | 'recent'
 const FILTERS: Array<{ value: Signal | 'ALL'; label: string }> = [
   { value: 'ALL', label: 'All' },
   { value: 'BREAKOUT', label: '▲ Breakout' },
@@ -244,6 +244,12 @@ export default function DashboardPage() {
               <button className="btn btn-ghost btn-sm" onClick={() => setSort('volume')}
                 style={sort === 'volume' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
                 Volume
+              </button>
+            </ProGate>
+            <ProGate locked feature="Sort by Recent" reason="Advanced sorting on Pro plan">
+              <button className="btn btn-ghost btn-sm" onClick={() => setSort('recent')}
+                style={sort === 'recent' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
+                Recent
               </button>
             </ProGate>
           </div>
