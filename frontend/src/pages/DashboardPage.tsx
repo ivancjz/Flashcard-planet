@@ -7,7 +7,7 @@ import ProGate from '../components/ProGate'
 import FilterDrawer from '../components/FilterDrawer'
 import CardGrid from '../components/CardGrid'
 import type { FilterState } from '../components/FilterDrawer'
-import { fetchStats, fetchCards, fetchTicker, fetchSetOptions } from '../api/api'
+import { fetchStats, fetchCards, fetchTicker, fetchSetOptions, exportCardsCsv } from '../api/api'
 import type { Signal, CardSummary, MarketStats, TickerItem } from '../types/api'
 
 type SortKey = 'change' | 'price' | 'volume' | 'recent'
@@ -196,6 +196,23 @@ export default function DashboardPage() {
               {activeFilterCount}
             </span>
           )}
+        </button>
+        <button
+          className="btn btn-ghost"
+          onClick={() => exportCardsCsv({
+            game: activeGame,
+            signal,
+            sort,
+            search: debouncedSearch || undefined,
+            set_id: selectedSets.length ? selectedSets : undefined,
+            rarity: selectedRarities.length ? selectedRarities : undefined,
+            price_min: priceMin ?? undefined,
+            price_max: priceMax ?? undefined,
+          })}
+          title="Export current view as CSV"
+          style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+        >
+          ↓ Export
         </button>
         </div>
 

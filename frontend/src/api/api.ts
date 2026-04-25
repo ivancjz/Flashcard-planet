@@ -90,3 +90,32 @@ export async function fetchAlerts(params: {
   if (!res.ok) throw new Error('alerts fetch failed')
   return res.json()
 }
+
+export function exportCardsCsv(params: {
+  game?: string
+  signal?: Signal | 'ALL'
+  sort?: 'change' | 'price' | 'volume' | 'recent'
+  search?: string
+  set_id?: string[]
+  rarity?: string[]
+  price_min?: number
+  price_max?: number
+  asset_ids?: string[]
+}): void {
+  const qs = new URLSearchParams()
+  if (params.game) qs.set('game', params.game)
+  if (params.signal) qs.set('signal', params.signal)
+  if (params.sort) qs.set('sort', params.sort)
+  if (params.search) qs.set('search', params.search)
+  if (params.set_id?.length) qs.set('set_id', params.set_id.join(','))
+  if (params.rarity?.length) qs.set('rarity', params.rarity.join(','))
+  if (params.price_min != null) qs.set('price_min', String(params.price_min))
+  if (params.price_max != null) qs.set('price_max', String(params.price_max))
+  if (params.asset_ids?.length) qs.set('asset_ids', params.asset_ids.join(','))
+  const link = document.createElement('a')
+  link.href = `${BASE}/api/v1/web/cards/export?${qs}`
+  link.download = ''
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
