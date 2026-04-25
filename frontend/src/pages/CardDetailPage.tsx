@@ -323,6 +323,13 @@ export default function CardDetailPage() {
               >
                 {isWatched(card.asset_id) ? '⭐ Watching' : '☆ Add to Watchlist'}
               </button>
+              <button
+                className="btn btn-ghost"
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={() => nav(`/compare?ids=${card.asset_id}`)}
+              >
+                📊 Compare with…
+              </button>
             </div>
           </div>
 
