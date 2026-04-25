@@ -371,11 +371,13 @@ export default function CardDetailPage() {
             <div className="surface" style={{ padding: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                 <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14 }}>Signal History</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
-                  Past 30 days · {card.signal_history.length} change{card.signal_history.length !== 1 ? 's' : ''}
-                </span>
+                {(() => { const sh = card.signal_history ?? []; return (
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
+                    Past 30 days · {sh.length} change{sh.length !== 1 ? 's' : ''}
+                  </span>
+                )})()}
               </div>
-              <SignalTimeline events={card.signal_history} />
+              <SignalTimeline events={card.signal_history ?? []} />
             </div>
 
             <AIAnalysisSection aiAnalysis={card.ai_analysis ?? null} />

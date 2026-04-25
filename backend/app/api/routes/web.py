@@ -645,10 +645,10 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
 
     signal_history = db.execute(text("""
         SELECT
-            id::text                                                AS id,
+            id::text                            AS id,
             previous_label,
-            label                                                   AS current_label,
-            (signal_context->>'current_price')::numeric             AS price_at_event,
+            label                               AS current_label,
+            signal_context->>'current_price'    AS price_at_event_raw,
             price_delta_pct,
             computed_at
         FROM asset_signal_history
@@ -659,6 +659,14 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
         ORDER BY computed_at DESC
         LIMIT 50
     """), {"asset_id": asset_id}).fetchall()
+
+    def _parse_price(raw: str | None) -> float | None:
+        if not raw:
+            return None
+        try:
+            return float(raw)
+        except (ValueError, TypeError):
+            return None
 
     return {
         **dict(row._mapping),
@@ -673,7 +681,7 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
                 "id": sh.id,
                 "previous_label": sh.previous_label,
                 "current_label": sh.current_label,
-                "price_at_event": float(sh.price_at_event) if sh.price_at_event else None,
+                "price_at_event": _parse_price(sh.price_at_event_raw),
                 "price_delta_pct": float(sh.price_delta_pct) if sh.price_delta_pct else None,
                 "computed_at": sh.computed_at.isoformat(),
             }

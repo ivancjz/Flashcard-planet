@@ -63,7 +63,7 @@ export interface CardDetail extends CardSummary {
   price_history: PricePoint[]
   spread_pct: number | null
   ai_analysis?: string | null
-  signal_history: SignalHistoryEvent[]
+  signal_history?: SignalHistoryEvent[]
 }
 
 export interface AlertEvent {
