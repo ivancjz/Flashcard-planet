@@ -21,31 +21,38 @@ export default function ComparePage() {
   const navigate = useNavigate()
 
   const rawIds = searchParams.get('ids')?.split(',').filter(Boolean) ?? []
-  // Deduplicate and cap at MAX_COMPARE
   const ids = Array.from(new Set(rawIds)).slice(0, MAX_COMPARE)
+  // Stable string key — prevents array identity re-triggering the effect on every render
+  const idsKey = ids.join(',')
 
   const [cards, setCards] = useState<CardDetail[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState(false)
 
   useEffect(() => {
     if (ids.length === 0) {
       setCards([])
       setLoading(false)
+      setLoadError(false)
       return
     }
+    let active = true   // stale-result guard
     setLoading(true)
-    // Fetch full CardDetail (with price_history) for each ID in parallel
+    setLoadError(false)
     Promise.all(ids.map(id => fetchCard(id).catch(() => null)))
       .then(results => {
+        if (!active) return
         const valid = results.filter((c): c is CardDetail => c !== null)
-        // Preserve URL order
         const ordered = ids
           .map(id => valid.find(c => c.asset_id === id))
           .filter((c): c is CardDetail => c !== undefined)
         setCards(ordered)
+        // If IDs were provided but none resolved, surface an error state
+        setLoadError(ordered.length === 0)
         setLoading(false)
       })
-  }, [searchParams])
+    return () => { active = false }
+  }, [idsKey])   // eslint-disable-line react-hooks/exhaustive-deps
 
   const removeCard = (assetId: string) => {
     const newIds = ids.filter(id => id !== assetId)
@@ -71,7 +78,7 @@ export default function ComparePage() {
           </div>
         </div>
 
-        {/* Empty state */}
+        {/* Empty state — no IDs in URL */}
         {ids.length === 0 && !loading && (
           <div style={{ textAlign: 'center', padding: '80px 20px' }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>📊</div>
@@ -87,9 +94,25 @@ export default function ComparePage() {
           </div>
         )}
 
+        {/* Error state — IDs provided but none loaded */}
+        {ids.length > 0 && !loading && loadError && (
+          <div style={{ textAlign: 'center', padding: '80px 20px' }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🔍</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, marginBottom: 8, color: 'var(--text-primary)' }}>
+              Cards not found
+            </div>
+            <div style={{ color: 'var(--text-muted)', marginBottom: 24, fontSize: 14 }}>
+              The selected cards could not be loaded.
+            </div>
+            <button className="btn btn-ghost" onClick={() => navigate('/market')}>
+              Browse the market
+            </button>
+          </div>
+        )}
+
         {/* Loading skeleton */}
         {loading && (
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${ids.length}, 1fr)`, gap: 16, marginBottom: 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16, marginBottom: 24 }}>
             {ids.map(id => (
               <div key={id} className="surface" style={{ padding: 16, height: 200 }}>
                 <div className="skeleton" style={{ height: '100%', borderRadius: 8 }} />
@@ -99,7 +122,7 @@ export default function ComparePage() {
         )}
 
         {/* Single-card prompt */}
-        {!loading && cards.length === 1 && (
+        {!loading && !loadError && cards.length === 1 && (
           <div style={{
             padding: '12px 16px', marginBottom: 16,
             background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)',
@@ -114,11 +137,11 @@ export default function ComparePage() {
           </div>
         )}
 
-        {/* Card grid */}
-        {!loading && cards.length > 0 && (
+        {/* Card grid — responsive, min 260px per card */}
+        {!loading && !loadError && cards.length > 0 && (
           <div style={{
             display: 'grid',
-            gridTemplateColumns: `repeat(${Math.min(cards.length + (cards.length < MAX_COMPARE ? 1 : 0), MAX_COMPARE)}, 1fr)`,
+            gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
             gap: 16,
             marginBottom: 24,
           }}>
@@ -132,7 +155,7 @@ export default function ComparePage() {
               />
             ))}
 
-            {/* Add slot */}
+            {/* Add slot when room remains */}
             {cards.length < MAX_COMPARE && (
               <button
                 onClick={() => navigate('/market')}
@@ -160,7 +183,7 @@ export default function ComparePage() {
         )}
 
         {/* Comparison chart */}
-        {!loading && cards.length >= 2 && (
+        {!loading && !loadError && cards.length >= 2 && (
           <div className="surface" style={{ padding: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14 }}>
@@ -227,8 +250,10 @@ function CompareCard({ card, color, onRemove, onClickName }: {
           >
             {card.name}
           </div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8,
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{
+            color: 'var(--text-muted)', fontSize: 11, marginBottom: 8,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
             {card.set_name}
           </div>
           <SignalBadge signal={card.signal} />

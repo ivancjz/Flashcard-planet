@@ -12,11 +12,12 @@ export default function ComparisonChart({ cards, colors }: Props) {
   const IW = W - PAD.left - PAD.right
   const IH = H - PAD.top - PAD.bottom
 
-  // Build normalized series from each card's tcg_price daily points
+  // Build normalized series — sort by date first to guarantee baseline = earliest
   const series = cards.map((card, i) => {
     const pts = card.price_history
       .filter(p => p.tcg_price != null && p.tcg_price > 0)
       .map(p => ({ date: p.date, price: p.tcg_price as number }))
+      .sort((a, b) => a.date.localeCompare(b.date))   // ascending date
     if (pts.length < 2) return null
     const baseline = pts[0].price
     return {
@@ -42,11 +43,11 @@ export default function ComparisonChart({ cards, colors }: Props) {
 
   const dateIndex = new Map(allDates.map((d, i) => [d, i]))
 
-  // Global Y range
+  // Global Y range across all series
   const allPcts = series.flatMap(s => s.pts.map(p => p.pct))
   const rawMin = Math.min(...allPcts, 0)
   const rawMax = Math.max(...allPcts, 0)
-  const pad = (rawMax - rawMin) * 0.1 || 2
+  const pad = (rawMax - rawMin) * 0.1 || 2   // || 2: protect flat-line case
   const yBot = rawMin - pad
   const yTop = rawMax + pad
   const yRange = yTop - yBot
@@ -56,8 +57,7 @@ export default function ComparisonChart({ cards, colors }: Props) {
   const zeroY = yOf(0)
 
   // Y ticks
-  const ySpan = yTop - yBot
-  const rawStep = ySpan / 4
+  const rawStep = yRange / 4
   const mag = Math.pow(10, Math.floor(Math.log10(rawStep || 1)))
   const step = Math.ceil(rawStep / mag) * mag || 5
   const yTicks: number[] = []
@@ -109,7 +109,7 @@ export default function ComparisonChart({ cards, colors }: Props) {
           </text>
         ))}
 
-        {/* Series paths — draw gaps where card has no data for a date */}
+        {/* Series paths — M on first point, L thereafter; pen resets on gap */}
         {series.map(s => {
           const ptMap = new Map(s.pts.map(p => [p.date, p.pct]))
           let d = ''
