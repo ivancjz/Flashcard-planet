@@ -410,8 +410,11 @@ def web_cards_batch(body: CardsBatchRequest, db: Session = Depends(get_database)
     else:
         search_filter = ""
 
-    # Primary source is per-asset: derived from a.game column
-    primary_source_expr = "CASE a.game WHEN 'yugioh' THEN 'ygoprodeck_api' ELSE 'pokemon_tcg_api' END"
+    # Primary source is per-asset: derived from a.game column.
+    # inner_source_expr: use when `a` is in scope (inside subquery / same FROM clause).
+    # sub_source_expr:   use when only `sub` is in scope (outer query referencing subquery).
+    inner_source_expr = "CASE a.game WHEN 'yugioh' THEN 'ygoprodeck_api' ELSE 'pokemon_tcg_api' END"
+    sub_source_expr = "CASE sub.game WHEN 'yugioh' THEN 'ygoprodeck_api' ELSE 'pokemon_tcg_api' END"
 
     total = db.execute(text(f"""
         SELECT COUNT(*)
@@ -454,7 +457,7 @@ def web_cards_batch(body: CardsBatchRequest, db: Session = Depends(get_database)
                 LEFT JOIN LATERAL (
                     SELECT price FROM price_history
                     WHERE asset_id = a.id
-                      AND source = {primary_source_expr}
+                      AND source = {inner_source_expr}
                     ORDER BY captured_at DESC LIMIT 1
                 ) tcg_l ON TRUE
                 WHERE {ids_filter}
@@ -507,6 +510,7 @@ def web_cards_batch(body: CardsBatchRequest, db: Session = Depends(get_database)
                     s.price_delta_pct,
                     s.liquidity_score,
                     a.metadata->'images'->>'small' AS image_url,
+                    a.game,
                     COALESCE(vol.cnt, 0) AS volume_24h
                 FROM assets a
                 JOIN asset_signals s ON s.asset_id = a.id
@@ -520,7 +524,7 @@ def web_cards_batch(body: CardsBatchRequest, db: Session = Depends(get_database)
             LEFT JOIN LATERAL (
                 SELECT price FROM price_history
                 WHERE asset_id = sub.asset_id
-                  AND source = {primary_source_expr}
+                  AND source = {sub_source_expr}
                 ORDER BY captured_at DESC LIMIT 1
             ) tcg ON TRUE
             LEFT JOIN LATERAL (
@@ -555,7 +559,8 @@ def web_cards_batch(body: CardsBatchRequest, db: Session = Depends(get_database)
                     s.label      AS signal,
                     s.price_delta_pct,
                     s.liquidity_score,
-                    a.metadata->'images'->>'small' AS image_url
+                    a.metadata->'images'->>'small' AS image_url,
+                    a.game
                 FROM assets a
                 JOIN asset_signals s ON s.asset_id = a.id
                 WHERE {ids_filter}
@@ -567,7 +572,7 @@ def web_cards_batch(body: CardsBatchRequest, db: Session = Depends(get_database)
             LEFT JOIN LATERAL (
                 SELECT price FROM price_history
                 WHERE asset_id = sub.asset_id
-                  AND source = {primary_source_expr}
+                  AND source = {sub_source_expr}
                 ORDER BY captured_at DESC LIMIT 1
             ) tcg ON TRUE
             LEFT JOIN LATERAL (
