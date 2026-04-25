@@ -307,8 +307,8 @@ ALL_BULK_SET_IDS: str = ",".join(s.set_id for s in SUPPORTED_SETS)
 # P1+P2 only bulk IDs (conservative default)
 P1_P2_BULK_SET_IDS: str = ",".join(s.set_id for s in P1_P2_SETS)
 
-# Tier 1 expansion — P1/P2 classics + 10 market-hot modern sets (2026-04)
-# Covers all sets tracked by bulk-set-price-refresh after the Tier 1 expansion.
+# Tier 1 expansion — all sets currently tracked in production (2026-04-25).
+# Covers all sets in the DB; ensures bulk refresh runs even without env var override.
 TIER1_BULK_SET_IDS: str = ",".join([
     # P1/P2 classics
     "base1", "base2", "base3", "base5",
@@ -316,8 +316,12 @@ TIER1_BULK_SET_IDS: str = ",".join([
     "swsh7", "swsh9", "swsh10", "swsh11", "swsh12", "swsh12pt5", "swsh45",
     # Sun & Moon Tier 1
     "sm115",
-    # Scarlet & Violet (already in SUPPORTED_SETS, added to bulk scope)
-    "sv2", "sv3",
+    # Scarlet & Violet — in SUPPORTED_SETS
+    "sv2", "sv3", "sv3pt5",
+    # Scarlet & Violet — tracked in production (not yet in SUPPORTED_SETS)
+    "sv8pt5", "sv8", "sv9", "sv10",
+    # Japanese Scarlet & Violet sets tracked in production
+    "rsv10pt5", "zsv10pt5", "me1", "me2", "me2pt5", "me3",
 ])
 
 
