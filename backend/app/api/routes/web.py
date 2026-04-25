@@ -295,9 +295,17 @@ def web_cards(
             ) vol ON TRUE
         """), params).fetchall()
     elif sort == "volume":
-        # Sort by current_n from signal_context (eBay 24h count at last sweep).
-        # Simpler than a full price_history CTE — avoids scanning 200k+ rows.
+        # Sort by real-time 24h eBay sold count from price_history.
+        # signal_context->>'current_n' was rejected: it is capped at
+        # _CURRENT_SAMPLE_POINTS=10, causing all high-volume cards to tie.
         rows = db.execute(text(f"""
+            WITH vol_24h AS (
+                SELECT asset_id, COUNT(*) AS cnt
+                FROM price_history
+                WHERE source = 'ebay_sold'
+                  AND captured_at >= NOW() - INTERVAL '24 hours'
+                GROUP BY asset_id
+            )
             SELECT
                 sub.asset_id::text,
                 sub.name,
@@ -322,16 +330,17 @@ def web_cards(
                     s.price_delta_pct,
                     s.liquidity_score,
                     a.metadata->'images'->>'small' AS image_url,
-                    (s.signal_context->>'current_n')::int AS volume_24h
+                    COALESCE(vol.cnt, 0) AS volume_24h
                 FROM assets a
                 JOIN asset_signals s ON s.asset_id = a.id
+                LEFT JOIN vol_24h vol ON vol.asset_id = a.id
                 WHERE a.game = :game
                   {signal_filter}
                   {search_filter}
                   {set_filter}
                   {rarity_filter}
                   {price_filter}
-                ORDER BY (s.signal_context->>'current_n')::int DESC NULLS LAST
+                ORDER BY vol.cnt DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub
             LEFT JOIN LATERAL (
