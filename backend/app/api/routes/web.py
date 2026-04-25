@@ -1101,7 +1101,6 @@ def web_card_detail(
         FROM asset_signal_history
         WHERE asset_id = CAST(:asset_id AS uuid)
           AND computed_at > NOW() - INTERVAL '30 days'
-          AND previous_label IS NOT NULL
           AND label IS DISTINCT FROM previous_label
         ORDER BY computed_at DESC
         LIMIT 50
