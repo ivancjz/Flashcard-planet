@@ -7,6 +7,7 @@ import DashboardPage from './pages/DashboardPage'
 import CardDetailPage from './pages/CardDetailPage'
 import AlertsPage from './pages/AlertsPage'
 import WatchlistPage from './pages/WatchlistPage'
+import ComparePage from './pages/ComparePage'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -17,6 +18,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/market/:assetId" element={<CardDetailPage />} />
         <Route path="/alerts" element={<AlertsPage />} />
         <Route path="/watchlist" element={<WatchlistPage />} />
+        <Route path="/compare" element={<ComparePage />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>
