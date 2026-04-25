@@ -345,7 +345,7 @@ def web_cards(
                 ORDER BY captured_at DESC LIMIT 1
             ) ebay ON TRUE
         """), params).fetchall()
-    else:
+    elif sort == "recent":
         # sort=recent: cards ordered by their most recent signal transition.
         # CTE pre-aggregates MAX(computed_at) per asset for transitions only —
         # 110ms on 1.7M history rows via parallel seq scan + hash aggregate.
@@ -410,6 +410,10 @@ def web_cards(
                   AND captured_at >= NOW() - INTERVAL '24 hours'
             ) vol ON TRUE
         """), params).fetchall()
+    else:
+        # Defensive fallback — should be unreachable after sort validation above.
+        # Guards against someone adding to SORT_OPTIONS without adding an elif branch.
+        rows = []
 
     return {
         "cards": [dict(r._mapping) for r in rows],
