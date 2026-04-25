@@ -50,10 +50,20 @@ export interface PricePoint {
   ebay_price: number | null
 }
 
+export interface SignalHistoryEvent {
+  id: string
+  previous_label: Signal | null
+  current_label: Signal
+  price_at_event: number | null
+  price_delta_pct: number | null
+  computed_at: string
+}
+
 export interface CardDetail extends CardSummary {
   price_history: PricePoint[]
   spread_pct: number | null
   ai_analysis?: string | null
+  signal_history?: SignalHistoryEvent[]
 }
 
 export interface AlertEvent {

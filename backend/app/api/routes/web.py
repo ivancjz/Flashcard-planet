@@ -643,6 +643,30 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
         ORDER BY date ASC
     """), {"asset_id": asset_id}).fetchall()
 
+    signal_history = db.execute(text("""
+        SELECT
+            id::text                            AS id,
+            previous_label,
+            label                               AS current_label,
+            signal_context->>'current_price'    AS price_at_event_raw,
+            price_delta_pct,
+            computed_at
+        FROM asset_signal_history
+        WHERE asset_id = CAST(:asset_id AS uuid)
+          AND computed_at > NOW() - INTERVAL '30 days'
+          AND label IS DISTINCT FROM previous_label
+        ORDER BY computed_at DESC
+        LIMIT 50
+    """), {"asset_id": asset_id}).fetchall()
+
+    def _parse_price(raw: str | None) -> float | None:
+        if not raw:
+            return None
+        try:
+            return float(raw)
+        except (ValueError, TypeError):
+            return None
+
     return {
         **dict(row._mapping),
         "price_history": [
@@ -650,6 +674,17 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
              "tcg_price": float(h.tcg_price) if h.tcg_price else None,
              "ebay_price": float(h.ebay_price) if h.ebay_price else None}
             for h in history
+        ],
+        "signal_history": [
+            {
+                "id": sh.id,
+                "previous_label": sh.previous_label,
+                "current_label": sh.current_label,
+                "price_at_event": _parse_price(sh.price_at_event_raw),
+                "price_delta_pct": float(sh.price_delta_pct) if sh.price_delta_pct is not None else None,
+                "computed_at": sh.computed_at.isoformat(),
+            }
+            for sh in signal_history
         ],
     }
 

@@ -4,6 +4,7 @@ import NavBar from '../components/NavBar'
 import CardArt from '../components/CardArt'
 import SignalBadge from '../components/SignalBadge'
 import AIAnalysisSection from '../components/AIAnalysisSection'
+import SignalTimeline from '../components/SignalTimeline'
 import { fetchCard } from '../api/api'
 import { signalToMeta, formatDelta } from '../lib/utils'
 import { useWatchlist } from '../hooks/useWatchlist'
@@ -365,6 +366,18 @@ export default function CardDetailPage() {
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
                 {SIGNAL_DESCRIPTION[card.signal]}
               </p>
+            </div>
+
+            <div className="surface" style={{ padding: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14 }}>Signal History</span>
+                {(() => { const sh = card.signal_history ?? []; return (
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
+                    Past 30 days · {sh.length} change{sh.length !== 1 ? 's' : ''}
+                  </span>
+                )})()}
+              </div>
+              <SignalTimeline events={card.signal_history ?? []} />
             </div>
 
             <AIAnalysisSection aiAnalysis={card.ai_analysis ?? null} />
