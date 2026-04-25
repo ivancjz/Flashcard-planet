@@ -314,7 +314,10 @@ export default function CardDetailPage() {
                 style={{ width: '100%', justifyContent: 'center' }}
                 onClick={() => {
                   const result = toggle(card.asset_id)
-                  if (!result.ok && result.reason === 'cap') alert('Watchlist full (500 max)')
+                  if (!result.ok) {
+                    if (result.reason === 'cap') alert('Watchlist is full (max 500 cards). Remove some to add more.')
+                    else if (result.reason === 'storage') alert('Could not save watchlist. Storage may be disabled.')
+                  }
                 }}
               >
                 {isWatched(card.asset_id) ? '⭐ Watching' : '☆ Add to Watchlist'}

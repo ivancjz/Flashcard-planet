@@ -24,20 +24,35 @@ export async function fetchCards(params: {
   rarity?: string[]
   price_min?: number
   price_max?: number
-  asset_ids?: string[]
   limit?: number
   offset?: number
 }): Promise<CardsResponse> {
-  const { game = 'pokemon', signal = 'ALL', sort = 'change', search, set_id, rarity, price_min, price_max, asset_ids, limit = 50, offset = 0 } = params
+  const { game = 'pokemon', signal = 'ALL', sort = 'change', search, set_id, rarity, price_min, price_max, limit = 50, offset = 0 } = params
   const qs = new URLSearchParams({ game, signal, sort, limit: String(limit), offset: String(offset) })
   if (search && search.trim()) qs.set('search', search.trim())
   if (set_id?.length) qs.set('set_id', set_id.join(','))
   if (rarity?.length) qs.set('rarity', rarity.join(','))
   if (price_min != null) qs.set('price_min', String(price_min))
   if (price_max != null) qs.set('price_max', String(price_max))
-  if (asset_ids?.length) qs.set('asset_ids', asset_ids.join(','))
   const res = await fetch(`${BASE}/api/v1/web/cards?${qs}`)
   if (!res.ok) throw new Error('cards fetch failed')
+  return res.json()
+}
+
+export async function fetchCardsById(params: {
+  asset_ids: string[]
+  signal?: Signal | 'ALL'
+  sort?: 'change' | 'price' | 'volume'
+  search?: string
+  limit?: number
+}): Promise<CardsResponse> {
+  const { asset_ids, signal = 'ALL', sort = 'change', search, limit = 200 } = params
+  const res = await fetch(`${BASE}/api/v1/web/cards/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ asset_ids, signal, sort, search: search ?? null, limit }),
+  })
+  if (!res.ok) throw new Error('cards batch fetch failed')
   return res.json()
 }
 

@@ -15,20 +15,26 @@ function readRaw(): WatchlistStorage {
     // Legacy format: string[] of asset_ids
     if (Array.isArray(parsed)) {
       const now = new Date().toISOString()
-      return {
-        version: CURRENT_VERSION,
-        entries: parsed
-          .filter((id): id is string => typeof id === 'string' && id.length > 0)
-          .map(asset_id => ({ asset_id, added_at: now })),
+      const seen = new Set<string>()
+      const entries: WatchlistEntry[] = []
+      for (const id of parsed) {
+        if (typeof id === 'string' && id.length > 0 && !seen.has(id)) {
+          seen.add(id)
+          entries.push({ asset_id: id, added_at: now })
+        }
       }
+      return { version: CURRENT_VERSION, entries }
     }
 
-    // Current format
+    // Current format — deduplicate by asset_id, keep earliest added_at
     if (parsed && typeof parsed === 'object' && Array.isArray(parsed.entries)) {
-      const entries = parsed.entries.filter(
-        (e: unknown) => e && typeof (e as WatchlistEntry).asset_id === 'string' && typeof (e as WatchlistEntry).added_at === 'string'
-      ) as WatchlistEntry[]
-      return { version: CURRENT_VERSION, entries }
+      const seen = new Map<string, WatchlistEntry>()
+      for (const e of parsed.entries) {
+        if (e && typeof e.asset_id === 'string' && typeof e.added_at === 'string') {
+          if (!seen.has(e.asset_id)) seen.set(e.asset_id, e as WatchlistEntry)
+        }
+      }
+      return { version: CURRENT_VERSION, entries: [...seen.values()] }
     }
 
     return { version: CURRENT_VERSION, entries: [] }

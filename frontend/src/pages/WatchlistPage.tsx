@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchCards } from '../api/api'
+import { fetchCardsById } from '../api/api'
 import { useWatchlist } from '../hooks/useWatchlist'
-import { pruneWatchlist } from '../lib/watchlist'
 import NavBar from '../components/NavBar'
 import CardGrid from '../components/CardGrid'
 import type { CardSummary } from '../types/api'
@@ -34,11 +33,11 @@ export default function WatchlistPage() {
     setLoading(true)
     const serverSort = sort === 'recently_added' ? 'change' : sort
 
-    fetchCards({
+    fetchCardsById({
       asset_ids: entries.map(e => e.asset_id),
       sort: serverSort,
       search: debouncedSearch || undefined,
-      limit: 200,
+      limit: 500,
     }).then(response => {
       let result = response.cards
 
@@ -53,14 +52,6 @@ export default function WatchlistPage() {
       }
 
       setCards(result)
-
-      // Prune deleted assets only when no search active
-      if (!debouncedSearch) {
-        const returnedIds = new Set(result.map(c => c.asset_id))
-        const pruned = pruneWatchlist(returnedIds)
-        if (pruned > 0) console.log(`Pruned ${pruned} deleted asset(s) from watchlist`)
-      }
-
       setLoading(false)
     }).catch(err => {
       console.error('Failed to load watchlist:', err)
