@@ -6,4 +6,3 @@ logs/
 .worktrees/
 *.log
 .claude/
-frontend/dist/
