@@ -643,6 +643,23 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
         ORDER BY date ASC
     """), {"asset_id": asset_id}).fetchall()
 
+    signal_history = db.execute(text("""
+        SELECT
+            id::text                                                AS id,
+            previous_label,
+            label                                                   AS current_label,
+            (signal_context->>'current_price')::numeric             AS price_at_event,
+            price_delta_pct,
+            computed_at
+        FROM asset_signal_history
+        WHERE asset_id = CAST(:asset_id AS uuid)
+          AND computed_at > NOW() - INTERVAL '30 days'
+          AND previous_label IS NOT NULL
+          AND label IS DISTINCT FROM previous_label
+        ORDER BY computed_at DESC
+        LIMIT 50
+    """), {"asset_id": asset_id}).fetchall()
+
     return {
         **dict(row._mapping),
         "price_history": [
@@ -650,6 +667,17 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
              "tcg_price": float(h.tcg_price) if h.tcg_price else None,
              "ebay_price": float(h.ebay_price) if h.ebay_price else None}
             for h in history
+        ],
+        "signal_history": [
+            {
+                "id": sh.id,
+                "previous_label": sh.previous_label,
+                "current_label": sh.current_label,
+                "price_at_event": float(sh.price_at_event) if sh.price_at_event else None,
+                "price_delta_pct": float(sh.price_delta_pct) if sh.price_delta_pct else None,
+                "computed_at": sh.computed_at.isoformat(),
+            }
+            for sh in signal_history
         ],
     }
 
