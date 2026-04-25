@@ -537,31 +537,30 @@ def export_cards(
     if sort not in {"change", "price", "volume", "recent"}:
         sort = "change"
 
-    # Export uses CTE pre-aggregation — no per-row LATERAL joins.
-    # With 3966 rows, LATERAL would take ~6s; CTEs take ~1.3s.
     order_by = {
         "price": "tcg.tcg_price DESC NULLS LAST",
         "volume": "COALESCE(vol.cnt, 0) DESC NULLS LAST",
         "recent": "lt.last_transition_at DESC NULLS LAST",
     }.get(sort, "s.price_delta_pct DESC NULLS LAST")
 
-    recent_cte = ""
-    recent_join = ""
-    if sort == "recent":
-        recent_cte = """
-        last_transitions AS (
+    # last_transitions CTE is always included so the column is always populated.
+    # Cost: ~100ms extra regardless of sort — acceptable for a download endpoint.
+    # When sort=recent this also drives ORDER BY; otherwise just fills the column.
+    recent_sort_join = "LEFT JOIN last_transitions lt ON lt.asset_id = a.id"
+
+    # game filter — omitted when asset_ids provided (UUIDs are game-agnostic;
+    # WHERE a.game=pokemon would silently drop non-Pokémon cards from watchlist exports).
+    # Mirrors /cards/batch which has no game filter. Uses 1=1 base so all clauses are ANDs.
+    game_filter_clause = "" if asset_ids_filter else "AND a.game = :game"
+
+    rows = db.execute(text(f"""
+        WITH last_transitions AS (
             SELECT asset_id, MAX(computed_at) AS last_transition_at
             FROM asset_signal_history
             WHERE previous_label IS NOT NULL
               AND label IS DISTINCT FROM previous_label
             GROUP BY asset_id
-        ),"""
-        recent_join = "LEFT JOIN last_transitions lt ON lt.asset_id = a.id"
-
-    last_transition_col = "lt.last_transition_at" if sort == "recent" else "NULL"
-
-    rows = db.execute(text(f"""
-        WITH {recent_cte}
+        ),
         latest_tcg AS (
             SELECT DISTINCT ON (asset_id) asset_id, price AS tcg_price
             FROM price_history
@@ -589,7 +588,7 @@ def export_cards(
             a.game,
             s.label                 AS signal,
             s.price_delta_pct,
-            {last_transition_col}   AS last_transition_at,
+            lt.last_transition_at,
             tcg.tcg_price,
             ebay.ebay_price,
             COALESCE(vol.cnt, 0)    AS volume_24h
@@ -598,8 +597,9 @@ def export_cards(
         LEFT JOIN latest_tcg tcg ON tcg.asset_id = a.id
         LEFT JOIN latest_ebay ebay ON ebay.asset_id = a.id
         LEFT JOIN vol_24h vol ON vol.asset_id = a.id
-        {recent_join}
-        WHERE a.game = :game
+        {recent_sort_join}
+        WHERE 1=1
+          {game_filter_clause}
           {signal_filter}
           {search_filter}
           {set_filter}
