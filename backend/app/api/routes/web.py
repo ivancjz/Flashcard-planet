@@ -359,11 +359,11 @@ def web_cards(
 
 
 class CardsBatchRequest(BaseModel):
-    asset_ids: list[str]
+    asset_ids: list[str] = Field(max_length=500)
     signal: str = "ALL"
     sort: str = "change"
     search: str | None = None
-    limit: int = Field(default=200, le=500)
+    limit: int = Field(default=200, ge=1, le=500)
 
 
 @router.post("/cards/batch")

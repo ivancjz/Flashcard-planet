@@ -41,16 +41,18 @@ export async function fetchCards(params: {
 
 export async function fetchCardsById(params: {
   asset_ids: string[]
-  signal?: Signal | 'ALL'
+  signalFilter?: Signal | 'ALL'
   sort?: 'change' | 'price' | 'volume'
   search?: string
   limit?: number
+  signal?: AbortSignal
 }): Promise<CardsResponse> {
-  const { asset_ids, signal = 'ALL', sort = 'change', search, limit = 200 } = params
+  const { asset_ids, signalFilter = 'ALL', sort = 'change', search, limit = 200, signal } = params
   const res = await fetch(`${BASE}/api/v1/web/cards/batch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ asset_ids, signal, sort, search: search ?? null, limit }),
+    body: JSON.stringify({ asset_ids, signal: signalFilter, sort, search: search ?? null, limit }),
+    signal,
   })
   if (!res.ok) throw new Error('cards batch fetch failed')
   return res.json()

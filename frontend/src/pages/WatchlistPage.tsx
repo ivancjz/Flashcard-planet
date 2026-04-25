@@ -30,6 +30,7 @@ export default function WatchlistPage() {
       return
     }
 
+    const controller = new AbortController()
     setLoading(true)
     const serverSort = sort === 'recently_added' ? 'change' : sort
 
@@ -38,6 +39,7 @@ export default function WatchlistPage() {
       sort: serverSort,
       search: debouncedSearch || undefined,
       limit: 500,
+      signal: controller.signal,  // AbortSignal to cancel stale requests
     }).then(response => {
       let result = response.cards
 
@@ -54,9 +56,12 @@ export default function WatchlistPage() {
       setCards(result)
       setLoading(false)
     }).catch(err => {
+      if ((err as Error).name === 'AbortError') return
       console.error('Failed to load watchlist:', err)
       setLoading(false)
     })
+
+    return () => controller.abort()
   }, [entries, sort, debouncedSearch])
 
   const searchStyle: React.CSSProperties = {
