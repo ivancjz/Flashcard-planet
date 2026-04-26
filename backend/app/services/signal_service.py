@@ -222,7 +222,10 @@ def _get_active_asset_ids(db: Session, *, limit: int | None = None) -> list[Any]
     cutoff = datetime.now(UTC) - timedelta(days=ACTIVE_WINDOW_DAYS)
     stmt = (
         select(PriceHistory.asset_id, func.count().label("pts"))
-        .where(PriceHistory.captured_at >= cutoff)
+        .where(
+            PriceHistory.captured_at >= cutoff,
+            PriceHistory.market_segment == 'raw',
+        )
         .group_by(PriceHistory.asset_id)
         .order_by(func.count().desc())
     )
@@ -249,7 +252,10 @@ def _get_recent_prices_for_prediction(
             )
             .label("rn"),
         )
-        .where(PriceHistory.asset_id.in_(asset_ids))
+        .where(
+            PriceHistory.asset_id.in_(asset_ids),
+            PriceHistory.market_segment == 'raw',
+        )
         .subquery()
     )
     rows = db.execute(
@@ -353,6 +359,7 @@ def _compute_delta_batch(
         .where(
             PriceHistory.asset_id.in_(asset_ids),
             PriceHistory.captured_at <= baseline_cutoff,
+            PriceHistory.market_segment == 'raw',
         )
         .subquery()
     )
@@ -383,6 +390,7 @@ def _compute_delta_batch(
             PriceHistory.asset_id.in_(asset_ids),
             PriceHistory.captured_at >= current_start,
             PriceHistory.captured_at <= now,
+            PriceHistory.market_segment == 'raw',
         )
         .subquery()
     )
