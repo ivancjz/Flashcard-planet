@@ -14,6 +14,7 @@ from backend.app.core.config import settings
 from backend.app.core.price_sources import EBAY_SOLD_PRICE_SOURCE, SAMPLE_PRICE_SOURCE
 from backend.app.ingestion.rule_engine_patches import ObservationSkipReason, preflight_observation
 from backend.app.ingestion.pokemon_tcg import IngestionResult
+from backend.app.ingestion.title_parser import parse_listing_title
 from backend.app.models.asset import Asset
 from backend.app.models.game import GAME_CONFIG, Game
 from backend.app.models.observation_match_log import ObservationMatchLog
@@ -511,6 +512,10 @@ def ingest_ebay_sold_cards(
                     )
                     continue
 
+                parse_result = parse_listing_title(listing["title"])
+                if parse_result.excluded:
+                    continue
+
                 session.add(
                     PriceHistory(
                         asset_id=asset.id,
@@ -518,6 +523,9 @@ def ingest_ebay_sold_cards(
                         currency="USD",
                         price=price,
                         captured_at=captured_at,
+                        market_segment=parse_result.market_segment,
+                        grade_company=parse_result.grade_company,
+                        grade_score=parse_result.grade_score,
                     )
                 )
                 session.add(
@@ -531,6 +539,9 @@ def ingest_ebay_sold_cards(
                         reason=f"Searched by asset name via {api_used} API; grade-compatible; passed IQR filter.",
                         requires_review=False,
                         created_at=captured_at,
+                        market_segment=parse_result.market_segment,
+                        grade_company=parse_result.grade_company,
+                        grade_score=parse_result.grade_score,
                     )
                 )
                 result.price_points_inserted += 1

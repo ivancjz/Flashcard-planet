@@ -391,6 +391,7 @@ def flush_batch(
                         currency=payload["currency"],
                         price=payload["price"],
                         captured_at=payload["captured_at"],
+                        market_segment='raw',  # TCG API always quotes raw cards
                     )
                 )
 
