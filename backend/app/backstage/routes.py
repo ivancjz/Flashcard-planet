@@ -756,6 +756,185 @@ def admin_pred_accuracy(
     ]
 
 
+@router.get("/diag/market-segment-schema")
+def admin_market_segment_schema(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Step 1: confirm migration ran + source/segment distribution."""
+    cols = db.execute(text("""
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'price_history'
+          AND column_name IN ('market_segment','grade_company','grade_score')
+        ORDER BY column_name
+    """)).fetchall()
+
+    dist = db.execute(text("""
+        SELECT source, market_segment, COUNT(*) AS cnt
+        FROM price_history
+        WHERE source = 'pokemon_tcg_api'
+        GROUP BY 1, 2
+        ORDER BY 1, 2
+    """)).fetchall()
+
+    ebay_null = db.execute(text("""
+        SELECT COUNT(*) FROM price_history
+        WHERE source = 'ebay_sold' AND market_segment IS NULL
+    """)).scalar()
+
+    return {
+        "columns_present": [r[0] for r in cols],
+        "migration_ok": len(cols) == 3,
+        "tcg_source_dist": [{"source": r[0], "market_segment": r[1], "count": r[2]} for r in dist],
+        "ebay_rows_pending_backfill": ebay_null,
+    }
+
+
+# Shared backfill state for progress polling
+_backfill_state: dict = {"running": False, "done": False, "totals": {}, "batches": []}
+
+
+@router.post("/trigger/backfill-market-segment")
+def admin_trigger_backfill(
+    dry_run: bool = False,
+    batch_size: int = 1000,
+    _: None = Depends(require_admin_key),
+):
+    """Steps 2+3: run market_segment backfill. dry_run=true for preview (1 batch only)."""
+    import threading, sys
+    sys.path.insert(0, "/app")
+    from backend.app.db.session import SessionLocal
+    from backend.app.ingestion.title_parser import parse_listing_title
+
+    def _run():
+        global _backfill_state
+        _backfill_state = {"running": True, "done": False, "totals": {}, "batches": [], "dry_run": dry_run}
+        totals = {"processed": 0, "raw": 0, "graded": 0, "unknown": 0, "no_title": 0}
+        db = SessionLocal()
+        try:
+            iteration = 0
+            while True:
+                iteration += 1
+                rows = db.execute(text("""
+                    SELECT DISTINCT ON (ph.id)
+                        ph.id AS price_history_id, ph.asset_id, ph.captured_at,
+                        oml.id AS oml_id, oml.raw_title
+                    FROM price_history ph
+                    LEFT JOIN observation_match_logs oml
+                           ON oml.matched_asset_id = ph.asset_id
+                          AND oml.created_at       = ph.captured_at
+                          AND oml.provider         = 'ebay_sold'
+                    WHERE ph.source = 'ebay_sold' AND ph.market_segment IS NULL
+                    ORDER BY ph.id, oml.created_at
+                    LIMIT :bs
+                """), {"bs": batch_size}).fetchall()
+                if not rows:
+                    break
+                counts = {"processed": len(rows), "raw": 0, "graded": 0, "unknown": 0, "no_title": 0}
+                for row in rows:
+                    if row.raw_title is None:
+                        seg, company, score = "unknown", None, None
+                        counts["no_title"] += 1; counts["unknown"] += 1
+                    else:
+                        r2 = parse_listing_title(row.raw_title)
+                        seg, company, score = r2.market_segment, r2.grade_company, r2.grade_score
+                        if seg == "raw": counts["raw"] += 1
+                        elif seg == "unknown": counts["unknown"] += 1
+                        else: counts["graded"] += 1
+                    if not dry_run:
+                        db.execute(text("UPDATE price_history SET market_segment=:s,grade_company=:c,grade_score=:sc WHERE id=:id"),
+                                   {"id": row.price_history_id, "s": seg, "c": company, "sc": score})
+                        if row.oml_id:
+                            db.execute(text("UPDATE observation_match_logs SET market_segment=:s,grade_company=:c,grade_score=:sc WHERE id=:id"),
+                                       {"id": row.oml_id, "s": seg, "c": company, "sc": score})
+                if not dry_run:
+                    db.commit()
+                for k in totals:
+                    totals[k] += counts.get(k, 0)
+                _backfill_state["batches"].append(counts)
+                if dry_run:
+                    break
+            _backfill_state["totals"] = totals
+            _backfill_state["done"] = True
+        except Exception as e:
+            _backfill_state["error"] = str(e)
+            _backfill_state["done"] = True
+        finally:
+            _backfill_state["running"] = False
+            db.close()
+
+    if _backfill_state.get("running"):
+        return {"ok": False, "error": "backfill already running"}
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    if dry_run:
+        t.join(timeout=30)
+        return {"ok": True, "dry_run": True, "state": _backfill_state}
+    return {"ok": True, "dry_run": False, "message": "backfill running in background — poll /admin/diag/backfill-progress"}
+
+
+@router.get("/diag/backfill-progress")
+def admin_backfill_progress(_: None = Depends(require_admin_key)):
+    """Poll backfill progress."""
+    return _backfill_state
+
+
+@router.get("/diag/market-segment-stats")
+def admin_market_segment_stats(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Step 4: PR B go/no-go data — distribution, top samples, signal candidates."""
+    dist = db.execute(text("""
+        SELECT market_segment, COUNT(*) AS records, COUNT(DISTINCT asset_id) AS assets,
+               ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS pct
+        FROM price_history WHERE source = 'ebay_sold'
+        GROUP BY market_segment ORDER BY records DESC
+    """)).fetchall()
+
+    samples = db.execute(text("""
+        SELECT a.name, a.set_name, ph.market_segment, ph.grade_company, ph.grade_score,
+               oml.raw_title, ph.price::float, ph.captured_at::text
+        FROM price_history ph
+        JOIN assets a ON a.id = ph.asset_id
+        LEFT JOIN observation_match_logs oml
+               ON oml.matched_asset_id = ph.asset_id
+              AND oml.created_at = ph.captured_at
+              AND oml.provider = 'ebay_sold'
+        WHERE ph.source = 'ebay_sold'
+          AND ph.captured_at > NOW() - INTERVAL '30 days'
+          AND ph.price > 100
+        ORDER BY ph.price DESC LIMIT 30
+    """)).fetchall()
+
+    candidates = db.execute(text("""
+        SELECT a.name,
+               COUNT(*) FILTER (WHERE ph.market_segment = 'raw') AS raw_pts,
+               COUNT(*) FILTER (WHERE ph.market_segment != 'raw' AND ph.market_segment IS NOT NULL) AS graded_pts,
+               COUNT(*) FILTER (WHERE ph.market_segment IS NULL) AS unclassified_pts
+        FROM price_history ph
+        JOIN assets a ON a.id = ph.asset_id
+        WHERE ph.source = 'ebay_sold'
+          AND ph.captured_at > NOW() - INTERVAL '14 days'
+        GROUP BY a.id, a.name
+        HAVING COUNT(*) FILTER (WHERE ph.market_segment = 'raw') >= 3
+        ORDER BY raw_pts DESC LIMIT 20
+    """)).fetchall()
+
+    return {
+        "distribution": [{"segment": r[0], "records": r[1], "assets": r[2], "pct": float(r[3])} for r in dist],
+        "top_samples": [{"name": r[0], "set": r[1], "segment": r[2], "grade_co": r[3], "grade_sc": r[4],
+                         "title": r[5], "price": r[6], "at": r[7]} for r in samples],
+        "signal_candidates": [{"name": r[0], "raw_pts": r[1], "graded_pts": r[2], "unclassified": r[3]} for r in candidates],
+        "go_nogo": {
+            "raw_pct": next((float(r[3]) for r in dist if r[0] == "raw"), 0),
+            "unknown_pct": next((float(r[3]) for r in dist if r[0] == "unknown"), 0),
+            "candidates_with_3plus_raw": len(candidates),
+        }
+    }
+
+
 @router.post("/trigger/signal-sweep")
 def admin_trigger_signal_sweep(
     _: None = Depends(require_admin_key),
