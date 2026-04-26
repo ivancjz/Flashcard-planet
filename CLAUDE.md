@@ -272,4 +272,16 @@ If a task seems to require crossing these boundaries, **stop and report to the o
 
 ---
 
+## 11. Archived: Signal Hysteresis Bands
+
+Investigated 2026-04-26. Top 20 high-flip cards showed:
+- WATCH→IDLE oscillations were `prediction=None` bugs (fixed in PR #18), not threshold boundary thrashing
+- MOVE→BREAKOUT and BREAKOUT→IDLE: zero oscillations in 30-day data
+
+No data supports adding hysteresis bands. Re-evaluate if:
+- Single-card transition count exceeds 50/30days with consistent delta in narrow band
+- Standard deviation of trigger deltas <1% (indicates threshold-grazing not real volatility)
+
+---
+
 *This file is living documentation. When you learn something about the project that another Claude instance would benefit from, propose an update to this file in a dedicated commit.*

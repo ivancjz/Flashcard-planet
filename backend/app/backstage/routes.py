@@ -673,6 +673,59 @@ def admin_coverage(
     }
 
 
+@router.get("/diag/pred-accuracy")
+def admin_pred_accuracy(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """One-off: prediction accuracy for Up/Down signals made 7-14 days ago vs prices 7 days later."""
+    from sqlalchemy import text
+    sql = text("""
+        WITH past_predictions AS (
+          SELECT
+            asset_id,
+            computed_at AS pred_time,
+            signal_context->>'prediction' AS prediction,
+            price_at_event AS price_then
+          FROM asset_signal_history
+          WHERE computed_at BETWEEN NOW() - INTERVAL '14 days' AND NOW() - INTERVAL '7 days'
+            AND signal_context->>'prediction' IN ('Up', 'Down')
+        ),
+        later_prices AS (
+          SELECT DISTINCT ON (asset_id)
+            asset_id, captured_at, price
+          FROM price_history
+          WHERE source = 'pokemon_tcg_api'
+            AND captured_at BETWEEN NOW() - INTERVAL '7 days' AND NOW() - INTERVAL '6 days'
+          ORDER BY asset_id, captured_at DESC
+        )
+        SELECT
+          p.prediction,
+          COUNT(*) AS total,
+          COUNT(*) FILTER (WHERE l.price > p.price_then) AS went_up,
+          COUNT(*) FILTER (WHERE l.price < p.price_then) AS went_down,
+          ROUND(100.0 * COUNT(*) FILTER (
+            WHERE (p.prediction = 'Up' AND l.price > p.price_then)
+               OR (p.prediction = 'Down' AND l.price < p.price_then)
+          ) / NULLIF(COUNT(*), 0), 1) AS accuracy_pct
+        FROM past_predictions p
+        JOIN later_prices l ON l.asset_id = p.asset_id
+        GROUP BY p.prediction
+        ORDER BY p.prediction
+    """)
+    rows = db.execute(sql).fetchall()
+    return [
+        {
+            "prediction": r[0],
+            "total": r[1],
+            "went_up": r[2],
+            "went_down": r[3],
+            "accuracy_pct": float(r[4]) if r[4] is not None else None,
+        }
+        for r in rows
+    ]
+
+
 @router.post("/trigger/signal-sweep")
 def admin_trigger_signal_sweep(
     _: None = Depends(require_admin_key),
