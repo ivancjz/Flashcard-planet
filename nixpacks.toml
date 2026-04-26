@@ -3,10 +3,12 @@
 NIXPACKS_PYTHON_VERSION = "3.13"
 
 [phases.setup]
+# Pin nixpkgs to a commit where nodejs_22 = 22.13.1 (satisfies Vite 8's >=22.12.0).
+# Default snapshot bc8f8d1 has nodejs_22=22.10.0 (too old) and no nodejs_24 yet.
+# 51ad838 commit message: "nodejs_22: 22.12.0 -> 22.13.1" (2025-01-22).
+nixpkgsArchive = "51ad838b03a05b1de6f9f2a0fffecee64a9788ee"
 # "..." is required to EXTEND provider-generated packages; without it, the array replaces them.
-# nodejs_22 resolved to 22.10.0 in nixpkgs — too old (Vite 8 requires >=22.12.0).
-# nodejs_24 is the current active line; 24.x satisfies >=22.12.0 by definition.
-nixPkgs = ["...", "nodejs_24"]
+nixPkgs = ["...", "nodejs_22"]
 
 [phases.build]
 # Python projects have no auto-generated build commands, so overriding [phases.build]
