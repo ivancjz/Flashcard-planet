@@ -762,65 +762,62 @@ def admin_signal_sweep_log(
     _: None = Depends(require_admin_key),
     db: Session = Depends(get_database),
 ):
-    """Check signal-sweep execution cadence from scheduler_run_log."""
+    """Check signal-sweep ('signals') cadence from scheduler_run_log."""
+    # All distinct job names — lets us verify the exact key used
+    distinct_jobs = [r[0] for r in db.execute(text(
+        "SELECT DISTINCT job_name FROM scheduler_run_log ORDER BY job_name"
+    )).fetchall()]
+
+    # Recent runs within window — simple, no window functions
     rows = db.execute(text("""
-        SELECT job_name, status, started_at, finished_at,
-               records_written, errors, error_message,
-               EXTRACT(EPOCH FROM (started_at - LAG(started_at) OVER (ORDER BY started_at))) / 60
-                   AS gap_since_prev_mins
+        SELECT job_name, status, started_at, finished_at, records_written, errors
         FROM scheduler_run_log
         WHERE job_name = 'signals'
-          AND started_at >= NOW() - (:hours * INTERVAL '1 hour')
+          AND started_at >= NOW() - make_interval(hours => :hours)
         ORDER BY started_at DESC
+        LIMIT 200
     """), {"hours": hours}).fetchall()
 
-    # Also grab raw diagnostics regardless of window
-    all_signal_rows = db.execute(text("""
-        SELECT job_name, status, started_at, COUNT(*) AS cnt
-        FROM scheduler_run_log
-        WHERE job_name IN ('signals','signal-sweep','sweep')
-        GROUP BY job_name, status, started_at
-        ORDER BY started_at DESC LIMIT 5
-    """)).fetchall()
-    distinct_jobs = db.execute(text("""
-        SELECT DISTINCT job_name FROM scheduler_run_log ORDER BY job_name
-    """)).fetchall()
+    # Compute gaps in Python to avoid SQL window function issues
+    run_list = [{"started_at": str(r[2]), "status": r[1],
+                 "records": r[4], "errors": r[5]} for r in rows]
 
-    if not rows:
-        return {
-            "run_count": 0,
-            "verdict": "NO RUNS IN WINDOW — check diagnostics",
-            "distinct_job_names": [r[0] for r in distinct_jobs],
-            "signal_rows_any_time": [{"job": r[0], "status": r[1], "started_at": str(r[2]), "cnt": r[3]} for r in all_signal_rows],
-            "rows": [],
-        }
+    gaps_over_20 = []
+    for i in range(len(rows) - 1):
+        curr = rows[i][2]
+        prev = rows[i + 1][2]
+        if curr and prev:
+            gap_mins = (curr - prev).total_seconds() / 60
+            run_list[i]["gap_since_prev_mins"] = round(gap_mins, 1)
+            if gap_mins > 20:
+                gaps_over_20.append({"at": str(curr), "gap_mins": round(gap_mins, 1)})
+        else:
+            run_list[i]["gap_since_prev_mins"] = None
 
-    total = len(rows)
-    # Expected ~4/hour × hours = how many we should have
-    expected = hours * 4
-    # Gap analysis — flag any gap > 20min (should be ~15min cadence)
-    gaps_over_20 = [r for r in rows if r[8] is not None and r[8] > 20]
     statuses = {}
     for r in rows:
         statuses[r[1]] = statuses.get(r[1], 0) + 1
 
+    total = len(rows)
+    expected = hours * 4
+
     return {
+        "distinct_job_names": distinct_jobs,
         "run_count": total,
         "expected_approx": expected,
-        "coverage_pct": round(100 * total / expected, 1),
+        "coverage_pct": round(100 * total / expected, 1) if expected else 0,
         "status_breakdown": statuses,
-        "gaps_over_20min": len(gaps_over_20),
-        "largest_gap_mins": round(max((r[8] for r in rows if r[8] is not None), default=0), 1),
-        "verdict": "RUNNING" if total > 0 and len(gaps_over_20) < total * 0.2 else "DEGRADED",
-        "recent_10": [
-            {
-                "started_at": str(r[2]),
-                "status": r[1],
-                "records": r[3] if r[3] is not None else r[6],
-                "gap_mins": round(r[8], 1) if r[8] is not None else None,
-            }
-            for r in rows[:10]
-        ],
+        "gaps_over_20min_count": len(gaps_over_20),
+        "gaps_over_20min": gaps_over_20[:5],
+        "largest_gap_mins": round(max(
+            (g["gap_mins"] for g in gaps_over_20), default=0
+        ), 1),
+        "verdict": (
+            "NO RUNS" if total == 0
+            else "RUNNING" if len(gaps_over_20) < max(1, total * 0.1)
+            else "DEGRADED"
+        ),
+        "recent_10": run_list[:10],
     }
 
 
