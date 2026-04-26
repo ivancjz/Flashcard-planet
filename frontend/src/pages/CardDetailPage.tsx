@@ -38,7 +38,7 @@ function buildExtPoints(data: PricePoint[], priceKey: 'tcg_price' | 'ebay_price'
   }))
 }
 
-function buildAreaPath(points: ExtPoint[], xScale: (t: number) => number, yOf: (p: number) => number, zeroY: number): string {
+function buildAreaPath(points: { time: number; pct: number }[], xScale: (t: number) => number, yOf: (p: number) => number, zeroY: number): string {
   if (points.length < 2) return ''
   const xs = points.map(p => xScale(p.time))
   const ys = points.map(p => yOf(p.pct))
@@ -123,7 +123,7 @@ function NormalizedChart({ data }: { data: PricePoint[] }) {
   const dateLabelTimes = [timeMin, (timeMin + timeMax) / 2, timeMax]
   const fmtDateLabel = (t: number) => new Date(t).toISOString().slice(5, 10)
 
-  const continuousStart = findContinuousStart(tcgPoints.length > 0 ? tcgPoints : ebayPoints)
+  const continuousStart = findContinuousStart(tcgValid ? tcgPoints : ebayValid ? ebayPoints : [])
 
   return (
     <div>
@@ -156,10 +156,12 @@ function NormalizedChart({ data }: { data: PricePoint[] }) {
               </text>
             ))}
 
-            {/* eBay area + segmented line */}
+            {/* eBay area (solid segments only) + segmented line */}
             {ebayValid && (
               <>
-                <path d={buildAreaPath(ebayPoints, xScale, yOf, zeroY)} fill="url(#ebay-norm-grad)" />
+                {ebaySegments.filter(s => s.type === 'solid' && s.points.length >= 2).map((seg, i) => (
+                  <path key={`ebay-area-${i}`} d={buildAreaPath(seg.points, xScale, yOf, zeroY)} fill="url(#ebay-norm-grad)" />
+                ))}
                 {ebaySegments.map((seg, i) => {
                   const d = seg.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${xScale(p.time)},${yOf(p.pct)}`).join(' ')
                   return (
@@ -177,10 +179,12 @@ function NormalizedChart({ data }: { data: PricePoint[] }) {
               </>
             )}
 
-            {/* TCG area + segmented line */}
+            {/* TCG area (solid segments only) + segmented line */}
             {tcgValid && (
               <>
-                <path d={buildAreaPath(tcgPoints, xScale, yOf, zeroY)} fill="url(#tcg-norm-grad)" />
+                {tcgSegments.filter(s => s.type === 'solid' && s.points.length >= 2).map((seg, i) => (
+                  <path key={`tcg-area-${i}`} d={buildAreaPath(seg.points, xScale, yOf, zeroY)} fill="url(#tcg-norm-grad)" />
+                ))}
                 {tcgSegments.map((seg, i) => {
                   const d = seg.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${xScale(p.time)},${yOf(p.pct)}`).join(' ')
                   return (
