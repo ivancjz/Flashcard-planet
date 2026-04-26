@@ -680,20 +680,30 @@ def admin_pred_accuracy(
 ):
     """One-off: prediction accuracy for Up/Down signals made 7-14 days ago vs prices 7 days later."""
     from sqlalchemy import text
+    # asset_signal_history has no price_at_event; fetch price closest to pred_time
+    # and closest price in the 7d-later window from price_history (pokemon_tcg_api only).
     sql = text("""
         WITH past_predictions AS (
           SELECT
-            asset_id,
-            computed_at AS pred_time,
-            signal_context->>'prediction' AS prediction,
-            price_at_event AS price_then
-          FROM asset_signal_history
-          WHERE computed_at BETWEEN NOW() - INTERVAL '14 days' AND NOW() - INTERVAL '7 days'
-            AND signal_context->>'prediction' IN ('Up', 'Down')
+            ash.asset_id,
+            ash.computed_at AS pred_time,
+            ash.prediction,
+            ph_then.price AS price_then
+          FROM asset_signal_history ash
+          JOIN LATERAL (
+            SELECT price FROM price_history
+            WHERE asset_id = ash.asset_id
+              AND source = 'pokemon_tcg_api'
+              AND captured_at <= ash.computed_at
+            ORDER BY captured_at DESC
+            LIMIT 1
+          ) ph_then ON true
+          WHERE ash.computed_at BETWEEN NOW() - INTERVAL '14 days' AND NOW() - INTERVAL '7 days'
+            AND ash.prediction IN ('Up', 'Down')
         ),
         later_prices AS (
           SELECT DISTINCT ON (asset_id)
-            asset_id, captured_at, price
+            asset_id, price
           FROM price_history
           WHERE source = 'pokemon_tcg_api'
             AND captured_at BETWEEN NOW() - INTERVAL '7 days' AND NOW() - INTERVAL '6 days'
