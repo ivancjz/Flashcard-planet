@@ -724,6 +724,26 @@ def admin_pred_accuracy(
         ORDER BY p.prediction
     """)
     rows = db.execute(sql).fetchall()
+    if not rows:
+        diag = db.execute(text("""
+            SELECT
+              MIN(computed_at) AS first_signal,
+              MAX(computed_at) AS last_signal,
+              COUNT(*) FILTER (WHERE prediction IN ('Up','Down')) AS predictions_total,
+              COUNT(*) FILTER (WHERE prediction IN ('Up','Down') AND computed_at >= NOW() - INTERVAL '14 days') AS predictions_last_14d
+            FROM asset_signal_history
+        """)).fetchone()
+        return {
+            "result": [],
+            "diagnostic": {
+                "note": "No data in 7-14 day window — project may be too new",
+                "first_signal": diag[0].isoformat() if diag[0] else None,
+                "last_signal": diag[1].isoformat() if diag[1] else None,
+                "predictions_total": diag[2],
+                "predictions_last_14d": diag[3],
+                "earliest_usable_date": "Need data >= 14 days old; rerun after project has been running 14+ days",
+            }
+        }
     return [
         {
             "prediction": r[0],
