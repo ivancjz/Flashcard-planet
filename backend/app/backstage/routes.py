@@ -774,8 +774,26 @@ def admin_signal_sweep_log(
         ORDER BY started_at DESC
     """), {"hours": hours}).fetchall()
 
+    # Also grab raw diagnostics regardless of window
+    all_signal_rows = db.execute(text("""
+        SELECT job_name, status, started_at, COUNT(*) AS cnt
+        FROM scheduler_run_log
+        WHERE job_name IN ('signals','signal-sweep','sweep')
+        GROUP BY job_name, status, started_at
+        ORDER BY started_at DESC LIMIT 5
+    """)).fetchall()
+    distinct_jobs = db.execute(text("""
+        SELECT DISTINCT job_name FROM scheduler_run_log ORDER BY job_name
+    """)).fetchall()
+
     if not rows:
-        return {"run_count": 0, "verdict": "NO RUNS — signal-sweep has not logged any execution", "rows": []}
+        return {
+            "run_count": 0,
+            "verdict": "NO RUNS IN WINDOW — check diagnostics",
+            "distinct_job_names": [r[0] for r in distinct_jobs],
+            "signal_rows_any_time": [{"job": r[0], "status": r[1], "started_at": str(r[2]), "cnt": r[3]} for r in all_signal_rows],
+            "rows": [],
+        }
 
     total = len(rows)
     # Expected ~4/hour × hours = how many we should have
