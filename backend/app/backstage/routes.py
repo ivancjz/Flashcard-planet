@@ -756,6 +756,56 @@ def admin_pred_accuracy(
     ]
 
 
+@router.get("/diag/signal-sweep-log")
+def admin_signal_sweep_log(
+    hours: int = 48,
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Check signal-sweep execution cadence from scheduler_run_log."""
+    rows = db.execute(text("""
+        SELECT job_name, status, started_at, finished_at,
+               records_written, errors, error_message,
+               EXTRACT(EPOCH FROM (started_at - LAG(started_at) OVER (ORDER BY started_at))) / 60
+                   AS gap_since_prev_mins
+        FROM scheduler_run_log
+        WHERE job_name = 'signal-sweep'
+          AND started_at >= NOW() - (:hours * INTERVAL '1 hour')
+        ORDER BY started_at DESC
+    """), {"hours": hours}).fetchall()
+
+    if not rows:
+        return {"run_count": 0, "verdict": "NO RUNS — signal-sweep has not logged any execution", "rows": []}
+
+    total = len(rows)
+    # Expected ~4/hour × hours = how many we should have
+    expected = hours * 4
+    # Gap analysis — flag any gap > 20min (should be ~15min cadence)
+    gaps_over_20 = [r for r in rows if r[8] is not None and r[8] > 20]
+    statuses = {}
+    for r in rows:
+        statuses[r[1]] = statuses.get(r[1], 0) + 1
+
+    return {
+        "run_count": total,
+        "expected_approx": expected,
+        "coverage_pct": round(100 * total / expected, 1),
+        "status_breakdown": statuses,
+        "gaps_over_20min": len(gaps_over_20),
+        "largest_gap_mins": round(max((r[8] for r in rows if r[8] is not None), default=0), 1),
+        "verdict": "RUNNING" if total > 0 and len(gaps_over_20) < total * 0.2 else "DEGRADED",
+        "recent_10": [
+            {
+                "started_at": str(r[2]),
+                "status": r[1],
+                "records": r[3] if r[3] is not None else r[6],
+                "gap_mins": round(r[8], 1) if r[8] is not None else None,
+            }
+            for r in rows[:10]
+        ],
+    }
+
+
 @router.post("/trigger/signal-sweep")
 def admin_trigger_signal_sweep(
     _: None = Depends(require_admin_key),
