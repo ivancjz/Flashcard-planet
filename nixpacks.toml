@@ -1,0 +1,17 @@
+[variables]
+# Pin Python 3.13 via documented Nixpacks mechanism (not nixPkgs, which would conflict).
+NIXPACKS_PYTHON_VERSION = "3.13"
+
+[phases.setup]
+# "..." is required to EXTEND provider-generated packages; without it, the array replaces them.
+# nodejs_22: Vite 8 requires Node 20.19+ or 22.12+. nodejs_22 guarantees 22.x (all >=22.12).
+# nodejs_20 only guarantees the major, not the minor, and risks resolving below 20.19.
+nixPkgs = ["...", "nodejs_22"]
+
+[phases.build]
+# Python projects have no auto-generated build commands, so overriding [phases.build]
+# with the frontend build is safe — pip install already ran in [phases.install].
+# npm ci instead of npm install: reproducible, locked to package-lock.json.
+cmds = ["cd frontend && npm ci && npm run build"]
+
+# [start] intentionally omitted — railway.toml startCommand handles it.
