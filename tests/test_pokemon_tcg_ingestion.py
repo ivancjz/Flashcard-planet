@@ -183,6 +183,7 @@ class PokemonTcgIngestionTests(TestCase):
             currency="USD",
             price=Decimal("100.00"),
             captured_at=ANY,
+            market_segment='raw',
         )
 
 

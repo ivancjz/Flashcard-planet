@@ -247,6 +247,7 @@ def add_price_point(
     currency: str,
     price: Decimal,
     captured_at: datetime,
+    market_segment: str,
 ) -> PricePointInsertResult:
     already_exists = session.scalar(
         select(PriceHistory).where(
@@ -276,6 +277,7 @@ def add_price_point(
             currency=currency,
             price=price,
             captured_at=captured_at,
+            market_segment=market_segment,
         )
     )
     return PricePointInsertResult(
@@ -497,6 +499,7 @@ def ingest_game_cards(
                 currency="USD",
                 price=price,
                 captured_at=ingested_at,
+                market_segment='raw',
             )
             if insert_result.inserted:
                 result.price_points_inserted += 1
@@ -669,6 +672,7 @@ def backfill_single_card(session: Session, asset: "Asset") -> bool:  # type: ign
                 currency="USD",
                 price=price,
                 captured_at=ingested_at,
+                market_segment='raw',
             )
             price_filled = insert_result.inserted
             has_image_now = bool((matched.metadata_json or {}).get("images", {}).get("small"))
