@@ -769,7 +769,7 @@ def admin_signal_sweep_log(
                EXTRACT(EPOCH FROM (started_at - LAG(started_at) OVER (ORDER BY started_at))) / 60
                    AS gap_since_prev_mins
         FROM scheduler_run_log
-        WHERE job_name = 'signal-sweep'
+        WHERE job_name = 'signals'
           AND started_at >= NOW() - (:hours * INTERVAL '1 hour')
         ORDER BY started_at DESC
     """), {"hours": hours}).fetchall()
