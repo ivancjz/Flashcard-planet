@@ -1,3 +1,4 @@
+import { splitIntoSegments } from '../lib/chartUtils'
 import type { CardDetail } from '../types/api'
 
 interface Props {
@@ -17,14 +18,18 @@ export default function ComparisonChart({ cards, colors }: Props) {
     const pts = card.price_history
       .filter(p => p.tcg_price != null && p.tcg_price > 0)
       .map(p => ({ date: p.date, price: p.tcg_price as number }))
-      .sort((a, b) => a.date.localeCompare(b.date))   // ascending date
+      .sort((a, b) => a.date.localeCompare(b.date))
     if (pts.length < 2) return null
     const baseline = pts[0].price
     return {
       id: card.asset_id,
       name: card.name,
       color: colors[i],
-      pts: pts.map(p => ({ date: p.date, pct: ((p.price - baseline) / baseline) * 100 })),
+      pts: pts.map(p => ({
+        time: new Date(p.date).getTime(),
+        pct: ((p.price - baseline) / baseline) * 100,
+        date: p.date,
+      })),
     }
   }).filter((s): s is NonNullable<typeof s> => s !== null)
 
@@ -36,23 +41,22 @@ export default function ComparisonChart({ cards, colors }: Props) {
     )
   }
 
-  // Union all date strings, sorted
-  const allDates = Array.from(new Set(series.flatMap(s => s.pts.map(p => p.date)))).sort()
-  const nDates = allDates.length
-  if (nDates < 2) return null
-
-  const dateIndex = new Map(allDates.map((d, i) => [d, i]))
+  // Shared time range across all series
+  const allTimes = series.flatMap(s => s.pts.map(p => p.time))
+  const timeMin = Math.min(...allTimes)
+  const timeMax = Math.max(...allTimes)
+  if (timeMax === timeMin) return null
 
   // Global Y range across all series
   const allPcts = series.flatMap(s => s.pts.map(p => p.pct))
   const rawMin = Math.min(...allPcts, 0)
   const rawMax = Math.max(...allPcts, 0)
-  const pad = (rawMax - rawMin) * 0.1 || 2   // || 2: protect flat-line case
+  const pad = (rawMax - rawMin) * 0.1 || 2
   const yBot = rawMin - pad
   const yTop = rawMax + pad
   const yRange = yTop - yBot
 
-  const xOf = (i: number) => PAD.left + (i / (nDates - 1)) * IW
+  const xOf = (t: number) => PAD.left + ((t - timeMin) / (timeMax - timeMin)) * IW
   const yOf = (pct: number) => PAD.top + (1 - (pct - yBot) / yRange) * IH
   const zeroY = yOf(0)
 
@@ -66,8 +70,9 @@ export default function ComparisonChart({ cards, colors }: Props) {
   }
   if (!yTicks.includes(0)) yTicks.push(0)
 
-  // X date labels (4 evenly-spaced)
-  const xTickIndices = [0, Math.floor(nDates * 0.33), Math.floor(nDates * 0.66), nDates - 1]
+  // X date labels at 4 evenly-spaced time positions
+  const xTickTimes = [0, 0.33, 0.66, 1].map(f => timeMin + f * (timeMax - timeMin))
+  const fmtDateLabel = (t: number) => new Date(t).toISOString().slice(5, 10)
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
@@ -99,51 +104,44 @@ export default function ComparisonChart({ cards, colors }: Props) {
         })}
 
         {/* X axis date labels */}
-        {xTickIndices.map(i => (
+        {xTickTimes.map((t, i) => (
           <text
-            key={i} x={xOf(i)} y={H - 6}
+            key={i} x={xOf(t)} y={H - 6}
             fontSize={9} fontFamily="'Space Mono', monospace"
             fill="var(--text-muted)" textAnchor="middle"
           >
-            {allDates[i]?.slice(5)}
+            {fmtDateLabel(t)}
           </text>
         ))}
 
-        {/* Series paths — M on first point, L thereafter; pen resets on gap */}
+        {/* Series — segmented paths (solid / dashed gap bridges) */}
         {series.map(s => {
-          const ptMap = new Map(s.pts.map(p => [p.date, p.pct]))
-          let d = ''
-          let pen = false
-          allDates.forEach((date, i) => {
-            const pct = ptMap.get(date)
-            if (pct != null) {
-              d += `${pen ? 'L' : 'M'} ${xOf(i)} ${yOf(pct)} `
-              pen = true
-            } else {
-              pen = false
-            }
+          const segments = splitIntoSegments(s.pts)
+          return segments.map((seg, i) => {
+            const d = seg.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${xOf(p.time)} ${yOf(p.pct)}`).join(' ')
+            return (
+              <path
+                key={`${s.id}-${i}`}
+                d={d}
+                fill="none"
+                stroke={s.color}
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeDasharray={seg.type === 'gap' ? '4,4' : undefined}
+                opacity={seg.type === 'gap' ? 0.4 : 1}
+              />
+            )
           })
-          return (
-            <path
-              key={s.id}
-              d={d}
-              fill="none"
-              stroke={s.color}
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          )
         })}
 
         {/* End-point dots */}
         {series.map(s => {
           const last = s.pts[s.pts.length - 1]
-          const i = dateIndex.get(last.date) ?? 0
           return (
             <circle
               key={s.id}
-              cx={xOf(i)} cy={yOf(last.pct)}
+              cx={xOf(last.time)} cy={yOf(last.pct)}
               r={3.5} fill={s.color} stroke="var(--bg-base)" strokeWidth={1.5}
             />
           )

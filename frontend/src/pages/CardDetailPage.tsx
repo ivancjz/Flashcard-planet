@@ -8,6 +8,7 @@ import SignalTimeline from '../components/SignalTimeline'
 import { fetchCard } from '../api/api'
 import { signalToMeta, formatDelta } from '../lib/utils'
 import { useWatchlist } from '../hooks/useWatchlist'
+import { splitIntoSegments, findContinuousStart } from '../lib/chartUtils'
 import type { CardDetail, PricePoint } from '../types/api'
 
 const SIGNAL_DESCRIPTION: Record<string, string> = {
@@ -18,8 +19,34 @@ const SIGNAL_DESCRIPTION: Record<string, string> = {
   INSUFFICIENT_DATA: 'Not enough recent sales data to compute a reliable signal.',
 }
 
+interface ExtPoint {
+  time: number
+  pct: number
+  raw: number
+  date: string
+}
+
+function buildExtPoints(data: PricePoint[], priceKey: 'tcg_price' | 'ebay_price'): ExtPoint[] {
+  const filtered = data.filter(d => d[priceKey] != null && (d[priceKey] as number) > 0)
+  if (filtered.length === 0) return []
+  const baseline = filtered[0][priceKey] as number
+  return filtered.map(d => ({
+    time: new Date(d.date).getTime(),
+    raw: d[priceKey] as number,
+    pct: ((d[priceKey] as number - baseline) / baseline) * 100,
+    date: d.date,
+  }))
+}
+
+function buildAreaPath(points: { time: number; pct: number }[], xScale: (t: number) => number, yOf: (p: number) => number, zeroY: number): string {
+  if (points.length < 2) return ''
+  const xs = points.map(p => xScale(p.time))
+  const ys = points.map(p => yOf(p.pct))
+  return `M ${xs[0]},${zeroY} ${points.map((_, i) => `L ${xs[i]},${ys[i]}`).join(' ')} L ${xs[xs.length - 1]},${zeroY} Z`
+}
+
 function NormalizedChart({ data }: { data: PricePoint[] }) {
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
+  const [hoveredTime, setHoveredTime] = useState<number | null>(null)
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -28,18 +55,10 @@ function NormalizedChart({ data }: { data: PricePoint[] }) {
   const IW = W - PAD.left - PAD.right
   const IH = H - PAD.top - PAD.bottom
 
-  function normalize(prices: (number | null)[]): (number | null)[] {
-    const baseline = prices.find(p => p != null && p > 0)
-    if (baseline == null) return prices.map(() => null)
-    return prices.map(p => (p != null && p > 0 ? ((p - baseline) / baseline) * 100 : null))
-  }
-
-  const tcgRaw = data.map(d => d.tcg_price)
-  const ebayRaw = data.map(d => d.ebay_price)
-  const tcgPct = normalize(tcgRaw)
-  const ebayPct = normalize(ebayRaw)
-  const tcgValid = tcgPct.filter(p => p != null).length >= 2
-  const ebayValid = ebayPct.filter(p => p != null).length >= 2
+  const tcgPoints = buildExtPoints(data, 'tcg_price')
+  const ebayPoints = buildExtPoints(data, 'ebay_price')
+  const tcgValid = tcgPoints.length >= 2
+  const ebayValid = ebayPoints.length >= 2
 
   if (!tcgValid && !ebayValid) {
     return (
@@ -49,194 +68,209 @@ function NormalizedChart({ data }: { data: PricePoint[] }) {
     )
   }
 
-  const allPcts = [...tcgPct, ...ebayPct].filter((p): p is number => p != null)
+  const allPoints = [...tcgPoints, ...ebayPoints]
+  const timeMin = Math.min(...allPoints.map(p => p.time))
+  const timeMax = Math.max(...allPoints.map(p => p.time))
+  const timeRange = timeMax - timeMin || 1
+  const xScale = (t: number) => ((t - timeMin) / timeRange) * IW
+
+  const allPcts = allPoints.map(p => p.pct)
   const minY = Math.min(0, ...allPcts)
   const maxY = Math.max(0, ...allPcts)
   const rangeY = maxY - minY || 1
-
-  const xOf = (i: number) => (i / Math.max(data.length - 1, 1)) * IW
   const yOf = (pct: number) => IH - ((pct - minY) / rangeY) * IH
   const zeroY = Math.min(IH, Math.max(0, yOf(0)))
 
-  function buildLinePath(pcts: (number | null)[]): string {
-    const cmds: string[] = []
-    let pen = false
-    for (let i = 0; i < pcts.length; i++) {
-      const p = pcts[i]
-      if (p != null) {
-        cmds.push(pen ? `L ${xOf(i)},${yOf(p)}` : `M ${xOf(i)},${yOf(p)}`)
-        pen = true
-      } else {
-        pen = false
-      }
-    }
-    return cmds.join(' ')
-  }
-
-  function buildAreaPath(pcts: (number | null)[]): string {
-    const pts = pcts
-      .map((p, i) => (p != null ? ([xOf(i), yOf(p)] as [number, number]) : null))
-      .filter((x): x is [number, number] => x != null)
-    if (pts.length < 2) return ''
-    return `M ${pts[0][0]},${zeroY} L ${pts.map(([x, y]) => `${x},${y}`).join(' L ')} L ${pts[pts.length - 1][0]},${zeroY} Z`
-  }
-
-  const range = maxY - minY
-  const rawStep = range / 4
+  const rawStep = (maxY - minY) / 4
   const mag = Math.pow(10, Math.floor(Math.log10(rawStep || 1)))
   const tickStep = Math.ceil(rawStep / mag) * mag || 5
   const ticks = new Set<number>([0])
   for (let t = Math.floor(minY / tickStep) * tickStep; t <= maxY + tickStep; t += tickStep) ticks.add(Math.round(t))
   const sortedTicks = [...ticks].filter(t => t >= minY - tickStep * 0.1 && t <= maxY + tickStep * 0.1).sort((a, b) => a - b)
 
-  const lastIdx = data.length - 1
+  const tcgSegments = splitIntoSegments(tcgPoints)
+  const ebaySegments = splitIntoSegments(ebayPoints)
+
+  function findNearest(points: ExtPoint[], time: number): ExtPoint | null {
+    if (points.length === 0) return null
+    return points.reduce((best, p) => Math.abs(p.time - time) < Math.abs(best.time - time) ? p : best)
+  }
 
   function handleMouseMove(e: React.MouseEvent<HTMLDivElement>) {
     const container = containerRef.current
-    if (!container || lastIdx < 1) return
+    if (!container) return
     const rect = container.getBoundingClientRect()
     const innerX = (e.clientX - rect.left) * (W / rect.width) - PAD.left
-    const idx = Math.max(0, Math.min(lastIdx, Math.round((innerX / IW) * lastIdx)))
-    setHoveredIdx(idx)
+    setHoveredTime(timeMin + (innerX / IW) * timeRange)
     setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
   }
 
-  const hPoint = hoveredIdx != null ? data[hoveredIdx] : null
-  const hTcgRaw = hoveredIdx != null ? tcgRaw[hoveredIdx] : null
-  const hEbayRaw = hoveredIdx != null ? ebayRaw[hoveredIdx] : null
-  const hTcgPct = hoveredIdx != null ? tcgPct[hoveredIdx] : null
-  const hEbayPct = hoveredIdx != null ? ebayPct[hoveredIdx] : null
-  const showTooltip = hPoint != null && (hTcgPct != null || hEbayPct != null)
+  const hTcg = hoveredTime != null ? findNearest(tcgPoints, hoveredTime) : null
+  const hEbay = hoveredTime != null ? findNearest(ebayPoints, hoveredTime) : null
+  const showTooltip = hoveredTime != null && (hTcg != null || hEbay != null)
+
+  // Use the nearest point's actual x-position for the vertical rule
+  const ruleX = hTcg != null ? xScale(hTcg.time) : hEbay != null ? xScale(hEbay.time) : null
 
   const fmtPct = (p: number) => (p >= 0 ? `+${p.toFixed(1)}%` : `${p.toFixed(1)}%`)
   const fmtPrice = (p: number) => `$${p.toFixed(2)}`
 
-  // Flip tooltip to left side when hovering the right 60% of the chart
-  const flipLeft = hoveredIdx != null && hoveredIdx > data.length * 0.6
+  const flipLeft = mousePos.x > (containerRef.current?.clientWidth ?? W) * 0.6
   const tooltipLeft = flipLeft ? mousePos.x - 164 : mousePos.x + 14
   const tooltipTop = Math.max(4, mousePos.y - 56)
 
+  // X date labels at first, middle, last of the overall time range
+  const dateLabelTimes = [timeMin, (timeMin + timeMax) / 2, timeMax]
+  const fmtDateLabel = (t: number) => new Date(t).toISOString().slice(5, 10)
+
+  const continuousStart = findContinuousStart(tcgValid ? tcgPoints : ebayValid ? ebayPoints : [])
+
   return (
-    <div
-      ref={containerRef}
-      style={{ position: 'relative', cursor: 'crosshair' }}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={() => setHoveredIdx(null)}
-    >
-      <svg
-        width="100%"
-        viewBox={`0 0 ${W} ${H}`}
-        style={{ display: 'block' }}
+    <div>
+      <div
+        ref={containerRef}
+        style={{ position: 'relative', cursor: 'crosshair' }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setHoveredTime(null)}
       >
-        <defs>
-          <linearGradient id="tcg-norm-grad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--gold)" stopOpacity="0.22" />
-            <stop offset="100%" stopColor="var(--gold)" stopOpacity="0" />
-          </linearGradient>
-          <linearGradient id="ebay-norm-grad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--breakout)" stopOpacity="0.12" />
-            <stop offset="100%" stopColor="var(--breakout)" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <g transform={`translate(${PAD.left},${PAD.top})`}>
-          {/* Zero reference line */}
-          <line x1={0} y1={zeroY} x2={IW} y2={zeroY} stroke="rgba(255,255,255,0.18)" strokeWidth={1} strokeDasharray="4 3" />
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}>
+          <defs>
+            <linearGradient id="tcg-norm-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--gold)" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="var(--gold)" stopOpacity="0" />
+            </linearGradient>
+            <linearGradient id="ebay-norm-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--breakout)" stopOpacity="0.12" />
+              <stop offset="100%" stopColor="var(--breakout)" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <g transform={`translate(${PAD.left},${PAD.top})`}>
+            {/* Zero reference line */}
+            <line x1={0} y1={zeroY} x2={IW} y2={zeroY} stroke="rgba(255,255,255,0.18)" strokeWidth={1} strokeDasharray="4 3" />
 
-          {/* Y-axis ticks */}
-          {sortedTicks.map(t => (
-            <text key={t} x={-6} y={yOf(t) + 4} textAnchor="end" fontSize={9} fontFamily="'Space Mono', monospace"
-              fill={t === 0 ? 'var(--text-secondary)' : 'var(--text-muted)'}>
-              {t >= 0 ? `+${t}%` : `${t}%`}
-            </text>
-          ))}
+            {/* Y-axis ticks */}
+            {sortedTicks.map(t => (
+              <text key={t} x={-6} y={yOf(t) + 4} textAnchor="end" fontSize={9} fontFamily="'Space Mono', monospace"
+                fill={t === 0 ? 'var(--text-secondary)' : 'var(--text-muted)'}>
+                {t >= 0 ? `+${t}%` : `${t}%`}
+              </text>
+            ))}
 
-          {/* eBay series */}
-          {ebayValid && (() => {
-            const area = buildAreaPath(ebayPct)
-            const line = buildLinePath(ebayPct)
-            const last = ebayPct[lastIdx]
-            return (
+            {/* eBay area (solid segments only) + segmented line */}
+            {ebayValid && (
               <>
-                {area && <path d={area} fill="url(#ebay-norm-grad)" />}
-                {line && <path d={line} fill="none" stroke="var(--breakout)" strokeWidth={1.5} strokeDasharray="4 2" opacity={0.8} />}
-                {last != null && <circle cx={xOf(lastIdx)} cy={yOf(last)} r={3} fill="var(--breakout)" stroke="var(--bg-base)" strokeWidth={1.5} />}
+                {ebaySegments.filter(s => s.type === 'solid' && s.points.length >= 2).map((seg, i) => (
+                  <path key={`ebay-area-${i}`} d={buildAreaPath(seg.points, xScale, yOf, zeroY)} fill="url(#ebay-norm-grad)" />
+                ))}
+                {ebaySegments.map((seg, i) => {
+                  const d = seg.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${xScale(p.time)},${yOf(p.pct)}`).join(' ')
+                  return (
+                    <path key={`ebay-${i}`} d={d} fill="none" stroke="var(--breakout)"
+                      strokeWidth={1.5} strokeLinecap="round"
+                      strokeDasharray={seg.type === 'gap' ? '4,4' : '4 2'}
+                      opacity={seg.type === 'gap' ? 0.35 : 0.8}
+                    />
+                  )
+                })}
+                {ebayPoints.length > 0 && (() => {
+                  const last = ebayPoints[ebayPoints.length - 1]
+                  return <circle cx={xScale(last.time)} cy={yOf(last.pct)} r={3} fill="var(--breakout)" stroke="var(--bg-base)" strokeWidth={1.5} />
+                })()}
               </>
-            )
-          })()}
+            )}
 
-          {/* TCG series */}
-          {tcgValid && (() => {
-            const area = buildAreaPath(tcgPct)
-            const line = buildLinePath(tcgPct)
-            const last = tcgPct[lastIdx]
-            return (
+            {/* TCG area (solid segments only) + segmented line */}
+            {tcgValid && (
               <>
-                {area && <path d={area} fill="url(#tcg-norm-grad)" />}
-                {line && <path d={line} fill="none" stroke="var(--gold)" strokeWidth={2} />}
-                {last != null && <circle cx={xOf(lastIdx)} cy={yOf(last)} r={4} fill="var(--gold)" stroke="var(--bg-base)" strokeWidth={2} />}
+                {tcgSegments.filter(s => s.type === 'solid' && s.points.length >= 2).map((seg, i) => (
+                  <path key={`tcg-area-${i}`} d={buildAreaPath(seg.points, xScale, yOf, zeroY)} fill="url(#tcg-norm-grad)" />
+                ))}
+                {tcgSegments.map((seg, i) => {
+                  const d = seg.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${xScale(p.time)},${yOf(p.pct)}`).join(' ')
+                  return (
+                    <path key={`tcg-${i}`} d={d} fill="none" stroke="var(--gold)"
+                      strokeWidth={2} strokeLinecap="round"
+                      strokeDasharray={seg.type === 'gap' ? '4,4' : undefined}
+                      opacity={seg.type === 'gap' ? 0.4 : 1}
+                    />
+                  )
+                })}
+                {tcgPoints.length > 0 && (() => {
+                  const last = tcgPoints[tcgPoints.length - 1]
+                  return <circle cx={xScale(last.time)} cy={yOf(last.pct)} r={4} fill="var(--gold)" stroke="var(--bg-base)" strokeWidth={2} />
+                })()}
               </>
-            )
-          })()}
+            )}
 
-          {/* Hover: vertical rule */}
-          {hoveredIdx != null && (
-            <line x1={xOf(hoveredIdx)} y1={0} x2={xOf(hoveredIdx)} y2={IH}
-              stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
-          )}
+            {/* Hover: vertical rule */}
+            {ruleX != null && (
+              <line x1={ruleX} y1={0} x2={ruleX} y2={IH} stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
+            )}
 
-          {/* Hover: enlarged data point circles (rendered above series) */}
-          {hoveredIdx != null && hEbayPct != null && ebayValid && (
-            <circle cx={xOf(hoveredIdx)} cy={yOf(hEbayPct)} r={5}
-              fill="var(--breakout)" stroke="var(--bg-base)" strokeWidth={2} />
-          )}
-          {hoveredIdx != null && hTcgPct != null && tcgValid && (
-            <circle cx={xOf(hoveredIdx)} cy={yOf(hTcgPct)} r={5.5}
-              fill="var(--gold)" stroke="var(--bg-base)" strokeWidth={2} />
-          )}
+            {/* Hover: data point circles */}
+            {hEbay != null && ebayValid && (
+              <circle cx={xScale(hEbay.time)} cy={yOf(hEbay.pct)} r={5} fill="var(--breakout)" stroke="var(--bg-base)" strokeWidth={2} />
+            )}
+            {hTcg != null && tcgValid && (
+              <circle cx={xScale(hTcg.time)} cy={yOf(hTcg.pct)} r={5.5} fill="var(--gold)" stroke="var(--bg-base)" strokeWidth={2} />
+            )}
 
-          {/* Transparent hit area — must be last to sit on top of all series */}
-          <rect x={0} y={0} width={IW} height={IH} fill="transparent" />
+            {/* Transparent hit area */}
+            <rect x={0} y={0} width={IW} height={IH} fill="transparent" />
 
-          {/* X-axis date labels */}
-          {[0, Math.floor(data.length / 2), lastIdx].map(i => (
-            <text key={i} x={xOf(i)} y={IH + 18} textAnchor="middle" fontSize={9} fontFamily="'Space Mono', monospace" fill="var(--text-muted)">
-              {data[i]?.date?.slice(5)}
-            </text>
-          ))}
-        </g>
-      </svg>
+            {/* X-axis date labels */}
+            {dateLabelTimes.map((t, i) => (
+              <text key={i} x={xScale(t)} y={IH + 18} textAnchor="middle" fontSize={9} fontFamily="'Space Mono', monospace" fill="var(--text-muted)">
+                {fmtDateLabel(t)}
+              </text>
+            ))}
+          </g>
+        </svg>
 
-      {showTooltip && (
-        <div style={{
-          position: 'absolute',
-          left: tooltipLeft,
-          top: tooltipTop,
-          pointerEvents: 'none',
-          background: 'var(--bg-elevated)',
-          border: '1px solid var(--border-default)',
-          borderRadius: 6,
-          padding: '7px 10px',
-          fontSize: 11,
-          fontFamily: "'Space Mono', monospace",
-          lineHeight: 1.7,
-          whiteSpace: 'nowrap',
-          zIndex: 10,
-        }}>
-          <div style={{ color: 'var(--text-muted)', marginBottom: 2, fontSize: 10 }}>
-            {hPoint!.date}
+        {showTooltip && (
+          <div style={{
+            position: 'absolute',
+            left: tooltipLeft,
+            top: tooltipTop,
+            pointerEvents: 'none',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-default)',
+            borderRadius: 6,
+            padding: '7px 10px',
+            fontSize: 11,
+            fontFamily: "'Space Mono', monospace",
+            lineHeight: 1.7,
+            whiteSpace: 'nowrap',
+            zIndex: 10,
+          }}>
+            <div style={{ color: 'var(--text-muted)', marginBottom: 2, fontSize: 10 }}>
+              {hTcg?.date ?? hEbay?.date}
+            </div>
+            {hTcg != null && (
+              <div style={{ color: 'var(--gold)' }}>
+                TCG: {fmtPrice(hTcg.raw)}{' '}
+                <span style={{ color: 'var(--text-muted)' }}>({fmtPct(hTcg.pct)})</span>
+              </div>
+            )}
+            {hEbay != null && (
+              <div style={{ color: 'var(--breakout)' }}>
+                eBay: {fmtPrice(hEbay.raw)}{' '}
+                <span style={{ color: 'var(--text-muted)' }}>({fmtPct(hEbay.pct)})</span>
+              </div>
+            )}
           </div>
-          {hTcgRaw != null && hTcgPct != null && (
-            <div style={{ color: 'var(--gold)' }}>
-              TCG: {fmtPrice(hTcgRaw)}{' '}
-              <span style={{ color: 'var(--text-muted)' }}>({fmtPct(hTcgPct)})</span>
-            </div>
-          )}
-          {hEbayRaw != null && hEbayPct != null && (
-            <div style={{ color: 'var(--breakout)' }}>
-              eBay: {fmtPrice(hEbayRaw)}{' '}
-              <span style={{ color: 'var(--text-muted)' }}>({fmtPct(hEbayPct)})</span>
-            </div>
-          )}
+        )}
+      </div>
+
+      {continuousStart && (
+        <div style={{
+          fontSize: 11,
+          color: 'var(--text-muted)',
+          fontFamily: 'var(--font-mono)',
+          textAlign: 'right',
+          marginTop: 8,
+        }}>
+          Continuous data since {continuousStart.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
         </div>
       )}
     </div>
