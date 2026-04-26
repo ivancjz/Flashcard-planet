@@ -167,7 +167,7 @@ function NormalizedChart({ data }: { data: PricePoint[] }) {
                   return (
                     <path key={`ebay-${i}`} d={d} fill="none" stroke="var(--breakout)"
                       strokeWidth={1.5} strokeLinecap="round"
-                      strokeDasharray={seg.type === 'gap' ? '4,4' : '4 2'}
+                      strokeDasharray={seg.type === 'gap' ? '8,4' : '4 2'}
                       opacity={seg.type === 'gap' ? 0.35 : 0.8}
                     />
                   )
@@ -190,7 +190,7 @@ function NormalizedChart({ data }: { data: PricePoint[] }) {
                   return (
                     <path key={`tcg-${i}`} d={d} fill="none" stroke="var(--gold)"
                       strokeWidth={2} strokeLinecap="round"
-                      strokeDasharray={seg.type === 'gap' ? '4,4' : undefined}
+                      strokeDasharray={seg.type === 'gap' ? '8,4' : undefined}
                       opacity={seg.type === 'gap' ? 0.4 : 1}
                     />
                   )

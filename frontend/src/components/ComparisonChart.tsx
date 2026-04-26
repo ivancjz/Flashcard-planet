@@ -128,7 +128,7 @@ export default function ComparisonChart({ cards, colors }: Props) {
                 strokeWidth={2}
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                strokeDasharray={seg.type === 'gap' ? '4,4' : undefined}
+                strokeDasharray={seg.type === 'gap' ? '8,4' : undefined}
                 opacity={seg.type === 'gap' ? 0.4 : 1}
               />
             )
