@@ -412,7 +412,7 @@ def ingest_ebay_sold_cards(
             candidates: list[tuple[dict[str, str], datetime, Decimal]] = []
             for listing in raw_listings:
                 captured_at = _parse_iso_datetime(listing["captured_at"])
-                if captured_at is None or captured_at < lookback_cutoff:
+                if captured_at is None or captured_at < lookback_cutoff or captured_at > now:
                     continue
                 title = listing["title"]
                 if not _is_single_card(title):

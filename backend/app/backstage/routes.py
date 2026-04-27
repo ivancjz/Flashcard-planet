@@ -756,6 +756,26 @@ def admin_pred_accuracy(
     ]
 
 
+# TEMP — remove after cleanup confirmed (future-timestamp rows deleted)
+@router.post("/trigger/delete-future-timestamps")
+def admin_delete_future_timestamps(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Delete price_history rows with captured_at > NOW().
+
+    Root cause: ebay_sold ingest had no upper-bound filter; eBay scheduled
+    auctions with future end_time were written to the DB. Fix is in ebay_sold.py.
+    This one-shot cleans the 749 rows that accumulated before the fix.
+    """
+    result = db.execute(text("""
+        DELETE FROM price_history
+        WHERE captured_at > NOW()
+    """))
+    db.commit()
+    return {"ok": True, "rows_deleted": result.rowcount}
+
+
 # TEMP DIAG ENDPOINT — future-captured_at audit (surfaced 2026-04-27)
 # Remove after root cause identified and confirmed fixed
 @router.get("/diag/future-timestamps")
