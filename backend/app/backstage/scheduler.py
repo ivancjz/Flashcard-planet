@@ -301,6 +301,28 @@ def _send_heartbeat() -> None:
                     "interval job 可能被 deploy 打断，或凭证失效，或每次 api_calls_used=0",
                 )
 
+        # Defensive: alert if any ingest path wrote market_segment=NULL in the last 24h.
+        # Pre-backfill NULLs from old rows are excluded by the captured_at filter,
+        # so this only fires when a live ingest path is missing segment classification.
+        with SessionLocal() as _seg_session:
+            null_seg_rows = _seg_session.execute(sa_text("""
+                SELECT source, COUNT(*) AS cnt
+                FROM price_history
+                WHERE market_segment IS NULL
+                  AND captured_at > now() - interval '24 hours'
+                GROUP BY source
+                ORDER BY cnt DESC
+            """)).fetchall()
+        if null_seg_rows:
+            detail = "\n".join(f"  {r.source}: {r.cnt} rows" for r in null_seg_rows)
+            send_discord_alert(
+                "warning",
+                "市场数据质量警告: market_segment IS NULL (24h内)",
+                f"以下数据源写入了未分类的 price_history 行:\n{detail}\n"
+                "信号引擎会过滤这些行 → 对应资产信号静默丢失。"
+                "\n\n检查对应 ingest 路径，确认 market_segment='raw' 已设置。",
+            )
+
         lines = [f"{r.status}: {r.cnt} runs, last at {r.last_run}" for r in rows]
         tag = " [观察期]" if in_observation else ""
         send_discord_alert(

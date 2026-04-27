@@ -157,6 +157,7 @@ def ingest_ygo_sets(
                 currency="USD",
                 price=price,
                 captured_at=captured_at,
+                market_segment='raw',
             ).on_conflict_do_nothing()
             rows = session.execute(stmt)
             if rows.rowcount:
