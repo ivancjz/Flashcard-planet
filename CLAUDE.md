@@ -98,6 +98,9 @@ Current known dead configs: none. Keep it that way.
 - **Rate limiting**: use `data_client.rate_limit_per_second` as authoritative. `time.sleep(1.0 / data_client.rate_limit_per_second)` in the outer loop's `finally`.
 - **Scheduler jobs**: `interval` trigger + `next_run_time=None` + entry in `_STARTUP_DELAY`. **Never `cron`**.
 - **"Stale data" diagnosis**: before assuming a scheduler job stopped writing data, first query `price_history` directly by `source` and time range. `scheduler_run_log` showing null/old means the job isn't *logging*, not necessarily that it isn't *running*. The two are independent until all jobs are fully instrumented. Pattern: `SELECT DATE(captured_at AT TIME ZONE 'UTC'), COUNT(*) FROM price_history WHERE source='X' AND captured_at >= NOW() - INTERVAL '7 days' GROUP BY 1 ORDER BY 1 DESC`.
+- **NULL census before filter rollouts**: any new `WHERE` clause that excludes data based on a column value (e.g., `WHERE market_segment = 'raw'`) requires a pre-rollout NULL census across the entire affected table, grouped by source: `SELECT source, COUNT(*) FROM <table> WHERE <column> IS NULL GROUP BY source`. The rollout is safe only when this returns zero rows or only sources that the filter intentionally excludes. Verifying "the target rows look right" is not enough — silent-exclusion filters are about what gets dropped, and the dropped set must be enumerated explicitly. PR #26 exposed this: PR B's `market_segment = 'raw'` filter silently dropped all YGO rows because they had `market_segment = NULL`, and PR B's pre-merge SQL had only verified `pokemon_tcg_api` was correct.
+- **Local DB absolute counts are not authoritative**: when a local audit surfaces an unexpected number (e.g., "22,654 NULL rows"), do not act on the number — first run the same query on production. Local DBs can be arbitrarily stale relative to production migrations and backfills. Trends, shapes, and source lists from local DB are usable; absolute counts are not. The default response to an alarming local count is "production audit before deciding scope," not "expand the PR scope to fix the local number."
+- **Cross-PR assumption tracking**: when a PR's correctness depends on an assumption established by a previous PR (e.g., "PR A guaranteed `market_segment` is set on all rows"), the new PR's verification step must re-run the SQL that established that assumption — not assume it still holds. PRs are merged at different times against different data; assumptions drift. List the inherited assumptions in the PR description's "Assumptions" section, with the SQL used to verify each.
 
 ---
 
@@ -120,6 +123,16 @@ codex exec "Please review the following diff for [brief context: what this chang
 ```
 
 Claude Code must run this itself — **do not delegate to the operator**. Capture codex's output in the PR description under a `## Codex Review` heading.
+
+### Diagnostic endpoints as PR deliverables
+
+For any PR whose verification requires multiple SQL queries or that introduces a new invariant the operator will need to re-check periodically, add a temporary admin endpoint under `/admin/diag/<pr-name>-verify` that packages the verification queries into a single JSON response. Mark it with a sentinel comment specifying a removal condition (a concrete event like "after X is confirmed" or a date — whichever is more precise) and add an entry to the backlog file. Rationale: SQL checklists run by the operator manually have a non-zero error rate (mistyped queries, skipped checks, results in inconsistent shapes); a single endpoint with structured output is more reliable for both the immediate verification and any repeat checks within the next few weeks. Removal is part of the next operational cleanup PR, not optional.
+
+Pattern from PR #26 / #28: `ygo-verify-26` returned `{A_pass, B_pass, C_*, D_*, E_*}`, each a specific check. The operator could re-run the endpoint at different times (immediately post-deploy, after first yugioh-ingestion, after first signal-sweep) without re-typing SQL.
+
+**Naming caveat**: avoid `*_pass` field names for checks that legitimately return false during normal operation (e.g., "YGO has graduated from INSUFFICIENT_DATA" returns false on day 1 by design). Use descriptive names like `D_signals_present` or `D_signals_graduated_pct` so the result is informative regardless of value. False is not a failure if false is the expected day-1 state.
+
+**Scope**: `/admin/diag/<pr-name>-verify` is for read-only verification SQL. One-shot write operations (backfills, repairs) live under `/admin/trigger/<action>` and are a separate category — they do not replace the diagnostic endpoint and are not removed on the same schedule.
 
 ### Secrets
 
@@ -207,7 +220,7 @@ On 2026-04-21, the operator believed 429 retry fixes were live for ~10 hours. Th
 
 eBay scheduler was registered with APScheduler for weeks but **never executed**. Reason: `cron='0 3 * * *'` + multiple daily deploys = startup always recomputed `next_run` to tomorrow's 03:00, which the next deploy missed. Fix was simple (switch to interval trigger). But the failure mode was invisible because the registration log line was loud while the execution absence was silent.
 
-**Result**: All scheduled jobs must write `scheduler_run_log` entries. The heartbeat now checks for >25h absences and alerts Discord. When you add a new scheduled job, it must include both (execution log + absence detection) from day one.
+**Result**: All scheduled jobs must write `scheduler_run_log` entries. The heartbeat now checks for >25h absences and alerts Discord. When you add a new scheduled job, it must include both (execution log + absence detection) from day one. **But note**: `scheduler_run_log` only catches variants 1 (never ran) and 2 (silently misconfigured). It does not catch variant 4 (ran successfully but downstream-filtered) — see Lesson 4 for that.
 
 ### Lesson 3 (subtler): Dead config misleads
 
@@ -215,15 +228,38 @@ eBay scheduler was registered with APScheduler for weeks but **never executed**.
 
 **Result**: See §3 "Dead config" rule.
 
+### Lesson 4: "Designed, ran, written, but downstream-filtered silently"
+
+This is the fourth variant of the "designed but never X" failure class. Earlier variants are each detectable at a distinct layer: Lesson 1 catches deployment gaps (code not on the running instance); Lesson 2 catches scheduler gaps (job never executing, visible through missing or zero-records `scheduler_run_log` entries); Lesson 3 catches config gaps (attribute declared, never read). The fourth variant passes all three layers — `scheduler_run_log` shows 100% success — but is invisible at the product layer.
+
+YGO ingestion was registered, scheduled, executing, and writing to `price_history` — `scheduler_run_log` showed 100% success for two weeks. But every YGO row was being silently dropped at the signal computation layer because `market_segment` was NULL and PR B's signal filter required `market_segment = 'raw'`. The data was reaching the database; the database just wasn't reaching the product.
+
+**Result**: end-to-end verification cannot stop at "data hits the DB." It must trace through to product output. For new data sources, the verification SQL must include: (a) row count grew in `price_history`, (b) row count grew in `asset_signals` for that game/source, (c) Card Detail page renders for sample assets from that source. If any of these three fail despite (a) succeeding, the source is in the "fourth variant" state. The full chain is:
+
+1. Ingest writes
+2. Schema invariants hold (segment populated, FKs valid, etc.)
+3. Filter layer includes the data
+4. Compute layer produces signals
+5. Display layer renders to product
+6. Regression check: existing data sources unaffected
+
+A new data source is not "live" until all six layers show evidence.
+
+### Lesson 5: Surface-level bugs surface deeper bugs
+
+Activating YGO and opening YGO Card Detail pages exposed two bugs that also existed for Pokemon: Signal History showed identical "50 changes" on every card (placeholder rows from pre-migration data leaking through), and the TCGPlayer column was hardcoded to `pokemon_tcg_api` source. Both bugs had been present since their respective code paths were written, but the conditions that triggered them — assets with no real signal transitions, assets whose primary price source isn't TCGPlayer — were rare for Pokemon's active flow.
+
+**Result**: each new game / data source exposure is implicitly an audit of empty-state and non-default code paths. Treat the "secondary bugs surfaced during activation" not as scope creep but as the activation's main deliverable for code quality — specifically bugs that block accurate activation verification or expose source/game assumptions baked into the code. Defer unrelated polish to follow-up issues. Budget for this category when planning new game launches.
+
 ---
 
 ## 7. Current state anchors
 
-Things that are true as of 2026-04-22 and unlikely to change soon:
+Things that are true as of 2026-04-27 and unlikely to change soon:
 
-- **Assets**: ~2,897 Pokémon assets tracked. Volume growing via scheduled-ingestion + eBay ingestion.
-- **Price history**: ~217k rows. `pokemon_tcg_api` dominant (~212k). `ebay_sold` small (~5k, first real run 2026-04-22).
-- **Signal state**: `insufficient_data=90.8%` (3832/4219) as of Day 2 sweep. Expected to improve over 2-3 weeks as eBay accumulates baseline history. Root cause: 97.7% of insufficient cases are `has_baseline_no_current` — need 24h-fresh data and eBay is the source that provides it.
+- **Assets**: ~2,898 Pokemon + 67 YGO = ~2,965 total. Pokemon expanded to 25 curated sets in PR #10; YGO seeded 5 sets (LEDE/PHNI/AGOV/POTE/TOCH) in PR #15.
+- **Price history**: ~434k rows total. `pokemon_tcg_api` dominant (~429k). `ebay_sold` ~5.5k. `ygoprodeck_api` ~134. All production rows have `market_segment` populated as of 2026-04-27, after the alembic 0025 migration (PR #26) plus the `/trigger/backfill-ygo-segment` one-shot that cleared 2,814 post-migration NULLs. Local DB still has NULLs — local is not authoritative here.
+- **Signal state** (latest signal per asset, ~2,623 assets with any signal): BREAKOUT 86, MOVE 141, WATCH 35, IDLE 589, INSUFFICIENT_DATA 1,772 (67.5%). INSUFFICIENT breakdown: `bulk_baseline_price` ~1,125 (sub-$0.10 floor), `no_current_data` ~547 (no 24h-fresh eBay data), `no_baseline_data` ~100. YGO contributes ~67 to INSUFFICIENT until baseline window matures (~2 weeks from 2026-04-23 ingest start). Note: ~342 assets have no signal row yet (newly ingested or missed by sweep).
 - **Known open problems** (see session handoff for the latest — may be stale by the time you read this):
   - Orphaned `running` rows in `scheduler_run_log` are now cleaned up at startup via `cleanup_stale_runs` (120-min threshold). New orphans from container crash are auto-closed on next deploy.
   - `pokemon_tcg_api` price data "3 days stale" on 2026-04-22 was a false alarm. SQL confirmed data flowing continuously 8–37k rows/day every day. Root cause: `scheduler_run_log` visibility gap (no run_log rows for `scheduled-ingestion` before its instrumentation was confirmed working). Resolved by PR #13.
