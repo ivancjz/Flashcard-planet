@@ -887,6 +887,28 @@ def admin_ygo_verify_26(
     }
 
 
+# TEMP — remove after B_pass confirmed (alembic 0025 pre-ran; NULL rows accumulated post-migration)
+@router.post("/trigger/backfill-ygo-segment")
+def admin_trigger_backfill_ygo_segment(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Backfill market_segment='raw' for ygoprodeck_api rows still NULL after 0025.
+
+    0025 ran before the ygo.py ingest fix deployed; rows written in the gap
+    came in with market_segment=NULL and were not covered by the migration.
+    This is a one-shot idempotent UPDATE — safe to re-run.
+    """
+    result = db.execute(text("""
+        UPDATE price_history
+        SET market_segment = 'raw'
+        WHERE source = 'ygoprodeck_api'
+          AND market_segment IS NULL
+    """))
+    db.commit()
+    return {"ok": True, "rows_updated": result.rowcount}
+
+
 @router.post("/trigger/signal-sweep")
 def admin_trigger_signal_sweep(
     _: None = Depends(require_admin_key),
