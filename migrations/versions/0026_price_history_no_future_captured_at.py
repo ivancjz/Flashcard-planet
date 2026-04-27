@@ -12,7 +12,7 @@ future eBay variants) could reintroduce the pattern without application-layer
 protection.
 
 Fix: a BEFORE INSERT OR UPDATE trigger that raises immediately if
-captured_at > CURRENT_TIMESTAMP + 5 minutes.  The 5-minute buffer absorbs
+captured_at > clock_timestamp() + 5 minutes.  The 5-minute buffer absorbs
 clock skew between app server and Postgres host.
 
 Postgres CHECK constraints cannot use CURRENT_TIMESTAMP (STABLE, not
