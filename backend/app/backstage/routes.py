@@ -917,7 +917,7 @@ def admin_graded_price_check(
         FROM price_history ph
         JOIN assets a ON a.id = ph.asset_id
         LEFT JOIN observation_match_log oml
-               ON oml.asset_id = ph.asset_id AND oml.source = ph.source
+               ON oml.matched_asset_id = ph.asset_id AND oml.provider = ph.source
         WHERE ph.source = 'ebay_sold'
           AND ph.market_segment = 'unknown'
         ORDER BY ph.captured_at DESC
