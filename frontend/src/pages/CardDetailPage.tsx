@@ -370,7 +370,7 @@ export default function CardDetailPage() {
           <div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
               {[
-                { label: 'TCGPlayer', value: card.tcg_price != null ? `$${card.tcg_price.toFixed(2)}` : '—', color: 'var(--gold)' },
+                { label: 'Market', value: card.tcg_price != null ? `$${card.tcg_price.toFixed(2)}` : '—', color: 'var(--gold)' },
                 { label: 'eBay sold', value: card.ebay_price != null ? `$${card.ebay_price.toFixed(2)}` : '—', color: 'var(--breakout)' },
                 { label: 'Spread', value: card.spread_pct != null ? `${card.spread_pct > 0 ? '+' : ''}${card.spread_pct.toFixed(1)}%` : '—', color: 'var(--text-secondary)' },
               ].map(tile => (
@@ -392,7 +392,7 @@ export default function CardDetailPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                 <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Price Trend (% change from first data point)</span>
                 <div style={{ display: 'flex', gap: 12 }}>
-                  <span style={{ fontSize: 11, color: 'var(--gold)' }}>— TCGPlayer</span>
+                  <span style={{ fontSize: 11, color: 'var(--gold)' }}>— Market</span>
                   <span style={{ fontSize: 11, color: 'var(--breakout)' }}>-- eBay sold</span>
                 </div>
               </div>

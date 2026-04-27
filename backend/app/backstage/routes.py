@@ -756,6 +756,137 @@ def admin_pred_accuracy(
     ]
 
 
+# TEMP DIAG ENDPOINT — PR #28 verification
+# Remove after rarity coverage analysis is documented (target: 2026-05-04)
+@router.get("/diag/ygo-rarity-coverage")
+def admin_ygo_rarity_coverage(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Per-rarity YGO price coverage — most-recent ygoprodeck_api row per asset."""
+    rows = db.execute(text("""
+        SELECT
+            COALESCE(a.metadata->>'rarity', '— unknown —') AS rarity,
+            COUNT(*)                                        AS asset_count,
+            COUNT(ph.id)                                    AS with_price_rows,
+            COUNT(CASE WHEN ph.price > 0 THEN 1 END)       AS with_nonzero_price,
+            ROUND(AVG(CASE WHEN ph.price > 0 THEN ph.price END)::numeric, 2) AS avg_nonzero_price
+        FROM assets a
+        LEFT JOIN price_history ph
+               ON ph.asset_id = a.id
+              AND ph.source = 'ygoprodeck_api'
+              AND ph.captured_at = (
+                  SELECT MAX(captured_at) FROM price_history
+                  WHERE asset_id = a.id AND source = 'ygoprodeck_api'
+              )
+        WHERE a.game = 'yugioh'
+        GROUP BY a.metadata->>'rarity'
+        ORDER BY asset_count DESC
+    """)).fetchall()
+    total = sum(r[1] for r in rows)
+    with_price = sum(r[2] for r in rows)
+    with_nonzero = sum(r[3] for r in rows)
+    return {
+        "summary": {
+            "total_ygo_assets": total,
+            "with_any_price_row": with_price,
+            "with_nonzero_price": with_nonzero,
+            "coverage_pct": round(with_nonzero / total * 100, 1) if total else 0,
+        },
+        "by_rarity": [
+            {
+                "rarity": r[0],
+                "asset_count": r[1],
+                "with_price_rows": r[2],
+                "with_nonzero_price": r[3],
+                "avg_nonzero_price": float(r[4]) if r[4] else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/diag/null-audit")
+def admin_null_audit(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    nulls = db.execute(text("""
+        SELECT source,
+               COUNT(*) AS null_rows,
+               MIN(captured_at)::text AS earliest_null,
+               MAX(captured_at)::text AS latest_null
+        FROM price_history
+        WHERE market_segment IS NULL
+        GROUP BY source
+        ORDER BY null_rows DESC
+    """)).fetchall()
+    version = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
+    return {
+        "alembic_version": version,
+        "null_audit": [{"source": r[0], "null_rows": r[1], "earliest": r[2], "latest": r[3]} for r in nulls],
+    }
+
+
+@router.get("/diag/ygo-verify-26")
+def admin_ygo_verify_26(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Post-PR-26 verification: A/B migration+nulls, C new YGO ingest, D YGO signals, E Pokemon regression."""
+    # A: alembic version
+    version = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
+
+    # B: any remaining NULLs
+    nulls = db.execute(text("""
+        SELECT source, COUNT(*) AS null_rows
+        FROM price_history WHERE market_segment IS NULL
+        GROUP BY source ORDER BY null_rows DESC
+    """)).fetchall()
+
+    # C: new YGO rows in last 15 min (run after first ingestion post-deploy)
+    ygo_recent = db.execute(text("""
+        SELECT market_segment, COUNT(*) AS n, MAX(captured_at)::text AS latest
+        FROM price_history
+        WHERE source = 'ygoprodeck_api'
+          AND captured_at > NOW() - INTERVAL '15 minutes'
+        GROUP BY market_segment
+    """)).fetchall()
+
+    # D: YGO signal distribution (run after first sweep post-deploy)
+    ygo_signals = db.execute(text("""
+        SELECT s.label, COUNT(*) AS n
+        FROM asset_signals s
+        JOIN assets a ON a.id = s.asset_id
+        WHERE a.game = 'yugioh'
+        GROUP BY s.label ORDER BY n DESC
+    """)).fetchall()
+
+    # E: Pokemon signal regression check (asset_signals is one-row-per-asset upsert)
+    pokemon_signals = db.execute(text("""
+        SELECT s.label, COUNT(*) AS n
+        FROM asset_signals s
+        JOIN assets a ON a.id = s.asset_id
+        WHERE a.game = 'pokemon'
+        GROUP BY s.label ORDER BY n DESC
+    """)).fetchall()
+
+    return {
+        "A_alembic_version": version,
+        "A_pass": version == "0025",
+        "B_null_rows": [{"source": r[0], "count": r[1]} for r in nulls],
+        "B_pass": len(nulls) == 0,
+        "C_ygo_recent_15min": [{"segment": r[0], "n": r[1], "latest": r[2]} for r in ygo_recent],
+        "C_pass": any(r[0] == "raw" for r in ygo_recent) if ygo_recent else None,
+        "D_ygo_signals": [{"label": r[0], "n": r[1]} for r in ygo_signals],
+        "D_pass": any(r[0] != "INSUFFICIENT_DATA" for r in ygo_signals) if ygo_signals else None,
+        "E_pokemon_signals": [{"label": r[0], "n": r[1]} for r in pokemon_signals],
+        "E_breakout": next((r[1] for r in pokemon_signals if r[0] == "BREAKOUT"), 0),
+        "E_move": next((r[1] for r in pokemon_signals if r[0] == "MOVE"), 0),
+        "E_pass": None,  # manual: compare to PR B baseline (BREAKOUT~115, MOVE~188)
+    }
+
+
 @router.post("/trigger/signal-sweep")
 def admin_trigger_signal_sweep(
     _: None = Depends(require_admin_key),

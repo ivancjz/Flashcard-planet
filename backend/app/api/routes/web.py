@@ -967,7 +967,8 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
         JOIN asset_signals s ON s.asset_id = a.id
         LEFT JOIN LATERAL (
             SELECT price FROM price_history
-            WHERE asset_id = a.id AND source = 'pokemon_tcg_api'
+            WHERE asset_id = a.id
+              AND source = CASE a.game WHEN 'yugioh' THEN 'ygoprodeck_api' ELSE 'pokemon_tcg_api' END
             ORDER BY captured_at DESC LIMIT 1
         ) tcg ON TRUE
         LEFT JOIN LATERAL (
@@ -983,13 +984,16 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
 
     history = db.execute(text("""
         SELECT
-            DATE(captured_at) AS date,
-            AVG(price) FILTER (WHERE source = 'pokemon_tcg_api') AS tcg_price,
-            AVG(price) FILTER (WHERE source = 'ebay_sold')       AS ebay_price
-        FROM price_history
-        WHERE asset_id = CAST(:asset_id AS uuid)
-          AND captured_at >= NOW() - INTERVAL '30 days'
-        GROUP BY DATE(captured_at)
+            DATE(ph.captured_at) AS date,
+            AVG(ph.price) FILTER (
+                WHERE ph.source = CASE a.game WHEN 'yugioh' THEN 'ygoprodeck_api' ELSE 'pokemon_tcg_api' END
+            ) AS tcg_price,
+            AVG(ph.price) FILTER (WHERE ph.source = 'ebay_sold') AS ebay_price
+        FROM price_history ph
+        JOIN assets a ON a.id = ph.asset_id
+        WHERE ph.asset_id = CAST(:asset_id AS uuid)
+          AND ph.captured_at >= NOW() - INTERVAL '30 days'
+        GROUP BY DATE(ph.captured_at)
         ORDER BY date ASC
     """), {"asset_id": asset_id}).fetchall()
 
@@ -1004,6 +1008,7 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
         FROM asset_signal_history
         WHERE asset_id = CAST(:asset_id AS uuid)
           AND computed_at > NOW() - INTERVAL '30 days'
+          AND previous_label IS NOT NULL
           AND label IS DISTINCT FROM previous_label
         ORDER BY computed_at DESC
         LIMIT 50
