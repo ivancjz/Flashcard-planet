@@ -904,20 +904,15 @@ def admin_graded_price_check(
         WHERE source = 'ebay_sold' AND market_segment = 'unknown'
     """)).scalar() or 0
 
-    # Diagnose: titles behind the unknown rows (for Phase 0 investigation only)
+    # Diagnose: asset names behind the unknown rows (for Phase 0 investigation only)
     unknown_sample = db.execute(text("""
         SELECT
             ph.id::text,
             a.name            AS asset_name,
             ph.price::text,
-            ph.captured_at::text,
-            oml.raw_title,
-            oml.grade_company,
-            oml.grade_score
+            ph.captured_at::text
         FROM price_history ph
         JOIN assets a ON a.id = ph.asset_id
-        LEFT JOIN observation_match_log oml
-               ON oml.matched_asset_id = ph.asset_id AND oml.provider = ph.source
         WHERE ph.source = 'ebay_sold'
           AND ph.market_segment = 'unknown'
         ORDER BY ph.captured_at DESC
@@ -934,11 +929,7 @@ def admin_graded_price_check(
         ],
         "unknown_rows_total": unknown_rows,
         "unknown_sample": [
-            {
-                "id": r[0], "asset_name": r[1], "price": r[2],
-                "captured_at": r[3], "raw_title": r[4],
-                "grade_company": r[5], "grade_score": r[6],
-            }
+            {"id": r[0], "asset_name": r[1], "price": r[2], "captured_at": r[3]}
             for r in unknown_sample
         ],
         "note": (
