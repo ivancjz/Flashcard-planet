@@ -869,6 +869,42 @@ def admin_graded_shadow_label(
     }
 
 
+# TEMP — Phase 0 Gate 3: verify graded listings never entered price_history
+# Remove alongside graded-shadow-admission diag endpoints (Phase 2 complete)
+@router.get("/diag/graded-price-check")
+def admin_graded_price_check(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Gate 3: count ebay_sold price_history rows with non-raw market_segment.
+
+    Expected: 0 at all times during Phase 0. Any non-zero result means graded
+    listings have leaked into price_history — immediate stop condition.
+    """
+    rows = db.execute(text("""
+        SELECT
+            market_segment,
+            COUNT(*)          AS n,
+            MIN(captured_at)::text AS earliest,
+            MAX(captured_at)::text AS latest
+        FROM price_history
+        WHERE source = 'ebay_sold'
+          AND market_segment IS NOT NULL
+          AND market_segment <> 'raw'
+        GROUP BY market_segment
+        ORDER BY n DESC
+    """)).fetchall()
+    total = sum(r[1] for r in rows)
+    return {
+        "graded_ebay_rows_total": total,
+        "gate3_pass": total == 0,
+        "by_segment": [
+            {"segment": r[0], "n": r[1], "earliest": r[2], "latest": r[3]}
+            for r in rows
+        ],
+    }
+
+
 # TEMP — remove after cleanup confirmed (future-timestamp rows deleted)
 @router.post("/trigger/delete-future-timestamps")
 def admin_delete_future_timestamps(
