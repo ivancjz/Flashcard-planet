@@ -7,3 +7,5 @@ logs/
 *.log
 .claude/
 frontend/dist/
+.pytest_cache/
+.pytest-cache-local/

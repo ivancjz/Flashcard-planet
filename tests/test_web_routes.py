@@ -173,13 +173,16 @@ class WebCardsTests(TestCase):
 
 
 class WebCardDetailTests(TestCase):
-    def _make_db(self, card_row, history_rows=None):
+    def _make_db(self, card_row, history_rows=None, signal_history_rows=None):
         if history_rows is None:
             history_rows = []
+        if signal_history_rows is None:
+            signal_history_rows = []
         db = MagicMock()
         db.execute.side_effect = [
             MagicMock(fetchone=MagicMock(return_value=card_row)),
             MagicMock(fetchall=MagicMock(return_value=history_rows)),
+            MagicMock(fetchall=MagicMock(return_value=signal_history_rows)),
         ]
         return db
 
@@ -228,6 +231,39 @@ class WebCardDetailTests(TestCase):
         self.assertIn("tcg_price", ph[0])
         self.assertIn("ebay_price", ph[0])
         self.assertIsNone(ph[1]["ebay_price"])
+
+    def test_signal_history_query_excludes_pre_previous_label_rows(self):
+        card = _make_row(
+            asset_id="abc123", name="Charizard", set_name="Base",
+            rarity="ultra", card_type="pokemon", signal="BREAKOUT",
+            price_delta_pct=15.0, liquidity_score=0.9,
+            tcg_price=100.0, ebay_price=90.0, image_url=None, spread_pct=10.0,
+        )
+        db = self._make_db(card)
+        app, client = _make_app(db)
+
+        resp = client.get("/api/v1/web/cards/abc123")
+
+        self.assertEqual(resp.status_code, 200)
+        signal_history_sql = str(db.execute.call_args_list[2].args[0])
+        self.assertIn("previous_label IS NOT NULL", signal_history_sql)
+        self.assertIn("label IS DISTINCT FROM previous_label", signal_history_sql)
+
+    def test_detail_price_query_uses_game_specific_market_source(self):
+        card = _make_row(
+            asset_id="abc123", name="Dark Magician", set_name="LOB",
+            rarity="ultra", card_type="spellcaster", signal="IDLE",
+            price_delta_pct=0.0, liquidity_score=0.3,
+            tcg_price=2.5, ebay_price=None, image_url=None, spread_pct=None,
+        )
+        db = self._make_db(card)
+        app, client = _make_app(db)
+
+        resp = client.get("/api/v1/web/cards/abc123")
+
+        self.assertEqual(resp.status_code, 200)
+        detail_sql = str(db.execute.call_args_list[0].args[0])
+        self.assertIn("CASE a.game WHEN 'yugioh' THEN 'ygoprodeck_api' ELSE 'pokemon_tcg_api' END", detail_sql)
 
 
 class WebAlertsTests(TestCase):

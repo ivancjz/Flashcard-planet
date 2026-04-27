@@ -32,8 +32,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("""
-        UPDATE price_history
-        SET market_segment = NULL
-        WHERE source = 'ygoprodeck_api'
-    """)
+    # No-op: rolling back this migration without also reverting the ygo.py
+    # ingest fix would immediately re-insert NULL market_segment rows, making
+    # a partial rollback worse than useless.  The only safe rollback path is
+    # to revert both this migration and the ingest fix together as a unit.
+    pass

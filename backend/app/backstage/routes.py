@@ -756,6 +756,56 @@ def admin_pred_accuracy(
     ]
 
 
+# TEMP DIAG ENDPOINT — PR #28 verification
+# Remove after rarity coverage analysis is documented (target: 2026-05-04)
+@router.get("/diag/ygo-rarity-coverage")
+def admin_ygo_rarity_coverage(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Per-rarity YGO price coverage — most-recent ygoprodeck_api row per asset."""
+    rows = db.execute(text("""
+        SELECT
+            COALESCE(a.metadata->>'rarity', '— unknown —') AS rarity,
+            COUNT(*)                                        AS asset_count,
+            COUNT(ph.id)                                    AS with_price_rows,
+            COUNT(CASE WHEN ph.price > 0 THEN 1 END)       AS with_nonzero_price,
+            ROUND(AVG(CASE WHEN ph.price > 0 THEN ph.price END)::numeric, 2) AS avg_nonzero_price
+        FROM assets a
+        LEFT JOIN price_history ph
+               ON ph.asset_id = a.id
+              AND ph.source = 'ygoprodeck_api'
+              AND ph.captured_at = (
+                  SELECT MAX(captured_at) FROM price_history
+                  WHERE asset_id = a.id AND source = 'ygoprodeck_api'
+              )
+        WHERE a.game = 'yugioh'
+        GROUP BY a.metadata->>'rarity'
+        ORDER BY asset_count DESC
+    """)).fetchall()
+    total = sum(r[1] for r in rows)
+    with_price = sum(r[2] for r in rows)
+    with_nonzero = sum(r[3] for r in rows)
+    return {
+        "summary": {
+            "total_ygo_assets": total,
+            "with_any_price_row": with_price,
+            "with_nonzero_price": with_nonzero,
+            "coverage_pct": round(with_nonzero / total * 100, 1) if total else 0,
+        },
+        "by_rarity": [
+            {
+                "rarity": r[0],
+                "asset_count": r[1],
+                "with_price_rows": r[2],
+                "with_nonzero_price": r[3],
+                "avg_nonzero_price": float(r[4]) if r[4] else None,
+            }
+            for r in rows
+        ],
+    }
+
+
 @router.get("/diag/null-audit")
 def admin_null_audit(
     _: None = Depends(require_admin_key),
