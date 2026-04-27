@@ -42,15 +42,34 @@ curl -s -H "X-Admin-Key: $ADMIN_API_KEY" \
 
 ### Gate 4 — No graded rows leaked to price_history
 
+`market_segment` has three meaningful values for `ebay_sold`: `raw` (normal),
+`unknown` (parser uncertainty — ambiguous/partial grade signal, honest result),
+and canonical graded segments (`psa_*`, `bgs_*`, `cgc_*`, `sgc_*`). Gate 4
+checks only for canonical graded leakage; `unknown` is a data-hygiene metric
+tracked separately.
+
 ```sql
+-- Gate 4a: canonical graded leakage (CRITICAL — expect 0 always)
 SELECT COUNT(*) AS graded_price_rows_last_24h
 FROM price_history
 WHERE source = 'ebay_sold'
   AND market_segment IS NOT NULL
-  AND market_segment <> 'raw'
+  AND market_segment NOT IN ('raw', 'unknown')
   AND captured_at >= NOW() - INTERVAL '24 hours';
+-- Expected: 0
+
+-- Gate 4b: unknown rows (data hygiene — expect low and stable)
+SELECT COUNT(*) AS unknown_price_rows_last_24h
+FROM price_history
+WHERE source = 'ebay_sold'
+  AND market_segment = 'unknown'
+  AND captured_at >= NOW() - INTERVAL '24 hours';
+-- Expected: low and stable, not spiking
 ```
-**Expected**: 0 — graded MUST NOT enter price_history during Phase 0.
+
+**If Gate 4a > 0**: graded listings leaked into price_history — immediate stop.
+**If Gate 4b spikes**: parser is encountering more ambiguous titles than expected
+— worth investigating but not a Phase 0 blocker.
 
 ### Gate 5 — No malformed audit rows
 
@@ -84,7 +103,10 @@ ORDER BY 1;
 
 ### Gate 7 — Graded price rows still zero (regression check)
 
-Re-run Gate 4. **Expected**: still 0.
+Re-run Gate 4a. **Expected**: still 0.
+
+Gate 4b (`unknown`) may grow slightly as eBay ingest runs — that is expected.
+Watch for spikes relative to prior day, not absolute count.
 
 ---
 
