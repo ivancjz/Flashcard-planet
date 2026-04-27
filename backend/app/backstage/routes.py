@@ -756,28 +756,6 @@ def admin_pred_accuracy(
     ]
 
 
-@router.get("/diag/null-audit")
-def admin_null_audit(
-    _: None = Depends(require_admin_key),
-    db: Session = Depends(get_database),
-):
-    nulls = db.execute(text("""
-        SELECT source,
-               COUNT(*) AS null_rows,
-               MIN(captured_at)::text AS earliest_null,
-               MAX(captured_at)::text AS latest_null
-        FROM price_history
-        WHERE market_segment IS NULL
-        GROUP BY source
-        ORDER BY null_rows DESC
-    """)).fetchall()
-    version = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
-    return {
-        "alembic_version": version,
-        "null_audit": [{"source": r[0], "null_rows": r[1], "earliest": r[2], "latest": r[3]} for r in nulls],
-    }
-
-
 @router.post("/trigger/signal-sweep")
 def admin_trigger_signal_sweep(
     _: None = Depends(require_admin_key),
