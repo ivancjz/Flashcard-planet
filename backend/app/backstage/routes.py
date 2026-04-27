@@ -756,6 +756,28 @@ def admin_pred_accuracy(
     ]
 
 
+@router.get("/diag/segment-trend")
+def admin_segment_trend(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    rows = db.execute(text("""
+        SELECT
+            DATE(captured_at AT TIME ZONE 'UTC') AS day,
+            market_segment,
+            COUNT(*) AS rows,
+            ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (
+                PARTITION BY DATE(captured_at AT TIME ZONE 'UTC')
+            ), 2) AS pct
+        FROM price_history
+        WHERE source = 'ebay_sold'
+          AND captured_at > NOW() - INTERVAL '7 days'
+        GROUP BY 1, 2
+        ORDER BY 1 DESC, 2
+    """)).fetchall()
+    return [{"day": str(r[0]), "segment": r[1], "rows": r[2], "pct": float(r[3])} for r in rows]
+
+
 @router.post("/trigger/signal-sweep")
 def admin_trigger_signal_sweep(
     _: None = Depends(require_admin_key),
