@@ -756,6 +756,42 @@ def admin_pred_accuracy(
     ]
 
 
+# TEMP DIAG ENDPOINT — future-captured_at audit (surfaced 2026-04-27)
+# Remove after root cause identified and confirmed fixed
+@router.get("/diag/future-timestamps")
+def admin_future_timestamps(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Find price_history rows with captured_at > NOW() — indicates ingest timestamp bug."""
+    rows = db.execute(text("""
+        SELECT
+            source,
+            COUNT(*)                    AS future_rows,
+            MIN(captured_at)::text      AS earliest_future,
+            MAX(captured_at)::text      AS latest_future,
+            MIN(asset_id::text)         AS sample_asset_id
+        FROM price_history
+        WHERE captured_at > NOW()
+        GROUP BY source
+        ORDER BY future_rows DESC
+    """)).fetchall()
+    return {
+        "now": db.execute(text("SELECT NOW()::text")).scalar(),
+        "future_rows_by_source": [
+            {
+                "source": r[0],
+                "future_rows": r[1],
+                "earliest_future": r[2],
+                "latest_future": r[3],
+                "sample_asset_id": r[4],
+            }
+            for r in rows
+        ],
+        "total_future_rows": sum(r[1] for r in rows),
+    }
+
+
 # TEMP DIAG ENDPOINT — PR #28 verification
 # Remove after rarity coverage analysis is documented (target: 2026-05-04)
 @router.get("/diag/ygo-rarity-coverage")
