@@ -8,6 +8,7 @@ from xml.etree import ElementTree
 
 import httpx
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import settings
@@ -17,6 +18,7 @@ from backend.app.ingestion.pokemon_tcg import IngestionResult
 from backend.app.ingestion.title_parser import parse_listing_title
 from backend.app.models.asset import Asset
 from backend.app.models.game import GAME_CONFIG, Game
+from backend.app.models.graded_observation_audit import GradedObservationAudit
 from backend.app.models.observation_match_log import ObservationMatchLog
 from backend.app.models.price_history import PriceHistory
 
@@ -293,6 +295,59 @@ def _build_search_query(asset: Asset) -> str:
     return " ".join(parts)
 
 
+_SHADOW_DECISIONS = {"audit_only", "parser_raw", "parser_unknown", "parser_excluded"}
+
+
+def _write_graded_shadow_audit(
+    session: Session,
+    asset: Asset,
+    listing: dict,
+    captured_at: datetime | None,
+    pf_grade_info: dict | None,
+) -> None:
+    """Write one row to graded_observation_audit; silently skip duplicates."""
+    parse_result = parse_listing_title(listing["title"])
+
+    if parse_result.excluded:
+        decision = "parser_excluded"
+    elif parse_result.market_segment == "raw":
+        decision = "parser_raw"
+    elif parse_result.market_segment == "unknown":
+        decision = "parser_unknown"
+    else:
+        decision = "audit_only"
+
+    try:
+        price = Decimal(listing.get("price", "0") or "0")
+    except InvalidOperation:
+        price = None
+
+    stmt = (
+        pg_insert(GradedObservationAudit)
+        .values(
+            provider=EBAY_SOLD_PRICE_SOURCE,
+            external_item_id=listing.get("item_id", ""),
+            candidate_asset_id=asset.id,
+            raw_title=listing["title"],
+            price=price,
+            currency=listing.get("currency", "USD"),
+            captured_at=captured_at,
+            parser_market_segment=parse_result.market_segment,
+            parser_grade_company=parse_result.grade_company,
+            parser_grade_score=parse_result.grade_score,
+            parser_confidence=parse_result.confidence,
+            parser_notes=parse_result.parser_notes,
+            preflight_grade_info=pf_grade_info,
+            shadow_decision=decision,
+        )
+        .on_conflict_do_nothing(
+            index_elements=["provider", "external_item_id", "candidate_asset_id"]
+        )
+    )
+    session.execute(stmt)
+    session.flush()
+
+
 def ingest_ebay_sold_cards(
     session: Session,
     card_ids: list[str] | None = None,
@@ -423,6 +478,15 @@ def ingest_ebay_sold_cards(
                     continue
                 _pf = preflight_observation(title)
                 if _pf.should_skip:
+                    if (
+                        _pf.skip_reason == ObservationSkipReason.GRADED_CARD
+                        and settings.graded_shadow_audit_enabled
+                        and _title_contains_card_name(_pf.normalised_title, asset)
+                        and _card_number_matches(asset, title)
+                    ):
+                        _write_graded_shadow_audit(
+                            session, asset, listing, captured_at, _pf.grade_info
+                        )
                     result.observations_unmatched += 1
                     skip_key = f"unmatched_preflight_{_pf.skip_reason.value}"
                     result.observation_match_status_counts[skip_key] = (

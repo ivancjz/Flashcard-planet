@@ -17,6 +17,7 @@ from backend.app.core.config import get_settings
 from backend.app.models.asset import Asset
 from backend.app.models.asset_signal import AssetSignal
 from backend.app.models.enums import AccessTier
+from backend.app.models.graded_observation_audit import GradedObservationAudit
 from backend.app.models.price_history import PriceHistory
 from backend.app.models.scheduler_run_log import SchedulerRunLog
 from backend.app.models.user import User
@@ -754,6 +755,118 @@ def admin_pred_accuracy(
         }
         for r in rows
     ]
+
+
+_VALID_HUMAN_LABELS = {
+    "graded_correct", "wrong_segment", "wrong_asset",
+    "not_single_card", "non_english", "unclear",
+}
+
+
+@router.get("/diag/graded-shadow-admission")
+def admin_graded_shadow_diag(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Phase 0 graded shadow admission — audit summary and review sample.
+
+    Removal condition: Remove after Phase 2 manual review complete and
+    Phase 3 graded enablement decision made.
+    """
+    rows = db.scalars(select(GradedObservationAudit)).all()
+
+    total_by_decision: dict[str, int] = {}
+    total_by_segment: dict[str, int] = {}
+    reviewed = 0
+    unreviewed = 0
+    label_by_decision: dict[str, dict[str, int]] = {}
+
+    for row in rows:
+        total_by_decision[row.shadow_decision] = total_by_decision.get(row.shadow_decision, 0) + 1
+        seg = row.parser_market_segment or "null"
+        total_by_segment[seg] = total_by_segment.get(seg, 0) + 1
+        if row.human_label:
+            reviewed += 1
+            bucket = label_by_decision.setdefault(row.shadow_decision, {})
+            bucket[row.human_label] = bucket.get(row.human_label, 0) + 1
+        else:
+            unreviewed += 1
+
+    # Stratified sample: up to 5 per decision bucket from unreviewed rows
+    sample_buckets: dict[str, list] = {}
+    for row in rows:
+        if row.human_label is None:
+            b = sample_buckets.setdefault(row.shadow_decision, [])
+            if len(b) < 5:
+                b.append({
+                    "id": str(row.id),
+                    "raw_title": row.raw_title,
+                    "shadow_decision": row.shadow_decision,
+                    "parser_market_segment": row.parser_market_segment,
+                    "parser_confidence": row.parser_confidence,
+                    "parser_notes": row.parser_notes,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                })
+    unreviewed_sample = [item for bucket in sample_buckets.values() for item in bucket]
+
+    return {
+        "total_by_decision": total_by_decision,
+        "total_by_segment": total_by_segment,
+        "reviewed_count": reviewed,
+        "unreviewed_count": unreviewed,
+        "precision_by_decision": label_by_decision,
+        "unreviewed_sample": unreviewed_sample,
+        "removal_condition": (
+            "Remove after Phase 2 manual review complete and "
+            "Phase 3 graded enablement decision made"
+        ),
+    }
+
+
+@router.post("/diag/graded-shadow-admission/label")
+def admin_graded_shadow_label(
+    payload: dict,
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Label a graded_observation_audit row for human review."""
+    row_id = payload.get("id")
+    human_label = payload.get("human_label")
+    reviewer_notes = payload.get("reviewer_notes")
+
+    if human_label not in _VALID_HUMAN_LABELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid human_label {human_label!r}. "
+                   f"Allowed: {sorted(_VALID_HUMAN_LABELS)}",
+        )
+
+    try:
+        row_uuid = uuid.UUID(str(row_id))
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid id format")
+
+    row = db.scalar(
+        select(GradedObservationAudit).where(GradedObservationAudit.id == row_uuid)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Audit row not found")
+
+    row.human_label = human_label
+    row.human_reviewed_at = datetime.now(timezone.utc)
+    if reviewer_notes is not None:
+        row.reviewer_notes = reviewer_notes
+    db.commit()
+    db.refresh(row)
+
+    return {
+        "id": str(row.id),
+        "human_label": row.human_label,
+        "human_reviewed_at": row.human_reviewed_at.isoformat() if row.human_reviewed_at else None,
+        "reviewer_notes": row.reviewer_notes,
+        "shadow_decision": row.shadow_decision,
+        "raw_title": row.raw_title,
+    }
 
 
 # TEMP — remove after cleanup confirmed (future-timestamp rows deleted)
