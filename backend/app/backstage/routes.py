@@ -778,6 +778,65 @@ def admin_null_audit(
     }
 
 
+@router.get("/diag/ygo-verify-26")
+def admin_ygo_verify_26(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Post-PR-26 verification: A/B migration+nulls, C new YGO ingest, D YGO signals, E Pokemon regression."""
+    # A: alembic version
+    version = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
+
+    # B: any remaining NULLs
+    nulls = db.execute(text("""
+        SELECT source, COUNT(*) AS null_rows
+        FROM price_history WHERE market_segment IS NULL
+        GROUP BY source ORDER BY null_rows DESC
+    """)).fetchall()
+
+    # C: new YGO rows in last 15 min (run after first ingestion post-deploy)
+    ygo_recent = db.execute(text("""
+        SELECT market_segment, COUNT(*) AS n, MAX(captured_at)::text AS latest
+        FROM price_history
+        WHERE source = 'ygoprodeck_api'
+          AND captured_at > NOW() - INTERVAL '15 minutes'
+        GROUP BY market_segment
+    """)).fetchall()
+
+    # D: YGO signal distribution (run after first sweep post-deploy)
+    ygo_signals = db.execute(text("""
+        SELECT s.label, COUNT(*) AS n
+        FROM asset_signals s
+        JOIN assets a ON a.id = s.asset_id
+        WHERE a.game = 'yugioh'
+        GROUP BY s.label ORDER BY n DESC
+    """)).fetchall()
+
+    # E: Pokemon signal regression check (asset_signals is one-row-per-asset upsert)
+    pokemon_signals = db.execute(text("""
+        SELECT s.label, COUNT(*) AS n
+        FROM asset_signals s
+        JOIN assets a ON a.id = s.asset_id
+        WHERE a.game = 'pokemon'
+        GROUP BY s.label ORDER BY n DESC
+    """)).fetchall()
+
+    return {
+        "A_alembic_version": version,
+        "A_pass": version == "0025",
+        "B_null_rows": [{"source": r[0], "count": r[1]} for r in nulls],
+        "B_pass": len(nulls) == 0,
+        "C_ygo_recent_15min": [{"segment": r[0], "n": r[1], "latest": r[2]} for r in ygo_recent],
+        "C_pass": any(r[0] == "raw" for r in ygo_recent) if ygo_recent else None,
+        "D_ygo_signals": [{"label": r[0], "n": r[1]} for r in ygo_signals],
+        "D_pass": any(r[0] != "INSUFFICIENT_DATA" for r in ygo_signals) if ygo_signals else None,
+        "E_pokemon_signals": [{"label": r[0], "n": r[1]} for r in pokemon_signals],
+        "E_breakout": next((r[1] for r in pokemon_signals if r[0] == "BREAKOUT"), 0),
+        "E_move": next((r[1] for r in pokemon_signals if r[0] == "MOVE"), 0),
+        "E_pass": None,  # manual: compare to PR B baseline (BREAKOUT~115, MOVE~188)
+    }
+
+
 @router.post("/trigger/signal-sweep")
 def admin_trigger_signal_sweep(
     _: None = Depends(require_admin_key),
