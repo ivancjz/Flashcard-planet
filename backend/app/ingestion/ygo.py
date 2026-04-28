@@ -21,11 +21,21 @@ logger = logging.getLogger(__name__)
 YGO_PRICE_SOURCE = "ygoprodeck_api"
 
 YGO_PHASE2_SETS = [
+    # Original 5
     "LEDE",   # Legacy of Destruction (2024)
     "PHNI",   # Phantom Nightmare (2024)
     "AGOV",   # Age of Overlord (2023)
     "POTE",   # Power of the Elements (2022)
     "TOCH",   # Toon Chaos (2020) — high-value staples
+    # Expanded 8
+    "MZMI",   # Maze of Millennia (2024)
+    "INFO",   # Infinite Forbidden (2024)
+    "DUNE",   # Duelist Nexus (2023)
+    "RA01",   # Rarity Collection Quarter Century Edition (2024)
+    "RA02",   # Rarity Collection 2 (2025)
+    "BLTR",   # Battles of Legend: Terminal Revenge (2024)
+    "CYAC",   # Cyberstorm Access (2023)
+    "WISU",   # Wild Survivors (2023)
 ]
 
 
