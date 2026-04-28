@@ -1149,8 +1149,25 @@ def admin_ygo_set_fix_verify(
         WHERE game = 'yugioh'
     """)).fetchone()
 
-    # C: set filter query (mirrors /api/v1/web/filters/sets?game=yugioh)
-    c_rows = db.execute(text("""
+    # C: cardinality check — set.id must group cards into expansion buckets, not one-per-card.
+    # The specific bug was set.id = card_number (e.g. "LEDE-EN001" per card).
+    # Regression check: count assets where set.id == card_number (must be 0 after fix).
+    c_card = db.execute(text("""
+        SELECT COUNT(*) FROM assets
+        WHERE game = 'yugioh'
+          AND metadata->'set'->>'id' = card_number
+    """)).scalar() or 0
+
+    c_cardinality = db.execute(text("""
+        SELECT
+          COUNT(DISTINCT metadata->'set'->>'id') AS unique_set_ids,
+          COUNT(*)                               AS total_assets
+        FROM assets
+        WHERE game = 'yugioh'
+          AND metadata->'set'->>'id' IS NOT NULL
+    """)).fetchone()
+
+    c_sets = db.execute(text("""
         SELECT
           metadata->'set'->>'id'   AS set_id,
           metadata->'set'->>'name' AS set_name,
@@ -1179,15 +1196,24 @@ def admin_ygo_set_fix_verify(
     with_nested = b[0] if b else 0
     total_ygo = b[1] if b else 0
     with_flat = b[2] if b else 0
+    unique_set_ids = c_cardinality[0] if c_cardinality else 0
+    total_assets = c_cardinality[1] if c_cardinality else 0
 
     return {
         "B_with_nested_set": with_nested,
         "B_total_ygo": total_ygo,
         "B_with_flat_set_code": with_flat,
         "B_pass": with_nested == total_ygo and total_ygo > 0,
-        "C_sets": [{"set_id": r[0], "set_name": r[1], "card_count": r[2]} for r in c_rows],
-        "C_set_count": len(c_rows),
-        "C_pass": len(c_rows) == 13,
+        # C_regression_zero is the primary correctness signal:
+        #   0 = set.id is never equal to card_number (printing code) — bug is gone.
+        #   > 0 = bug still present for that many assets.
+        # C_unique_set_ids << C_total_assets confirms grouping; exact bucket count
+        # is NOT asserted (some sets may have no data if fetch failed at ingest time).
+        "C_regression_zero": c_card == 0,
+        "C_assets_with_printing_code_as_set_id": c_card,
+        "C_unique_set_ids": unique_set_ids,
+        "C_total_assets": total_assets,
+        "C_sets": [{"set_id": r[0], "set_name": r[1], "card_count": r[2]} for r in c_sets],
         "D_new_rows_15min": [{"set_id": r[0], "segment": r[1], "n": r[2], "latest": r[3]} for r in d_rows],
         "D_new_rows_have_set_id": all(r[0] is not None for r in d_rows) if d_rows else None,
     }
