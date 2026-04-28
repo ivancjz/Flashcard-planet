@@ -1387,7 +1387,7 @@ def admin_trigger_ygo_ebay_spike(
     budget_row = db.execute(text("""
         SELECT
           SUM(CASE
-                WHEN (metadata_json->>'ebay_sold_last_ingested_at') >=
+                WHEN (metadata->>'ebay_sold_last_ingested_at') >=
                      date_trunc('day', NOW() AT TIME ZONE 'UTC')::text
                 THEN 1 ELSE 0
               END) AS calls_today
