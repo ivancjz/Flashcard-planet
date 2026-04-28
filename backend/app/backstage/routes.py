@@ -1548,3 +1548,89 @@ def admin_trigger_ygo_ebay_spike(
     }
 
     return {"ok": True, "preflight": preflight, "report": report}
+
+
+# REMOVE AFTER: YGO ingest gap root-cause confirmed (2026-04-29).
+@router.get("/diag/ygo-ingest-audit")
+def admin_diag_ygo_ingest_audit(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Diagnose why production only has POTE+TOCH sets instead of the expected 13.
+
+    A: last 10 yugioh-ingestion scheduler runs
+    B: aggregate success/error counts + total records_written
+    C: price_history YGO set_code diversity (which sets actually have data)
+    """
+    # A: last 10 yugioh-ingestion runs
+    a_rows = db.execute(text("""
+        SELECT started_at, finished_at, status, records_written,
+               error_message, meta_json
+        FROM scheduler_run_log
+        WHERE job_name = 'yugioh-ingestion'
+        ORDER BY started_at DESC
+        LIMIT 10
+    """)).fetchall()
+
+    # B: aggregate stats
+    b_row = db.execute(text("""
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'success')  AS successes,
+          COUNT(*) FILTER (WHERE status = 'error')    AS errors,
+          COUNT(*) FILTER (WHERE status = 'partial')  AS partials,
+          SUM(records_written)                        AS total_records_written,
+          MIN(started_at)                             AS first_run,
+          MAX(started_at)                             AS last_run
+        FROM scheduler_run_log
+        WHERE job_name = 'yugioh-ingestion'
+    """)).fetchone()
+
+    # C: price_history diversity by set_code (flat metadata key)
+    c_rows = db.execute(text("""
+        SELECT
+          a.metadata->>'set_code'        AS set_code,
+          a.metadata->'set'->>'id'       AS set_id_nested,
+          COUNT(DISTINCT ph.id)           AS price_rows,
+          COUNT(DISTINCT a.id)            AS assets,
+          MIN(ph.captured_at)             AS first_seen,
+          MAX(ph.captured_at)             AS last_seen
+        FROM assets a
+        LEFT JOIN price_history ph
+               ON ph.asset_id = a.id AND ph.source = 'ygoprodeck_api'
+        WHERE a.game = 'yugioh'
+        GROUP BY 1, 2
+        ORDER BY 1
+    """)).fetchall()
+
+    return {
+        "A_last_10_runs": [
+            {
+                "started_at":      str(r.started_at),
+                "finished_at":     str(r.finished_at) if r.finished_at else None,
+                "status":          r.status,
+                "records_written": r.records_written,
+                "error_message":   r.error_message,
+                "meta_json":       r.meta_json,
+            }
+            for r in a_rows
+        ],
+        "B_aggregate": {
+            "successes":            b_row.successes,
+            "errors":               b_row.errors,
+            "partials":             b_row.partials,
+            "total_records_written": b_row.total_records_written,
+            "first_run":            str(b_row.first_run) if b_row.first_run else None,
+            "last_run":             str(b_row.last_run) if b_row.last_run else None,
+        },
+        "C_set_diversity": [
+            {
+                "set_code":      r.set_code,
+                "set_id_nested": r.set_id_nested,
+                "price_rows":    r.price_rows,
+                "assets":        r.assets,
+                "first_seen":    str(r.first_seen) if r.first_seen else None,
+                "last_seen":     str(r.last_seen)  if r.last_seen  else None,
+            }
+            for r in c_rows
+        ],
+    }
