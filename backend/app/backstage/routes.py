@@ -1126,6 +1126,73 @@ def admin_ygo_verify_26(
     }
 
 
+# TEMP — PR #29 verification: YGO metadata.set nested block fix
+# Remove after D_new_rows_set_id confirmed (after first yugioh-ingestion post-deploy, ~6h)
+@router.get("/diag/ygo-set-fix-verify")
+def admin_ygo_set_fix_verify(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    """Post-PR-29 verification for YGO metadata.set nested block fix.
+
+    B: migration 0028 backfilled all existing YGO rows.
+    C: /filters/sets-style query now returns rows for YGO (expect 13 sets).
+    D: New YGO rows written after deploy also have nested set block.
+    """
+    # B: did migration 0028 backfill all existing rows?
+    b = db.execute(text("""
+        SELECT
+          COUNT(*) FILTER (WHERE metadata->'set'->>'id' IS NOT NULL) AS with_nested_set,
+          COUNT(*)                                                    AS total_ygo,
+          COUNT(*) FILTER (WHERE metadata->>'set_code' IS NOT NULL)  AS with_flat_set_code
+        FROM assets
+        WHERE game = 'yugioh'
+    """)).fetchone()
+
+    # C: set filter query (mirrors /api/v1/web/filters/sets?game=yugioh)
+    c_rows = db.execute(text("""
+        SELECT
+          metadata->'set'->>'id'   AS set_id,
+          metadata->'set'->>'name' AS set_name,
+          COUNT(*)                 AS card_count
+        FROM assets
+        WHERE game = 'yugioh'
+          AND metadata->'set'->>'id' IS NOT NULL
+        GROUP BY metadata->'set'->>'id', metadata->'set'->>'name'
+        ORDER BY card_count DESC
+    """)).fetchall()
+
+    # D: new YGO rows since last deploy have nested set block (run after next ingestion ~6h)
+    d_rows = db.execute(text("""
+        SELECT
+          metadata->'set'->>'id' AS set_id,
+          market_segment,
+          COUNT(*) AS n,
+          MAX(ph.captured_at)::text AS latest
+        FROM price_history ph
+        JOIN assets a ON a.id = ph.asset_id
+        WHERE a.game = 'yugioh'
+          AND ph.captured_at > NOW() - INTERVAL '15 minutes'
+        GROUP BY 1, 2
+    """)).fetchall()
+
+    with_nested = b[0] if b else 0
+    total_ygo = b[1] if b else 0
+    with_flat = b[2] if b else 0
+
+    return {
+        "B_with_nested_set": with_nested,
+        "B_total_ygo": total_ygo,
+        "B_with_flat_set_code": with_flat,
+        "B_pass": with_nested == total_ygo and total_ygo > 0,
+        "C_sets": [{"set_id": r[0], "set_name": r[1], "card_count": r[2]} for r in c_rows],
+        "C_set_count": len(c_rows),
+        "C_pass": len(c_rows) == 13,
+        "D_new_rows_15min": [{"set_id": r[0], "segment": r[1], "n": r[2], "latest": r[3]} for r in d_rows],
+        "D_new_rows_have_set_id": all(r[0] is not None for r in d_rows) if d_rows else None,
+    }
+
+
 # TEMP — remove after B_pass confirmed (alembic 0025 pre-ran; NULL rows accumulated post-migration)
 @router.post("/trigger/backfill-ygo-segment")
 def admin_trigger_backfill_ygo_segment(
