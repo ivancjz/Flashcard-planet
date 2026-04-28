@@ -1431,12 +1431,14 @@ def admin_trigger_ygo_ebay_spike(
 
     preferred = [a for a in all_ygo if _expansion(a) in _YGO_SPIKE_PREFERRED_SETS]
     rest = [a for a in all_ygo if _expansion(a) not in _YGO_SPIKE_PREFERRED_SETS]
-    seen_sets: set[str] = set()
+    # 5 per set (within-set variance) rather than 1 per set
+    seen_sets: dict[str, int] = {}
     sampled: list[Asset] = []
     for asset in preferred + rest:
         exp = _expansion(asset)
-        if exp not in seen_sets:
-            seen_sets.add(exp)
+        count = seen_sets.get(exp, 0)
+        if count < 5:
+            seen_sets[exp] = count + 1
             sampled.append(asset)
         if len(sampled) >= _YGO_SPIKE_SAMPLE_SIZE:
             break
@@ -1633,7 +1635,43 @@ def admin_diag_ygo_ingest_audit(
             }
             for r in c_rows
         ],
+        "D_coverage_by_configured_set": _ygo_configured_set_coverage(db),
     }
+
+
+def _ygo_configured_set_coverage(db: Session) -> list[dict]:
+    """Coverage for all 13 sets currently in YGO_PHASE2_SETS."""
+    rows = db.execute(text("""
+        WITH ygo_sets AS (
+            SELECT unnest(ARRAY[
+                'LEDE','PHNI','AGOV','POTE','TOCH',
+                'MZMI','INFO','DUNE','RA01','RA02','BLTR','CYAC','WISU'
+            ]) AS set_code
+        )
+        SELECT
+            s.set_code,
+            COUNT(DISTINCT a.id)   AS assets_in_db,
+            COUNT(DISTINCT ph.id)  AS price_rows,
+            MAX(ph.captured_at)    AS last_price_seen
+        FROM ygo_sets s
+        LEFT JOIN assets a
+               ON a.metadata->>'set_code' LIKE s.set_code || '-%'
+              AND a.game = 'yugioh'
+        LEFT JOIN price_history ph
+               ON ph.asset_id = a.id
+              AND ph.source = 'ygoprodeck_api'
+        GROUP BY s.set_code
+        ORDER BY s.set_code
+    """)).fetchall()
+    return [
+        {
+            "set_code":       r.set_code,
+            "assets_in_db":   r.assets_in_db,
+            "price_rows":     r.price_rows,
+            "last_price_seen": str(r.last_price_seen) if r.last_price_seen else None,
+        }
+        for r in rows
+    ]
 
 
 # REMOVE AFTER: YGO set-fetch debug confirmed (2026-04-29).
