@@ -218,3 +218,78 @@ class TestMigration0028BackfillsLegacyYgoRows:
         assert legacy.metadata_json["set"]["id"] == "LOB"
         assert legacy.metadata_json["set"]["name"] == "Legend of Blue Eyes White Dragon"
         assert legacy.metadata_json["set_code"] == "LOB-001"
+
+
+class TestYgoSetFixVerifyDiagInvariant:
+    """Validate C_regression_zero invariant: assets where set.id == card_number must be 0.
+
+    Tests the Python-level equivalent of the diagnostic endpoint's regression check:
+        SELECT COUNT(*) FROM assets
+        WHERE game = 'yugioh' AND metadata->'set'->>'id' = card_number
+
+    Cannot run the actual PostgreSQL JSON operator in SQLite; instead verifies
+    the invariant in Python so that: (a) a correct asset produces count=0,
+    (b) a bugged asset (set.id == card_number, the original failure mode) is detected.
+    """
+
+    @staticmethod
+    def _count_printing_code_assets(assets) -> int:
+        """Python equivalent of the C_regression SQL — counts assets where set.id == card_number."""
+        return sum(
+            1 for a in assets
+            if a.metadata_json.get("set", {}).get("id") == a.card_number
+        )
+
+    def test_correct_asset_produces_zero_regression_count(self):
+        """After fix: set.id = expansion code (LOB), card_number = printing code (LOB-001) → no match."""
+        with _session() as db:
+            asset = Asset(
+                id=uuid.uuid4(),
+                asset_class="TCG",
+                game="yugioh",
+                category="Normal Monster",
+                name="Blue-Eyes White Dragon",
+                set_name="Legend of Blue Eyes White Dragon",
+                card_number="LOB-001",          # printing code
+                language="EN",
+                variant="Ultra Rare",
+                external_id="yugioh:89631139:LOB-001:ultra_rare",
+                metadata_json={
+                    "set_code": "LOB-001",
+                    "set": {"id": "LOB", "name": "Legend of Blue Eyes White Dragon", "total": None},
+                },
+            )
+            db.add(asset)
+            db.commit()
+            assets = db.execute(select(Asset)).scalars().all()
+
+        assert self._count_printing_code_assets(assets) == 0, (
+            "C_regression_zero should be True for correctly-fixed assets"
+        )
+
+    def test_bugged_asset_triggers_regression_count(self):
+        """Before fix (original bug): set.id = printing code = card_number → count > 0."""
+        with _session() as db:
+            asset = Asset(
+                id=uuid.uuid4(),
+                asset_class="TCG",
+                game="yugioh",
+                category="Normal Monster",
+                name="Blue-Eyes White Dragon",
+                set_name="Legend of Blue Eyes White Dragon",
+                card_number="LOB-001",
+                language="EN",
+                variant="Ultra Rare",
+                external_id="yugioh:89631139:LOB-001:ultra_rare",
+                metadata_json={
+                    "set_code": "LOB-001",
+                    "set": {"id": "LOB-001", "name": "Legend of Blue Eyes White Dragon", "total": None},
+                },
+            )
+            db.add(asset)
+            db.commit()
+            assets = db.execute(select(Asset)).scalars().all()
+
+        assert self._count_printing_code_assets(assets) == 1, (
+            "C_regression_zero should detect the original bug (set.id == card_number)"
+        )
