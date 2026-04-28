@@ -1634,3 +1634,69 @@ def admin_diag_ygo_ingest_audit(
             for r in c_rows
         ],
     }
+
+
+# REMOVE AFTER: YGO set-fetch debug confirmed (2026-04-29).
+@router.get("/diag/ygo-set-fetch-debug")
+def admin_diag_ygo_set_fetch_debug(
+    set_code: str = Query(..., description="YGO set code to debug, e.g. LEDE"),
+    _: None = Depends(require_admin_key),
+):
+    """Debug why a set code produces 0 entries in fetch_set_entries.
+
+    Returns: resolved set name, total raw cards from API, prefix match count,
+    price > 0 count, and up to 3 sample set_code values from card_sets.
+    Remove once the LEDE/PHNI/AGOV gap is resolved.
+    """
+    from backend.app.ingestion.game_data.yugioh_client import YugiohClient
+    import httpx as _httpx
+
+    client = YugiohClient()
+
+    # Step 1: resolve set name
+    try:
+        resolved_name = client._resolve_set_name(set_code)
+    except ValueError as e:
+        return {"error": "resolve_failed", "detail": str(e)}
+
+    # Step 2: raw API call
+    try:
+        resp = client.client.get(
+            f"{YugiohClient.BASE_URL}/cardinfo.php",
+            params={"cardset": resolved_name, "misc": "yes"},
+        )
+        resp.raise_for_status()
+    except Exception as e:
+        return {"error": "api_call_failed", "detail": str(e), "resolved_name": resolved_name}
+
+    data = resp.json().get("data") or []
+    total_raw_cards = len(data)
+
+    # Step 3: walk entries and count prefix matches / price > 0
+    prefix = f"{set_code}-"
+    prefix_match = 0
+    price_positive = 0
+    sample_set_codes: list[str] = []
+
+    for raw in data:
+        for entry in raw.get("card_sets") or []:
+            sc = entry.get("set_code", "")
+            if len(sample_set_codes) < 5 and sc not in sample_set_codes:
+                sample_set_codes.append(sc)
+            if sc.startswith(prefix):
+                prefix_match += 1
+                try:
+                    if float(entry.get("set_price") or "0") > 0:
+                        price_positive += 1
+                except ValueError:
+                    pass
+
+    return {
+        "set_code":          set_code,
+        "resolved_name":     resolved_name,
+        "total_raw_cards":   total_raw_cards,
+        "prefix":            prefix,
+        "prefix_match":      prefix_match,
+        "price_positive":    price_positive,
+        "sample_set_codes":  sample_set_codes,
+    }
