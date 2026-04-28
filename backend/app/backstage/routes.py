@@ -1219,6 +1219,60 @@ def admin_ygo_set_fix_verify(
     }
 
 
+# TEMP — one-shot price volatility check for YGO; remove after pct_unchanged decision made
+@router.get("/diag/ygo-price-volatility")
+def admin_ygo_price_volatility(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    """How much do YGOPRODeck prices actually change? Answers 'does YGO need eBay sold?'
+
+    pct_unchanged > 80%: source prices are static → YGO needs eBay sold for signals.
+    pct_unchanged 30-80%: sparse movement, consider baseline window or weight tuning.
+    pct_unchanged < 30%: prices are moving, signals should work once baseline fills.
+    """
+    row = db.execute(text("""
+        SELECT
+          COUNT(DISTINCT asset_id)                                                        AS assets,
+          COUNT(*) FILTER (WHERE price_changes_count = 0) * 100.0 / NULLIF(COUNT(*), 0)  AS pct_unchanged,
+          AVG(price_changes_count)                                                        AS avg_changes,
+          MAX(price_changes_count)                                                        AS max_changes
+        FROM (
+          SELECT asset_id, COUNT(DISTINCT price) AS price_changes_count
+          FROM price_history
+          WHERE source = 'ygoprodeck_api'
+            AND captured_at >= NOW() - INTERVAL '14 days'
+          GROUP BY asset_id
+        ) t
+    """)).fetchone()
+
+    # Also show per-asset breakdown for assets that DO move
+    movers = db.execute(text("""
+        SELECT a.name, a.card_number, COUNT(DISTINCT ph.price) AS distinct_prices,
+               MIN(ph.price)::text AS min_price, MAX(ph.price)::text AS max_price
+        FROM price_history ph
+        JOIN assets a ON a.id = ph.asset_id
+        WHERE ph.source = 'ygoprodeck_api'
+          AND ph.captured_at >= NOW() - INTERVAL '14 days'
+        GROUP BY a.id, a.name, a.card_number
+        HAVING COUNT(DISTINCT ph.price) > 1
+        ORDER BY COUNT(DISTINCT ph.price) DESC
+        LIMIT 10
+    """)).fetchall()
+
+    return {
+        "assets": row[0] if row else 0,
+        "pct_unchanged": float(row[1]) if row and row[1] is not None else None,
+        "avg_changes": float(row[2]) if row and row[2] is not None else None,
+        "max_changes": int(row[3]) if row and row[3] is not None else None,
+        "top_movers": [
+            {"name": r[0], "card_number": r[1], "distinct_prices": r[2],
+             "min": r[3], "max": r[4]}
+            for r in movers
+        ],
+    }
+
+
 # TEMP — PR #29 backfill: migration 0028 used `metadata ? 'set_code'` which psycopg
 # interprets as a parameter placeholder — UPDATE matched 0 rows. This trigger uses
 # `metadata->>'set_code' IS NOT NULL` (equivalent but safe) to do the same backfill.
