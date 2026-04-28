@@ -2,8 +2,10 @@ import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from statistics import median as _median
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, Form, Header, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -14,6 +16,8 @@ from backend.app.api.deps import get_database
 from backend.app.auth.dependencies import get_current_user as get_session_user
 from backend.app.backstage import gap_detector as _gap_detector
 from backend.app.core.config import get_settings
+from backend.app.ingestion.ebay_sold import _fetch_finding_completed
+from backend.app.ingestion.title_parser import parse_listing_title
 from backend.app.models.asset import Asset
 from backend.app.models.asset_signal import AssetSignal
 from backend.app.models.enums import AccessTier
@@ -1345,3 +1349,202 @@ def admin_trigger_signal_sweep(
         "idle": result.idle,
         "insufficient_data": result.insufficient_data,
     }
+
+
+# REMOVE AFTER: YGO eBay feasibility spike confirmed — then delete this endpoint and the
+#               _fetch_finding_completed / parse_listing_title imports above.
+_YGO_SPIKE_CONFIRM_TOKEN = "ygo-ebay-spike-2026-04-29"
+_YGO_SPIKE_PREFERRED_SETS = ["LEDE", "PHNI", "AGOV", "POTE", "TOCH"]
+_YGO_SPIKE_SAMPLE_SIZE = 10
+_YGO_SPIKE_LISTINGS_PER_ASSET = 20
+_YGO_SPIKE_MAX_API_CALLS = 30
+
+
+@router.post("/trigger/ygo-ebay-spike")
+def admin_trigger_ygo_ebay_spike(
+    confirm: str = Query(default=""),
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Read-only YGO eBay feasibility spike.
+
+    Runs pre-flight checks (budget + active jobs), then queries eBay findCompletedItems
+    for up to 10 sampled YGO assets (1 per expansion set). No DB writes.
+
+    Requires ?confirm=ygo-ebay-spike-2026-04-29 to protect against accidental triggers.
+
+    Remove this endpoint once the spike report has been reviewed.
+    """
+    if confirm != _YGO_SPIKE_CONFIRM_TOKEN:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Pass ?confirm={_YGO_SPIKE_CONFIRM_TOKEN} to run the spike.",
+        )
+
+    settings = get_settings()
+
+    # ── Pre-flight 1: budget check ────────────────────────────────────────────
+    budget_row = db.execute(text("""
+        SELECT
+          SUM(CASE
+                WHEN (metadata_json->>'ebay_sold_last_ingested_at') >=
+                     date_trunc('day', NOW() AT TIME ZONE 'UTC')::text
+                THEN 1 ELSE 0
+              END) AS calls_today
+        FROM assets
+    """)).fetchone()
+    calls_today = int(budget_row.calls_today or 0)
+    budget_limit = settings.ebay_daily_budget_limit
+    budget_remaining = budget_limit - calls_today
+    budget_ok = budget_remaining >= _YGO_SPIKE_MAX_API_CALLS
+
+    # ── Pre-flight 2: active jobs check ───────────────────────────────────────
+    active_jobs = db.execute(text("""
+        SELECT job_name, started_at
+        FROM scheduler_run_log
+        WHERE finished_at IS NULL
+          AND started_at > NOW() - INTERVAL '15 minutes'
+        ORDER BY started_at DESC
+    """)).fetchall()
+    jobs_ok = len(active_jobs) == 0
+
+    preflight = {
+        "budget_limit": budget_limit,
+        "calls_today": calls_today,
+        "budget_remaining": budget_remaining,
+        "budget_ok": budget_ok,
+        "active_jobs": [{"job_name": r.job_name, "started_at": str(r.started_at)} for r in active_jobs],
+        "jobs_ok": jobs_ok,
+        "preflight_pass": budget_ok and jobs_ok,
+    }
+
+    if not preflight["preflight_pass"]:
+        return {"ok": False, "preflight": preflight, "report": None}
+
+    # ── Sample YGO assets ─────────────────────────────────────────────────────
+    all_ygo: list[Asset] = db.execute(
+        select(Asset).where(Asset.game == "yugioh").order_by(Asset.external_id)
+    ).scalars().all()
+
+    def _expansion(a: Asset) -> str:
+        return (a.metadata_json or {}).get("set", {}).get("id", "") or (a.card_number or "").split("-")[0]
+
+    preferred = [a for a in all_ygo if _expansion(a) in _YGO_SPIKE_PREFERRED_SETS]
+    rest = [a for a in all_ygo if _expansion(a) not in _YGO_SPIKE_PREFERRED_SETS]
+    seen_sets: set[str] = set()
+    sampled: list[Asset] = []
+    for asset in preferred + rest:
+        exp = _expansion(asset)
+        if exp not in seen_sets:
+            seen_sets.add(exp)
+            sampled.append(asset)
+        if len(sampled) >= _YGO_SPIKE_SAMPLE_SIZE:
+            break
+
+    # ── eBay search ───────────────────────────────────────────────────────────
+    api_calls_used = 0
+    per_asset: list[dict] = []
+
+    with httpx.Client() as client:
+        for asset in sampled:
+            if api_calls_used >= _YGO_SPIKE_MAX_API_CALLS:
+                per_asset.append({
+                    "external_id": asset.external_id,
+                    "name": asset.name,
+                    "set_id": _expansion(asset),
+                    "error": "budget_exhausted",
+                })
+                continue
+
+            query = f"{asset.name} {asset.card_number or ''} {asset.variant or ''}".strip()
+            raw_listings = _fetch_finding_completed(client, query)
+            api_calls_used += 1
+
+            if raw_listings is None:
+                per_asset.append({
+                    "external_id": asset.external_id,
+                    "name": asset.name,
+                    "set_id": _expansion(asset),
+                    "error": "ebay_api_error",
+                })
+                continue
+
+            counts: dict[str, int] = {"raw": 0, "graded": 0, "unknown": 0, "excluded": 0}
+            titles: list[str] = []
+            for item in raw_listings[:_YGO_SPIKE_LISTINGS_PER_ASSET]:
+                title = item.get("title", "")
+                result = parse_listing_title(title)
+                if result.excluded:
+                    counts["excluded"] += 1
+                elif result.market_segment == "raw":
+                    counts["raw"] += 1
+                elif result.grade_company:
+                    counts["graded"] += 1
+                else:
+                    counts["unknown"] += 1
+                titles.append(title[:80])
+
+            total_this = counts["raw"] + counts["graded"] + counts["unknown"] + counts["excluded"]
+            per_asset.append({
+                "external_id": asset.external_id,
+                "name": asset.name,
+                "set_id": _expansion(asset),
+                "card_number": asset.card_number,
+                "rarity": asset.variant,
+                "listings": total_this,
+                "raw": counts["raw"],
+                "graded": counts["graded"],
+                "unknown": counts["unknown"],
+                "excluded": counts["excluded"],
+                "sample_titles": titles[:5],
+            })
+
+    # ── Aggregate stats ───────────────────────────────────────────────────────
+    ok_results = [r for r in per_asset if "error" not in r]
+    listing_counts = [r["listings"] for r in ok_results]
+    med = _median(listing_counts) if listing_counts else 0.0
+    zero_assets = sum(1 for r in ok_results if r["listings"] == 0)
+    total_raw = sum(r["raw"] for r in ok_results)
+    total_graded = sum(r["graded"] for r in ok_results)
+    total_unknown = sum(r["unknown"] for r in ok_results)
+    total_scored = total_raw + total_graded + total_unknown
+    raw_pct = total_raw / total_scored * 100 if total_scored else 0.0
+    graded_pct = total_graded / total_scored * 100 if total_scored else 0.0
+    unknown_pct = total_unknown / total_scored * 100 if total_scored else 0.0
+
+    q1 = med >= 5
+    q2 = raw_pct >= 60.0
+    q3 = 10.0 <= graded_pct <= 50.0
+
+    recommendation: str
+    if q1 and q2 and q3:
+        recommendation = "ALL_PASS: proceed to Phase B (YGO eBay ingest PR)"
+    elif not q1 and zero_assets > len(ok_results) // 2:
+        recommendation = "Q1_FAIL: consider popular cards only or expand lookback to 60 days"
+    elif not q1:
+        recommendation = "Q1_FAIL: volume sparse; consider expanding lookback to 60 days"
+    elif not q2:
+        recommendation = "Q2_FAIL: parse_listing_title needs YGO-specific patterns before Phase B"
+    elif graded_pct > 50.0:
+        recommendation = "Q3_HIGH: graded parser must be production-ready before enabling YGO eBay"
+    else:
+        recommendation = "Q3_LOW: graded shadow audit can stay disabled for YGO initially"
+
+    report = {
+        "assets_sampled": len(sampled),
+        "api_calls_used": api_calls_used,
+        "api_budget_max": _YGO_SPIKE_MAX_API_CALLS,
+        "total_listings": sum(r["listings"] for r in ok_results),
+        "median_listings_per_asset": round(med, 1),
+        "assets_with_zero_listings": zero_assets,
+        "raw_pct": round(raw_pct, 1),
+        "graded_pct": round(graded_pct, 1),
+        "unknown_pct": round(unknown_pct, 1),
+        "q1_pass": q1,
+        "q2_pass": q2,
+        "q3_pass": q3,
+        "recommendation": recommendation,
+        "per_asset": per_asset,
+    }
+
+    return {"ok": True, "preflight": preflight, "report": report}
