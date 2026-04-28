@@ -1219,6 +1219,40 @@ def admin_ygo_set_fix_verify(
     }
 
 
+# TEMP — PR #29 backfill: migration 0028 used `metadata ? 'set_code'` which psycopg
+# interprets as a parameter placeholder — UPDATE matched 0 rows. This trigger uses
+# `metadata->>'set_code' IS NOT NULL` (equivalent but safe) to do the same backfill.
+# Remove after B_pass confirmed in /diag/ygo-set-fix-verify.
+@router.post("/trigger/backfill-ygo-set-nested")
+def admin_trigger_backfill_ygo_set_nested(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Backfill metadata.set nested block for existing YGO assets.
+
+    Migration 0028 silently matched 0 rows because the PostgreSQL JSONB `?` operator
+    was interpreted as a psycopg parameter placeholder. This endpoint uses the
+    `->>` text-extraction form which is parameterization-safe.
+
+    Idempotent: the WHERE clause only touches rows where metadata.set.id is not yet set.
+    """
+    result = db.execute(text("""
+        UPDATE assets
+        SET metadata = metadata || jsonb_build_object(
+            'set', jsonb_build_object(
+                'id',    split_part(metadata->>'set_code', '-', 1),
+                'name',  metadata->>'set_name',
+                'total', NULL
+            )
+        )
+        WHERE game = 'yugioh'
+          AND metadata->>'set_code' IS NOT NULL
+          AND COALESCE(metadata->'set'->>'id', '') = ''
+    """))
+    db.commit()
+    return {"ok": True, "rows_updated": result.rowcount}
+
+
 # TEMP — remove after B_pass confirmed (alembic 0025 pre-ran; NULL rows accumulated post-migration)
 @router.post("/trigger/backfill-ygo-segment")
 def admin_trigger_backfill_ygo_segment(

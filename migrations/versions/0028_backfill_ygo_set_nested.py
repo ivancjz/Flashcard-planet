@@ -48,7 +48,7 @@ def upgrade() -> None:
             )
         )
         WHERE game = 'yugioh'
-          AND metadata ? 'set_code'
+          AND metadata->>'set_code' IS NOT NULL
           AND COALESCE(metadata->'set'->>'id', '') = ''
     """)
 
