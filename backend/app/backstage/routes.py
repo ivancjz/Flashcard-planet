@@ -16,7 +16,7 @@ from backend.app.api.deps import get_database
 from backend.app.auth.dependencies import get_current_user as get_session_user
 from backend.app.backstage import gap_detector as _gap_detector
 from backend.app.core.config import get_settings
-from backend.app.ingestion.ebay_sold import _fetch_finding_completed
+from backend.app.ingestion.ebay_sold import EBAY_FINDING_API_URL, _fetch_finding_completed
 from backend.app.ingestion.title_parser import parse_listing_title
 from backend.app.models.asset import Asset
 from backend.app.models.asset_signal import AssetSignal
@@ -1417,6 +1417,28 @@ def admin_trigger_ygo_ebay_spike(
     """)).fetchall()
     jobs_ok = len(active_jobs) == 0
 
+    # ── Pre-flight 3: eBay Finding API quota probe ────────────────────────────
+    # DB budget_remaining tracks our internal counter; eBay enforces its own
+    # daily quota per App ID independently. A single cheap probe call detects
+    # quota exhaustion before wasting the full 14-call spike budget.
+    try:
+        with httpx.Client() as _probe_client:
+            _probe_resp = _probe_client.get(
+                EBAY_FINDING_API_URL,
+                params={
+                    "OPERATION-NAME": "findCompletedItems",
+                    "SERVICE-VERSION": "1.0.0",
+                    "SECURITY-APPNAME": settings.ebay_app_id,
+                    "RESPONSE-DATA-FORMAT": "XML",
+                    "keywords": "test",
+                    "paginationInput.entriesPerPage": "1",
+                },
+                timeout=10.0,
+            )
+        finding_quota_ok = "10001" not in _probe_resp.text
+    except Exception:
+        finding_quota_ok = True  # network error ≠ quota exhausted; let the loop handle it
+
     preflight = {
         "budget_limit": budget_limit,
         "calls_today": calls_today,
@@ -1424,11 +1446,16 @@ def admin_trigger_ygo_ebay_spike(
         "budget_ok": budget_ok,
         "active_jobs": [{"job_name": r.job_name, "started_at": str(r.started_at)} for r in active_jobs],
         "jobs_ok": jobs_ok,
-        "preflight_pass": budget_ok and jobs_ok,
+        "finding_quota_ok": finding_quota_ok,
+        "preflight_pass": budget_ok and jobs_ok and finding_quota_ok,
     }
 
     if not preflight["preflight_pass"]:
-        return {"ok": False, "preflight": preflight, "report": None}
+        hint = (
+            "finding_api_quota_exhausted — rerun after UTC midnight before ebay-ingestion fires (~09:00 UTC)"
+            if not finding_quota_ok else None
+        )
+        return {"ok": False, "preflight": preflight, "report": None, "hint": hint}
 
     # ── Sample YGO assets ─────────────────────────────────────────────────────
     all_ygo: list[Asset] = db.execute(
