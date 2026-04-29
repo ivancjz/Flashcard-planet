@@ -1,12 +1,16 @@
+import { useUser } from '../hooks/useUser'
+
 interface Props {
   children: React.ReactNode
+  feature: string
   locked?: boolean
-  feature?: string
   reason?: string
 }
 
-export default function ProGate({ children, locked = false, feature, reason }: Props) {
-  if (!locked) return <>{children}</>
+export default function ProGate({ children, feature, locked, reason }: Props) {
+  const { tier } = useUser()
+  const isLocked = locked ?? (tier !== 'pro')
+  if (!isLocked) return <>{children}</>
 
   return (
     <div style={{ position: 'relative', display: 'inline-block', overflow: 'hidden' }}>

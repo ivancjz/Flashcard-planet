@@ -3,6 +3,12 @@ import type { MarketStats, TickerItem, CardsResponse, CardDetail, AlertsResponse
 
 const BASE = ''  // same-origin: FastAPI serves both API and SPA
 
+function devTierHeaders(): Record<string, string> {
+  if (!import.meta.env.DEV) return {}
+  const t = localStorage.getItem('fcp_dev_tier_override')
+  return t === 'pro' ? { 'X-Dev-Tier': 'pro' } : {}
+}
+
 export async function fetchStats(): Promise<MarketStats> {
   const res = await fetch(`${BASE}/api/v1/web/stats`)
   if (!res.ok) throw new Error('stats fetch failed')
@@ -34,7 +40,7 @@ export async function fetchCards(params: {
   if (rarity?.length) qs.set('rarity', rarity.join(','))
   if (price_min != null) qs.set('price_min', String(price_min))
   if (price_max != null) qs.set('price_max', String(price_max))
-  const res = await fetch(`${BASE}/api/v1/web/cards?${qs}`)
+  const res = await fetch(`${BASE}/api/v1/web/cards?${qs}`, { headers: devTierHeaders() })
   if (!res.ok) throw new Error('cards fetch failed')
   return res.json()
 }
