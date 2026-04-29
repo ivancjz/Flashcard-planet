@@ -17,7 +17,6 @@ const UserContext = createContext<UserContextValue>({
 
 export function UserProvider({ children }: { children: ReactNode }) {
   const [tier, setTier] = useState<Tier>(() => {
-    if (!import.meta.env.DEV) return 'free'
     const stored = localStorage.getItem(STORAGE_KEY)
     return stored === 'pro' ? 'pro' : 'free'
   })
