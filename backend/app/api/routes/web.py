@@ -18,7 +18,9 @@ from backend.app.api.deps import get_database
 
 router = APIRouter(prefix="/api/v1/web", tags=["web"])
 
-_PRO_ONLY_SORTS: frozenset[str] = frozenset({"volume", "recent"})
+# TEMP: Pro tier gate removed for testing phase. Restore check in web_cards() and
+# web_cards_batch() when commercial tier is finalized. Search "TEMP" to find both sites.
+_PRO_ONLY_SORTS: frozenset[str] = frozenset({"volume", "recent"})  # currently unused
 
 
 def _get_effective_tier(request: Request) -> str:
@@ -137,8 +139,8 @@ def web_cards(
 ):
     tier = _get_effective_tier(request)
     requested_sort = sort
-    if sort in _PRO_ONLY_SORTS and tier != "pro":
-        sort = "change"
+    # TEMP: Pro tier gate removed for testing phase. Restore when commercial tier is finalized.
+    # Restore: if sort in _PRO_ONLY_SORTS and tier != "pro": sort = "change"
 
     primary_source = _GAME_PRIMARY_SOURCE.get(game, "pokemon_tcg_api")
     signal_filter = "" if signal == "ALL" else "AND s.label = :signal"
@@ -680,8 +682,8 @@ def web_cards_batch(request: Request, body: CardsBatchRequest, db: Session = Dep
     Cap: 500 asset_ids per request.
     """
     tier = _get_effective_tier(request)
-    if body.sort in _PRO_ONLY_SORTS and tier != "pro":
-        body.sort = "change"
+    # TEMP: Pro tier gate removed for testing phase. Restore when commercial tier is finalized.
+    # Restore: if body.sort in _PRO_ONLY_SORTS and tier != "pro": body.sort = "change"
 
     # Validate UUIDs; silently skip invalid ones
     valid_ids: list[str] = []
