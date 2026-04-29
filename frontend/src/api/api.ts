@@ -4,7 +4,6 @@ import type { MarketStats, TickerItem, CardsResponse, CardDetail, AlertsResponse
 const BASE = ''  // same-origin: FastAPI serves both API and SPA
 
 function devTierHeaders(): Record<string, string> {
-  if (!import.meta.env.DEV) return {}
   const t = localStorage.getItem('fcp_dev_tier_override')
   return t === 'pro' ? { 'X-Dev-Tier': 'pro' } : {}
 }
