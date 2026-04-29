@@ -6,7 +6,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -17,6 +17,14 @@ logger = logging.getLogger(__name__)
 from backend.app.api.deps import get_database
 
 router = APIRouter(prefix="/api/v1/web", tags=["web"])
+
+_PRO_ONLY_SORTS: frozenset[str] = frozenset({"volume", "recent"})
+
+
+def _get_effective_tier(request: Request) -> str:
+    """Phase 1: read X-Dev-Tier header only. Phase 2: replace with real auth."""
+    dev_tier = request.headers.get("X-Dev-Tier", "").lower()
+    return dev_tier if dev_tier in {"pro", "free"} else "free"
 
 
 @router.get("/stats")
@@ -114,6 +122,7 @@ def web_filter_rarities(
 
 @router.get("/cards")
 def web_cards(
+    request: Request,
     signal: str = Query(default="ALL"),
     sort: str = Query(default="change"),
     game: str = Query(default="pokemon"),
@@ -126,6 +135,11 @@ def web_cards(
     offset: int = Query(default=0),
     db: Session = Depends(get_database),
 ):
+    tier = _get_effective_tier(request)
+    requested_sort = sort
+    if sort in _PRO_ONLY_SORTS and tier != "pro":
+        sort = "change"
+
     primary_source = _GAME_PRIMARY_SOURCE.get(game, "pokemon_tcg_api")
     signal_filter = "" if signal == "ALL" else "AND s.label = :signal"
     params: dict = {"limit": limit, "offset": offset, "game": game, "primary_source": primary_source}
@@ -431,6 +445,9 @@ def web_cards(
         "total": total,
         "limit": limit,
         "offset": offset,
+        "tier": tier,
+        "requested_sort": requested_sort,
+        "effective_sort": sort,
     }
 
 
@@ -656,12 +673,16 @@ class CardsBatchRequest(BaseModel):
 
 
 @router.post("/cards/batch")
-def web_cards_batch(body: CardsBatchRequest, db: Session = Depends(get_database)):
+def web_cards_batch(request: Request, body: CardsBatchRequest, db: Session = Depends(get_database)):
     """Fetch cards by explicit asset_ids list (for Watchlist).
     No game filter — asset UUIDs are game-agnostic.
     Primary source (TCG price) is determined per-asset via SQL CASE on a.game.
     Cap: 500 asset_ids per request.
     """
+    tier = _get_effective_tier(request)
+    if body.sort in _PRO_ONLY_SORTS and tier != "pro":
+        body.sort = "change"
+
     # Validate UUIDs; silently skip invalid ones
     valid_ids: list[str] = []
     for s in body.asset_ids:

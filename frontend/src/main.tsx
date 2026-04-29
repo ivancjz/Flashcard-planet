@@ -8,9 +8,12 @@ import CardDetailPage from './pages/CardDetailPage'
 import AlertsPage from './pages/AlertsPage'
 import WatchlistPage from './pages/WatchlistPage'
 import ComparePage from './pages/ComparePage'
+import DevTierSwitcher from './components/DevTierSwitcher'
+import { UserProvider } from './contexts/UserContext'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    <UserProvider>
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<LandingPage />} />
@@ -20,6 +23,8 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/watchlist" element={<WatchlistPage />} />
         <Route path="/compare" element={<ComparePage />} />
       </Routes>
+      <DevTierSwitcher />
     </BrowserRouter>
+    </UserProvider>
   </StrictMode>
 )

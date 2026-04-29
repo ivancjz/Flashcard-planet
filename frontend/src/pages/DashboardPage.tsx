@@ -257,13 +257,13 @@ export default function DashboardPage() {
               style={sort === 'price' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
               Price
             </button>
-            <ProGate locked feature="Sort by Volume" reason="Advanced sorting on Pro plan">
+            <ProGate feature="Sort by Volume" reason="Advanced sorting on Pro plan">
               <button className="btn btn-ghost btn-sm" onClick={() => setSort('volume')}
                 style={sort === 'volume' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
                 Volume
               </button>
             </ProGate>
-            <ProGate locked feature="Sort by Recent" reason="Advanced sorting on Pro plan">
+            <ProGate feature="Sort by Recent" reason="Advanced sorting on Pro plan">
               <button className="btn btn-ghost btn-sm" onClick={() => setSort('recent')}
                 style={sort === 'recent' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
                 Recent
