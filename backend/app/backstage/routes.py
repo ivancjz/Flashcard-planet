@@ -1,7 +1,7 @@
 import logging
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from statistics import median as _median
 from typing import Any
 
@@ -1351,11 +1351,14 @@ def admin_trigger_signal_sweep(
     }
 
 
-# REMOVE AFTER: YGO eBay feasibility spike confirmed — then delete this endpoint and the
+# REMOVE AFTER: YGO eBay feasibility spike confirmed — delete this block + endpoint +
 #               _fetch_finding_completed / parse_listing_title imports above.
+# Self-disables 2026-05-15; if forgotten it returns 410 rather than wasting quota.
 _YGO_SPIKE_CONFIRM_TOKEN = "ygo-ebay-spike-2026-04-29"
+_YGO_SPIKE_EXPIRY = date(2026, 5, 15)
 _YGO_SPIKE_PREFERRED_SETS = ["LEDE", "PHNI", "AGOV", "POTE", "TOCH"]
-_YGO_SPIKE_SAMPLE_SIZE = 10
+_YGO_SPIKE_PER_SET_LIMIT = 7          # POTE×7 + TOCH×7; covers rarity tiers
+_YGO_SPIKE_SAMPLE_SIZE = _YGO_SPIKE_PER_SET_LIMIT * 2  # 14 total
 _YGO_SPIKE_LISTINGS_PER_ASSET = 20
 _YGO_SPIKE_MAX_API_CALLS = 30
 
@@ -1369,9 +1372,10 @@ def admin_trigger_ygo_ebay_spike(
     """Read-only YGO eBay feasibility spike.
 
     Runs pre-flight checks (budget + active jobs), then queries eBay findCompletedItems
-    for up to 10 sampled YGO assets (1 per expansion set). No DB writes.
+    for 14 sampled YGO assets (POTE×7 + TOCH×7, spread across rarity tiers). No DB writes.
 
     Requires ?confirm=ygo-ebay-spike-2026-04-29 to protect against accidental triggers.
+    Self-disables after 2026-05-15 (returns 410).
 
     Remove this endpoint once the spike report has been reviewed.
     """
@@ -1379,6 +1383,11 @@ def admin_trigger_ygo_ebay_spike(
         raise HTTPException(
             status_code=400,
             detail=f"Pass ?confirm={_YGO_SPIKE_CONFIRM_TOKEN} to run the spike.",
+        )
+    if date.today() > _YGO_SPIKE_EXPIRY:
+        raise HTTPException(
+            status_code=410,
+            detail=f"Spike endpoint expired {_YGO_SPIKE_EXPIRY}. Delete this endpoint and its constants.",
         )
 
     settings = get_settings()
@@ -1429,19 +1438,44 @@ def admin_trigger_ygo_ebay_spike(
     def _expansion(a: Asset) -> str:
         return (a.metadata_json or {}).get("set", {}).get("id", "") or (a.card_number or "").split("-")[0]
 
-    preferred = [a for a in all_ygo if _expansion(a) in _YGO_SPIKE_PREFERRED_SETS]
-    rest = [a for a in all_ygo if _expansion(a) not in _YGO_SPIKE_PREFERRED_SETS]
-    # 5 per set (within-set variance) rather than 1 per set
-    seen_sets: dict[str, int] = {}
+    def _rarity_spread(assets: list, limit: int) -> list:
+        """Round-robin across distinct rarity (variant) buckets to ensure spread."""
+        buckets: dict[str, list] = {}
+        for a in assets:
+            r = (a.variant or "Unknown").strip()
+            if r not in buckets:
+                buckets[r] = []
+            buckets[r].append(a)
+        result: list = []
+        pool = [list(v) for v in buckets.values()]
+        while len(result) < limit and pool:
+            next_pool = []
+            for b in pool:
+                if len(result) < limit and b:
+                    result.append(b.pop(0))
+                if b:
+                    next_pool.append(b)
+            pool = next_pool
+        return result
+
+    # Group preferred assets by set, spread each group across rarity tiers
+    by_set: dict[str, list] = {}
+    for a in all_ygo:
+        if _expansion(a) in _YGO_SPIKE_PREFERRED_SETS:
+            by_set.setdefault(_expansion(a), []).append(a)
     sampled: list[Asset] = []
-    for asset in preferred + rest:
-        exp = _expansion(asset)
-        count = seen_sets.get(exp, 0)
-        if count < 5:
-            seen_sets[exp] = count + 1
-            sampled.append(asset)
-        if len(sampled) >= _YGO_SPIKE_SAMPLE_SIZE:
-            break
+    for set_id in _YGO_SPIKE_PREFERRED_SETS:
+        if set_id not in by_set:
+            continue
+        sampled.extend(_rarity_spread(by_set[set_id], _YGO_SPIKE_PER_SET_LIMIT))
+    # Pad with remaining assets if preferred sets don't fill the budget
+    if len(sampled) < _YGO_SPIKE_SAMPLE_SIZE:
+        seen_ids = {a.id for a in sampled}
+        for a in all_ygo:
+            if a.id not in seen_ids:
+                sampled.append(a)
+            if len(sampled) >= _YGO_SPIKE_SAMPLE_SIZE:
+                break
 
     # ── eBay search ───────────────────────────────────────────────────────────
     api_calls_used = 0
@@ -1737,4 +1771,72 @@ def admin_diag_ygo_set_fetch_debug(
         "prefix_match":      prefix_match,
         "price_positive":    price_positive,
         "sample_set_codes":  sample_set_codes,
+    }
+
+
+# REMOVE AFTER: Phase B (catalog/price decoupling) is live and all 13 sets confirmed in DB.
+# Run at any time; no eBay quota consumed.
+_YGO_ALL_13_SETS = [
+    "LEDE", "PHNI", "AGOV", "POTE", "TOCH",
+    "MZMI", "INFO", "DUNE", "RA01", "RA02", "BLTR", "CYAC", "WISU",
+]
+
+
+@router.get("/diag/ygo-13set-coverage")
+def admin_diag_ygo_13set_coverage(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Per-set asset + price_history coverage for all 13 configured YGO sets.
+
+    Pure DB query — no external API calls, no eBay quota consumed.
+    Run before and after Phase B catalog/price decoupling to measure ingest scope.
+    """
+    rows = db.execute(text("""
+        WITH ygo_sets AS (
+            SELECT unnest(ARRAY[
+                'LEDE','PHNI','AGOV','POTE','TOCH',
+                'MZMI','INFO','DUNE','RA01','RA02','BLTR','CYAC','WISU'
+            ]) AS set_code
+        )
+        SELECT
+            s.set_code,
+            COUNT(DISTINCT a.id)  AS assets_in_db,
+            COUNT(DISTINCT ph.id) AS price_rows,
+            MAX(ph.captured_at)   AS last_price_seen
+        FROM ygo_sets s
+        LEFT JOIN assets a
+               ON a.metadata->>'set_code' LIKE s.set_code || '-%'
+              AND a.game = 'yugioh'
+        LEFT JOIN price_history ph
+               ON ph.asset_id = a.id
+              AND ph.source = 'ygoprodeck_api'
+        GROUP BY s.set_code
+        ORDER BY s.set_code
+    """)).fetchall()
+
+    sets_with_assets = 0
+    sets_with_prices = 0
+    result = []
+    for r in rows:
+        has_assets = (r.assets_in_db or 0) > 0
+        has_prices = (r.price_rows or 0) > 0
+        if has_assets:
+            sets_with_assets += 1
+        if has_prices:
+            sets_with_prices += 1
+        result.append({
+            "set_code": r.set_code,
+            "assets_in_db": r.assets_in_db or 0,
+            "price_rows": r.price_rows or 0,
+            "last_price_seen": str(r.last_price_seen) if r.last_price_seen else None,
+            "has_assets": has_assets,
+            "has_prices": has_prices,
+        })
+
+    return {
+        "total_configured_sets": len(_YGO_ALL_13_SETS),
+        "sets_with_assets": sets_with_assets,
+        "sets_with_prices": sets_with_prices,
+        "per_set": result,
     }
