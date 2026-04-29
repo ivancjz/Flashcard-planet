@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import NavBar from '../components/NavBar'
 import TickerBar from '../components/TickerBar'
 import GameSwitcher from '../components/GameSwitcher'
-import ProGate from '../components/ProGate'
 import FilterDrawer from '../components/FilterDrawer'
 import CardGrid from '../components/CardGrid'
 import type { FilterState } from '../components/FilterDrawer'
@@ -257,18 +256,18 @@ export default function DashboardPage() {
               style={sort === 'price' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
               Price
             </button>
-            <ProGate feature="Sort by Volume" reason="Advanced sorting on Pro plan">
-              <button className="btn btn-ghost btn-sm" onClick={() => setSort('volume')}
-                style={sort === 'volume' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
-                Volume
-              </button>
-            </ProGate>
-            <ProGate feature="Sort by Recent" reason="Advanced sorting on Pro plan">
-              <button className="btn btn-ghost btn-sm" onClick={() => setSort('recent')}
-                style={sort === 'recent' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
-                Recent
-              </button>
-            </ProGate>
+            {/* TEMP: ProGate removed for testing phase. Restore when commercial tier is finalized.
+                Restore: <ProGate feature="Sort by Volume" reason="Advanced sorting on Pro plan"> */}
+            <button className="btn btn-ghost btn-sm" onClick={() => setSort('volume')}
+              style={sort === 'volume' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
+              Volume
+            </button>
+            {/* TEMP: ProGate removed for testing phase. Restore when commercial tier is finalized.
+                Restore: <ProGate feature="Sort by Recent" reason="Advanced sorting on Pro plan"> */}
+            <button className="btn btn-ghost btn-sm" onClick={() => setSort('recent')}
+              style={sort === 'recent' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
+              Recent
+            </button>
           </div>
         </div>
 
