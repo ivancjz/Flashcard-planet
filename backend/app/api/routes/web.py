@@ -980,6 +980,11 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
             s.label         AS signal,
             s.price_delta_pct,
             s.liquidity_score,
+            -- TEMP: ai_analysis returned unconditionally for testing phase.
+            -- Restore when commercial tier is finalized:
+            --   add tier param to this endpoint and gate on Feature.SIGNAL_EXPLANATION.
+            -- Original: field not included (explanation never returned to frontend).
+            s.explanation   AS ai_analysis,
             tcg.price       AS tcg_price,
             ebay.price      AS ebay_price,
             a.metadata->'images'->>'small' AS image_url,
