@@ -24,13 +24,11 @@ try:
     # ── 1. Budget check ───────────────────────────────────────────────────────
     row = db.execute(text("""
         SELECT
-          SUM(CASE
-                WHEN (metadata_json->>'ebay_sold_last_ingested_at') >=
-                     date_trunc('day', NOW() AT TIME ZONE 'UTC')::text
-                THEN 1 ELSE 0
-              END) AS calls_today,
-          COUNT(*) FILTER (WHERE game = 'yugioh') AS ygo_assets
-        FROM assets
+          COALESCE(SUM((meta_json->>'api_calls_used')::int), 0) AS calls_today,
+          (SELECT COUNT(*) FROM assets WHERE game = 'yugioh') AS ygo_assets
+        FROM scheduler_run_log
+        WHERE job_name = 'ebay-ingestion'
+          AND started_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')
     """)).fetchone()
     calls_today  = int(row.calls_today or 0)
     ygo_assets   = int(row.ygo_assets  or 0)
