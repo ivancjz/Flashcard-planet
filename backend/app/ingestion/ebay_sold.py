@@ -354,6 +354,7 @@ def ingest_ebay_sold_cards(
     max_assets: int | None = None,
     *,
     clear_sample_seed: bool = False,
+    deadline: datetime | None = None,
 ) -> IngestionResult:
     if settings.ebay_app_id == "" or settings.ebay_cert_id == "":
         return IngestionResult()
@@ -417,6 +418,17 @@ def ingest_ebay_sold_cards(
             return result
 
         for asset in all_assets:
+            if deadline is not None and datetime.now(UTC) > deadline:
+                logger.warning(
+                    "ebay_sold_wall_clock_limit_reached "
+                    "assets_processed=%d assets_remaining=%d",
+                    result.cards_processed,
+                    len(all_assets) - result.cards_processed,
+                )
+                result.deadline_reached = True
+                result.assets_remaining = len(all_assets) - result.cards_processed
+                break
+
             query = _build_search_query(asset)
             _log_info("ebay_sold_asset_fetch_started", asset_id=asset.id, name=asset.name, query=query)
 

@@ -66,6 +66,8 @@ class IngestionResult:
     inserted_asset_names: list[str] = field(default_factory=list)
     latest_captured_at: datetime | None = None
     api_calls_used: int = 0
+    deadline_reached: bool = False
+    assets_remaining: int = 0
 
 
 @dataclass
