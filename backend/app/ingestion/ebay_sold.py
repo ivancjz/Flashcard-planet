@@ -417,16 +417,17 @@ def ingest_ebay_sold_cards(
             logger.exception("ebay_sold_oauth_token_failed")
             return result
 
-        for asset in all_assets:
+        for idx, asset in enumerate(all_assets):
             if deadline is not None and datetime.now(UTC) > deadline:
+                not_yet_started = len(all_assets) - idx
                 logger.warning(
                     "ebay_sold_wall_clock_limit_reached "
                     "assets_processed=%d assets_remaining=%d",
                     result.cards_processed,
-                    len(all_assets) - result.cards_processed,
+                    not_yet_started,
                 )
                 result.deadline_reached = True
-                result.assets_remaining = len(all_assets) - result.cards_processed
+                result.assets_remaining = not_yet_started
                 break
 
             query = _build_search_query(asset)
