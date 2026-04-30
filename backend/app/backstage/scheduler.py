@@ -35,6 +35,7 @@ from backend.app.ingestion.provider_registry import (
 )
 from sqlalchemy import func, select, text as sa_text
 from backend.app.models.asset import Asset
+from backend.app.models.scheduler_run_log import SchedulerRunLog
 
 from backend.app.alerting.discord import send_discord_alert
 from backend.app.services.alert_service import process_alert_notifications
@@ -42,6 +43,9 @@ from backend.app.services.signal_service import sweep_signals
 
 logger = logging.getLogger(__name__)
 ebay_logger = logging.getLogger("backend.app.ingestion.ebay_scheduled")
+
+JOB_WALL_CLOCK_LIMIT = timedelta(minutes=30)
+
 _STARTUP_DELAY: dict[str, int] = {
     "scheduled-ingestion":    120,   #  2 min — first mover
     "signal-sweep":           600,   # 10 min
@@ -80,6 +84,8 @@ class EbayScheduledRunSummary:
     duplicates_skipped: int = 0
     match_status_counts: dict[str, int] = field(default_factory=dict)
     job_blocked_reason: str | None = None
+    deadline_reached: bool = False
+    assets_remaining: int = 0
 
 
 def _log_gap_report(report: GapReport) -> None:
@@ -639,6 +645,7 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
 
         started_at = datetime.now(UTC).replace(microsecond=0)
         today_start_iso = started_at.replace(hour=0, minute=0, second=0).isoformat()
+        deadline = started_at + JOB_WALL_CLOCK_LIMIT
 
         assets_considered = 0
         remaining_daily_budget = 0
@@ -650,10 +657,17 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
                 all_assets = list(session.scalars(_select(_Asset)).all())
                 assets_considered = len(all_assets)
 
-                # ── Daily budget: count assets already ingested since 00:00 UTC ──
+                # ── Daily budget: sum api_calls_used from completed runs today (UTC) ──
+                # Counts actual API calls attempted, not just successful asset writes.
+                _today_start = started_at.replace(hour=0, minute=0, second=0, microsecond=0)
+                _today_runs = session.execute(
+                    select(SchedulerRunLog)
+                    .where(SchedulerRunLog.job_name == "ebay-ingestion")
+                    .where(SchedulerRunLog.started_at >= _today_start)
+                ).scalars().all()
                 calls_today = sum(
-                    1 for a in all_assets
-                    if (a.metadata_json or {}).get("ebay_sold_last_ingested_at", "") >= today_start_iso
+                    (r.meta_json or {}).get("api_calls_used") or 0
+                    for r in _today_runs
                 )
                 remaining_daily_budget = max(0, settings.ebay_daily_budget_limit - calls_today)
                 effective_limit = min(settings.ebay_max_calls_per_run, remaining_daily_budget)
@@ -703,7 +717,7 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
                     for asset in ordered_assets[:effective_limit]
                 ]
 
-                result = ingest_ebay_sold_cards(session, card_ids=selected_ids)
+                result = ingest_ebay_sold_cards(session, card_ids=selected_ids, deadline=deadline)
 
         except Exception:
             ebay_logger.exception("ebay_scheduled_ingest_job_failed")
@@ -743,6 +757,8 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
             price_points_inserted=result.price_points_inserted,
             duplicates_skipped=result.price_points_skipped_existing_timestamp,
             match_status_counts=dict(result.observation_match_status_counts),
+            deadline_reached=result.deadline_reached,
+            assets_remaining=result.assets_remaining,
         )
 
         ebay_logger.info(
@@ -798,6 +814,8 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
                 "matched": _summary.matched,
                 "unmatched": _summary.unmatched,
                 "match_status_counts": _summary.match_status_counts,
+                "deadline_reached": _summary.deadline_reached,
+                "assets_remaining": _summary.assets_remaining,
             }
             log_error_message = _summary.errors[0] if _summary.errors else None
         with SessionLocal() as _log_session:
