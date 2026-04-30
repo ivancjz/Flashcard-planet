@@ -271,6 +271,30 @@ The `scheduler_run_log` shows `status=success, sets_failed=[]` for all 50+ runs 
 
 **Result**: any price-source coupling in a catalog-building function creates a silent data gap invisible to all existing monitoring. The planned Phase B fix: replace `fetch_set_entries` (which filters price=0) with a catalog-only `fetch_set_cards` that builds all assets first, then let eBay be the price source. Because the gap is binary (not partial), Phase B-1 migration is pure addition — no merge logic, no conflict resolution. Running the diagnostic first (`/admin/diag/ygo-13set-coverage`) converted this from inference into fact before writing the migration, which simplified the PR scope considerably.
 
+### Lesson 7: External upstream outage ≠ our system broken — distinguish them before diagnosing
+
+2026-04-26 to ~2026-04-30: eBay experienced a multi-day outage (suspected DDoS by hacktivist group "313 Team"). eBay's official status page showed all-green throughout. Impact on Flashcard Planet:
+
+1. `ebay-ingestion` ran 3+ hours instead of normal <30 min — per-call latency degraded from ~3s to ~18s (timeout edge). `scheduler_run_log` showed the job was running; nothing in our code was broken.
+2. YGO eBay spike blocked with HTTP 500 + errorId `10001` on every call. `10001` normally means "quota exceeded" but during the outage eBay returned it as a generic failure code for any request. Our quota detection code (`if "10001" in resp.text`) was correct for normal operation — it became misleading only because eBay was reusing the error code.
+3. `calls_today` counter (based on `metadata->>'ebay_sold_last_ingested_at'`) only counts successful writes, not attempted API calls. During the outage, many calls were attempted but failed before write — counter underreported actual usage.
+
+**Key diagnostic signals that distinguish "upstream broken" from "our system broken":**
+- HTTP 500 from eBay across ALL queries (not just specific cards) → upstream
+- HTTP 429 with normal latency → our quota
+- Generic eBay error codes (e.g. `10001`) become unreliable during outages — cross-check with Down Detector
+- Down Detector + StatusGator are more trustworthy than vendor status pages during incidents
+- Job duration anomaly without error status (3h run that logged `success`) → upstream latency, not logic bug
+
+**Pre-spike gating (replaces "wait for quota reset" heuristic):** Before running any eBay-dependent diagnostic, all three must pass:
+1. eBay Down Detector shows operational > 1 hour
+2. Production `ebay-ingestion` last cycle `finished_at - started_at < 15 min`
+3. `/admin/diag/ebay-budget` shows healthy `calls_today` accumulation pattern
+
+**What didn't break:** multi-source architecture held — Pokemon ingest (pokemon_tcg_api), YGO catalog (ygoprodeck_api), signal sweep, Discord heartbeats all continued normally. A single upstream outage degrades but does not halt the platform.
+
+**Result**: when a scheduler job shows anomalous duration or a diagnostic tool returns unexpected errors, check external dependency health (Down Detector, StatusGator) before diagnosing internal code. The job behaving correctly under degraded upstream is a success mode, not a failure mode — don't send a PR to "fix" it.
+
 ---
 
 ## 7. Current state anchors
