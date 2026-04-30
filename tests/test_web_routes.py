@@ -312,7 +312,7 @@ class WebCardDetailTests(TestCase):
 
         detail_sql = str(db.execute.call_args_list[0].args[0])
         self.assertIn("s.explanation", detail_sql)
-        self.assertIn("ai_analysis", detail_sql)
+        self.assertIn("AS ai_analysis", detail_sql)
 
 
 class WebAlertsTests(TestCase):
