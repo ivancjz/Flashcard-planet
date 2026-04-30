@@ -340,4 +340,19 @@ No data supports adding hysteresis bands. Re-evaluate if:
 
 ---
 
+## 12. Backlog: Deferred restores from testing phase
+
+### Restore Pro gate on AI Analysis panel (PR #34)
+
+Currently temporarily open for testing phase. To restore the Pro tier gate:
+1. Search for `-- TEMP` in `backend/app/api/routes/web.py` containing "Restore when commercial tier is finalized" — the `s.explanation AS ai_analysis` SELECT line
+2. Remove that line from the unconditional SELECT
+3. Add `access_tier` param to `web_card_detail` (match existing auth pattern in the codebase)
+4. Gate the field: `s.explanation AS ai_analysis` only when `can(access_tier, Feature.SIGNAL_EXPLANATION)`
+5. Update the 3 TEMP test cases in `tests/test_web_routes.py::WebCardDetailTests` to assert tier-gated behaviour
+
+All supporting infrastructure (`Feature.SIGNAL_EXPLANATION`, `can()`, the pattern in `signals_feed_service.py:63`) is already in place.
+
+---
+
 *This file is living documentation. When you learn something about the project that another Claude instance would benefit from, propose an update to this file in a dedicated commit.*

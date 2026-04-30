@@ -265,6 +265,55 @@ class WebCardDetailTests(TestCase):
         detail_sql = str(db.execute.call_args_list[0].args[0])
         self.assertIn("CASE a.game WHEN 'yugioh' THEN 'ygoprodeck_api' ELSE 'pokemon_tcg_api' END", detail_sql)
 
+    # TEMP: tests added for testing phase — ai_analysis returned unconditionally.
+    # Restore when commercial tier is finalized: update to assert tier-gated behaviour.
+    def test_ai_analysis_returned_when_explanation_present(self):
+        card = _make_row(
+            asset_id="abc123", name="Charizard", set_name="Base",
+            rarity="ultra", card_type="pokemon", signal="BREAKOUT",
+            price_delta_pct=15.0, liquidity_score=0.9,
+            tcg_price=100.0, ebay_price=90.0, image_url=None, spread_pct=10.0,
+            ai_analysis="Price jumped 15% above baseline on high eBay volume.",
+        )
+        db = self._make_db(card)
+        app, client = _make_app(db)
+
+        resp = client.get("/api/v1/web/cards/abc123")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["ai_analysis"], "Price jumped 15% above baseline on high eBay volume.")
+
+    def test_ai_analysis_is_null_when_no_explanation(self):
+        card = _make_row(
+            asset_id="abc123", name="Charizard", set_name="Base",
+            rarity="ultra", card_type="pokemon", signal="IDLE",
+            price_delta_pct=0.0, liquidity_score=0.3,
+            tcg_price=10.0, ebay_price=None, image_url=None, spread_pct=None,
+            ai_analysis=None,
+        )
+        db = self._make_db(card)
+        app, client = _make_app(db)
+
+        resp = client.get("/api/v1/web/cards/abc123")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.json()["ai_analysis"])
+
+    def test_detail_sql_selects_explanation_as_ai_analysis(self):
+        card = _make_row(
+            asset_id="abc123", name="Charizard", set_name="Base",
+            rarity="ultra", card_type="pokemon", signal="IDLE",
+            price_delta_pct=0.0, liquidity_score=0.3,
+            tcg_price=10.0, ebay_price=None, image_url=None, spread_pct=None,
+            ai_analysis=None,
+        )
+        db = self._make_db(card)
+        app, client = _make_app(db)
+
+        client.get("/api/v1/web/cards/abc123")
+
+        detail_sql = str(db.execute.call_args_list[0].args[0])
+        self.assertIn("s.explanation", detail_sql)
+        self.assertIn("AS ai_analysis", detail_sql)
+
 
 class WebAlertsTests(TestCase):
     def _make_db(self, rows):
