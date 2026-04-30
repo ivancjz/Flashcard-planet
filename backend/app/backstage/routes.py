@@ -1393,14 +1393,14 @@ def admin_trigger_ygo_ebay_spike(
     settings = get_settings()
 
     # ── Pre-flight 1: budget check ────────────────────────────────────────────
+    # Sum api_calls_used from completed ebay-ingestion runs today (UTC).
+    # More accurate than counting per-asset metadata: captures attempted calls
+    # even when writes failed (e.g. during upstream eBay outages).
     budget_row = db.execute(text("""
-        SELECT
-          SUM(CASE
-                WHEN (metadata->>'ebay_sold_last_ingested_at') >=
-                     date_trunc('day', NOW() AT TIME ZONE 'UTC')::text
-                THEN 1 ELSE 0
-              END) AS calls_today
-        FROM assets
+        SELECT COALESCE(SUM((meta_json->>'api_calls_used')::int), 0) AS calls_today
+        FROM scheduler_run_log
+        WHERE job_name = 'ebay-ingestion'
+          AND started_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')
     """)).fetchone()
     calls_today = int(budget_row.calls_today or 0)
     budget_limit = settings.ebay_daily_budget_limit
