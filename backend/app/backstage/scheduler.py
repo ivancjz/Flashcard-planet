@@ -46,6 +46,19 @@ ebay_logger = logging.getLogger("backend.app.ingestion.ebay_scheduled")
 
 JOB_WALL_CLOCK_LIMIT = timedelta(minutes=30)
 
+# Worst-case API calls per asset: 1 Finding + 1 Browse fallback.
+# Used to convert an API-call budget into a safe max asset count.
+_CALLS_PER_ASSET_WORST_CASE = 2
+
+
+def _api_calls_to_max_assets(api_calls: int) -> int:
+    """Convert an API-call budget to a conservative max asset count.
+
+    Reserves 1 call for the shared OAuth request, then divides by
+    worst-case calls/asset (Finding + Browse fallback = 2).
+    """
+    return max(0, (api_calls - 1) // _CALLS_PER_ASSET_WORST_CASE)
+
 _STARTUP_DELAY: dict[str, int] = {
     "scheduled-ingestion":    120,   #  2 min — first mover
     "signal-sweep":           600,   # 10 min
@@ -670,7 +683,11 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
                     for r in _today_runs
                 )
                 remaining_daily_budget = max(0, settings.ebay_daily_budget_limit - calls_today)
-                effective_limit = min(settings.ebay_max_calls_per_run, remaining_daily_budget)
+                # Convert API-call budgets to asset counts (both limits are in call units).
+                effective_limit = min(
+                    _api_calls_to_max_assets(settings.ebay_max_calls_per_run),
+                    _api_calls_to_max_assets(remaining_daily_budget),
+                )
 
                 if effective_limit <= 0:
                     ebay_logger.info(

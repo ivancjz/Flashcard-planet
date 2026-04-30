@@ -280,12 +280,14 @@ def test_budget_exhausted_returns_skipped() -> None:
 
 
 def test_budget_cap_limits_assets_processed() -> None:
-    """effective_limit = min(max_calls_per_run, remaining_budget) — only that many assets queried."""
-    end_time = datetime.now(UTC) - timedelta(hours=1)
+    """Both limits are in API-call units and must be converted to asset count before slicing.
 
+    Setup: 5 calls used today, daily_limit=12 → 7 calls remaining → (7-1)//2 = 3 max assets.
+    Run cap: 5 API calls → (5-1)//2 = 2 max assets.
+    effective_limit = min(3, 2) = 2 assets selected out of 5.
+    """
     with session_scope() as session:
-        # 5 assets in DB; 2 calls already used today → remaining_daily_budget = 3
-        make_run_log(session, api_calls_used=2)
+        make_run_log(session, api_calls_used=5)
         make_asset(session, name="Card A", external_id="ext-a")
         make_asset(session, name="Card B", external_id="ext-b")
         make_asset(session, name="Charizard", external_id="ext-c")
@@ -296,8 +298,8 @@ def test_budget_cap_limits_assets_processed() -> None:
             ebay_scheduled_ingest_enabled=True,
             ebay_app_id="app-id",
             ebay_cert_id="cert-id",
-            ebay_daily_budget_limit=5,    # 5 total → 3 remaining
-            ebay_max_calls_per_run=2,     # capped to 2
+            ebay_daily_budget_limit=12,   # 12 total, 5 used → 7 remaining → 3 max assets
+            ebay_max_calls_per_run=5,     # 5 calls → 2 max assets; binds tighter
         )
         captured: list[list[str]] = []
 
@@ -315,7 +317,7 @@ def test_budget_cap_limits_assets_processed() -> None:
             summary = _run_ebay_ingestion()
 
     assert len(captured) == 1
-    assert len(captured[0]) == 2  # min(max_calls_per_run=2, remaining=3) = 2
+    assert len(captured[0]) == 2  # min(3 from daily, 2 from run cap) = 2
     assert summary.assets_skipped_budget >= 1
 
 
@@ -376,7 +378,7 @@ def test_least_recently_ingested_comes_first_within_tier() -> None:
             ebay_app_id="app-id",
             ebay_cert_id="cert-id",
             ebay_daily_budget_limit=100,
-            ebay_max_calls_per_run=2,
+            ebay_max_calls_per_run=5,  # (5-1)//2 = 2 assets; both assets selected
         )
 
         captured: list[list[str]] = []
@@ -606,6 +608,72 @@ def test_summary_populated_on_successful_run() -> None:
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
+def _budget_integration(session, *, daily_limit: int, calls_today: int, max_per_run: int, n_assets: int) -> list[str]:
+    """Run _run_ebay_ingestion with controlled budget params; return card_ids passed to ingest."""
+    if calls_today > 0:
+        make_run_log(session, api_calls_used=calls_today)
+    for i in range(n_assets):
+        make_asset(session, name=f"Card{i}", external_id=f"ext-{i}")
+
+    captured: list[list[str]] = []
+
+    def _fake_ingest(session, card_ids=None, **kwargs):
+        captured.append(list(card_ids or []))
+        from backend.app.ingestion.pokemon_tcg import IngestionResult
+        return IngestionResult(cards_requested=len(card_ids or []), cards_processed=len(card_ids or []))
+
+    mock_settings = MagicMock(
+        ebay_scheduled_ingest_enabled=True,
+        ebay_app_id="app-id",
+        ebay_cert_id="cert-id",
+        ebay_daily_budget_limit=daily_limit,
+        ebay_max_calls_per_run=max_per_run,
+    )
+    with (
+        patch("backend.app.backstage.scheduler.get_settings", return_value=mock_settings),
+        patch("backend.app.backstage.scheduler.SessionLocal", return_value=_make_session_ctx(session)),
+        patch("backend.app.backstage.scheduler.get_tracked_pokemon_pools", return_value=[]),
+        patch("backend.app.ingestion.ebay_sold.ingest_ebay_sold_cards", side_effect=_fake_ingest),
+    ):
+        _run_ebay_ingestion()
+
+    return captured[0] if captured else []
+
+
+def test_daily_budget_in_api_calls_not_asset_count() -> None:
+    """remaining_daily_budget is in API-call units; asset count must be converted.
+    11 remaining calls → at most (11-1)//2 = 5 assets (not 11)."""
+    from backend.app.backstage.scheduler import _api_calls_to_max_assets
+    assert _api_calls_to_max_assets(11) == 5
+
+    with session_scope() as session:
+        selected = _budget_integration(
+            session,
+            daily_limit=11,
+            calls_today=0,
+            max_per_run=200,   # run cap high enough not to bind
+            n_assets=20,
+        )
+    assert len(selected) == 5, f"expected 5 assets from 11-call budget, got {len(selected)}"
+
+
+def test_per_run_cap_in_api_calls_not_asset_count() -> None:
+    """ebay_max_calls_per_run is in API-call units; asset count must be converted.
+    5-call run cap → at most (5-1)//2 = 2 assets (not 5)."""
+    from backend.app.backstage.scheduler import _api_calls_to_max_assets
+    assert _api_calls_to_max_assets(5) == 2
+
+    with session_scope() as session:
+        selected = _budget_integration(
+            session,
+            daily_limit=200,   # daily budget high enough not to bind
+            calls_today=0,
+            max_per_run=5,
+            n_assets=20,
+        )
+    assert len(selected) == 2, f"expected 2 assets from 5-call run cap, got {len(selected)}"
+
+
 def _make_session_ctx(session: Session) -> MagicMock:
     """Wrap an existing Session in a context-manager mock for SessionLocal()."""
     ctx = MagicMock()
@@ -635,6 +703,8 @@ def load_tests(loader: unittest.TestLoader, tests: unittest.TestSuite, pattern: 
         test_asset_failure_does_not_abort_others,
         test_summary_fields_all_present,
         test_summary_populated_on_successful_run,
+        test_daily_budget_in_api_calls_not_asset_count,
+        test_per_run_cap_in_api_calls_not_asset_count,
     ):
         suite.addTest(unittest.FunctionTestCase(test))
     return suite
