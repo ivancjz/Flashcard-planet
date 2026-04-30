@@ -297,6 +297,23 @@ class WebCardDetailTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIsNone(resp.json()["ai_analysis"])
 
+    def test_detail_sql_selects_explanation_as_ai_analysis(self):
+        card = _make_row(
+            asset_id="abc123", name="Charizard", set_name="Base",
+            rarity="ultra", card_type="pokemon", signal="IDLE",
+            price_delta_pct=0.0, liquidity_score=0.3,
+            tcg_price=10.0, ebay_price=None, image_url=None, spread_pct=None,
+            ai_analysis=None,
+        )
+        db = self._make_db(card)
+        app, client = _make_app(db)
+
+        client.get("/api/v1/web/cards/abc123")
+
+        detail_sql = str(db.execute.call_args_list[0].args[0])
+        self.assertIn("s.explanation", detail_sql)
+        self.assertIn("ai_analysis", detail_sql)
+
 
 class WebAlertsTests(TestCase):
     def _make_db(self, rows):
