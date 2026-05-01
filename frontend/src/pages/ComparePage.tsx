@@ -288,7 +288,7 @@ function CompareCard({ card, color, onRemove, onClickName }: {
           </div>
         </div>
         <div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 10 }}>24h</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 10 }}>7d Δ</div>
           <div className={up ? 'up' : 'down'}>{formatDelta(card.price_delta_pct)}</div>
         </div>
       </div>
