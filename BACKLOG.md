@@ -4,7 +4,7 @@
 >
 > **This file is for Claude Code to consume autonomously.** When picking up a session and there is no specific operator instruction, read this file and start the highest-priority task you have evidence to safely execute. See §0 below.
 
-**Last updated:** 2026-05-02
+**Last updated:** 2026-05-02 (v3 — operator review revisions)
 **Maintained by:** Ivan (operator) with proposed updates from Claude Code via PR
 
 ---
@@ -42,7 +42,7 @@ These are not tasks. They are properties of the system that must hold at all tim
 - [ ] **Pokemon ingestion runs daily without manual intervention.** `scheduler_run_log` shows `ingestion` job with `status='success'` within the last 25 hours.
 - [ ] **All 6 scheduler jobs write `scheduler_run_log`.** No silent failures.
 - [ ] **Discord alerts fire within their 25h window.** If silent, investigate before any other work. Note: alerts are sent by backend via REST API in `alert_service.py`, not by a bot process. There is no Gateway connection to maintain.
-- [ ] **No PR merges to main without `## Codex Review` section.** This is a procedural invariant, enforced by Claude Code self-discipline (until automated by TASK-103).
+- [ ] **No PR merges to main without `## Codex Review` section.** This is a procedural invariant, enforced by Claude Code self-discipline (until automated by TASK-103b).
 - [ ] **`market_segment` is populated on every new `price_history` row.** `null_audit` returns zero NULLs.
 - [ ] **Existing Pokemon Card Detail pages render correctly.** Any change touching `site.py`, `signal_service.py`, or `permissions.py` requires regression check on at least 3 sample assets across different sets.
 
@@ -82,11 +82,12 @@ Format:
 - SQL evidence: ≥30% of YGO assets have a non-`INSUFFICIENT_DATA` signal label
 - At least one YGO BREAKOUT/MOVE/WATCH visible in #flashcard-alerts channel
 - Card Detail page renders cleanly for 3 sample YGO assets (one from each rarity tier: Secret, Ultra, Common)
-- A short dev note appended to `CLAUDE.md` §6 as "Lesson 6: First non-Pokemon signal validated end-to-end" — including the SQL queries that proved it
 
 **Estimated effort:** S
 **Reference:** CLAUDE.md §7 ("Non-INSUFFICIENT YGO signals expected to appear around 2026-05-07"), `/admin/diag/ygo-verify-26` endpoint
-**Notes:** This is a verification task, not a code change. If <30% threshold not met by 2026-05-14, escalate to operator — likely indicates either data freshness or threshold calibration issue.
+**Notes:**
+- This is a verification task, not a code change. If <30% threshold not met by 2026-05-14, escalate to operator — likely indicates either data freshness or threshold calibration issue.
+- After verification passes, **propose** a CLAUDE.md §6 entry as "Lesson 6: First non-Pokemon signal validated end-to-end" — but this is documentation maintenance, not a verification gate. Doing it well is encouraged; not doing it does not block task completion.
 
 ---
 
@@ -109,24 +110,56 @@ Format:
 
 ---
 
-#### TASK-103 — Codex review automation via GitHub Action
+#### TASK-103a — Codex CLI CI feasibility research
 
 **Priority:** P0
 **Status:** ready
-**Owner:** Claude Code
-**Preconditions:**
-- A Codex CLI key / credential is available in a form that can be stored as a GitHub Action secret (operator confirms)
-- Or: an alternative that runs `codex exec` in CI is feasible
+**Owner:** Claude Code (research only — no code changes)
+**Preconditions:** Codex CLI is installed and authenticated locally (already true).
 
 **Definition of Done:**
-- A GitHub Action runs on every PR and posts the codex review as a PR comment under a `## Codex Review` heading
-- The Action runs without operator intervention
+A short report at `docs/audits/2026-XX-codex-ci-feasibility.md` answering:
+
+1. **What auth mechanism does Codex CLI v0.118.0 use?** (OpenAI API key / ChatGPT session token / OAuth / other) — find this by inspecting where Codex stores credentials locally and what env vars / config files it reads.
+2. **Is that auth form storable in GitHub Actions Secrets?**
+   - API keys: yes, trivially.
+   - Session tokens: no — they expire and are not designed for headless CI.
+   - OAuth refresh flows: depends on whether Codex supports non-interactive refresh.
+3. **If auth works in CI, does Codex CLI run headless?** Try `codex exec` from a non-TTY shell locally to simulate CI. Some CLIs require a TTY and fail silently in CI.
+4. **If Codex doesn't fit CI, list 2-3 alternatives** with one-line tradeoffs:
+   - GitHub Copilot CLI as reviewer
+   - Claude Code itself running with a "play independent reviewer" prompt (loses true independence but preserves the review gate)
+   - Other open-source LLM review tools (e.g., aider, sweep) — note any that exist in 2026
+5. **Recommendation:** which path to take in TASK-103b.
+
+**Estimated effort:** XS (research; one afternoon)
+**Reference:** CLAUDE.md §4 ("Claude Code must run this itself — do not delegate to the operator")
+**Notes:**
+- Pure research task. Do NOT modify any CI config or secrets in this task.
+- Output is a markdown file the operator can read in 5 minutes and decide direction.
+
+---
+
+#### TASK-103b — Implement automated PR review (path TBD by 103a)
+
+**Priority:** P0
+**Status:** blocked
+**Blocked by:** TASK-103a
+**Owner:** Claude Code
+**Preconditions:**
+- TASK-103a complete with operator-approved recommendation
+
+**Definition of Done:**
+- An automated review runs on every PR and posts findings as a PR comment under a `## Codex Review` (or equivalent) heading
+- The automation runs without operator intervention
 - Existing manual `codex exec` workflow remains as a fallback documented in CLAUDE.md
-- At least 1 PR has gone through the full automated cycle
+- At least 1 PR has gone through the full automated cycle, with the comment visible on the PR
 
 **Estimated effort:** M
-**Reference:** CLAUDE.md §4 ("Claude Code must run this itself — do not delegate to the operator")
-**Notes:** This is one of the three changes that converts Claude Code from "reactive 9-5 helper" to "24-hour async builder". Without it, every PR still pauses for manual `codex exec`.
+**Reference:** TASK-103a output
+**Notes:**
+- This is one of the three changes that converts Claude Code from "reactive 9-5 helper" to "24-hour async builder" (the others being TASK-102 backups and TASK-104 product surface cleanup).
+- The exact implementation depends entirely on 103a findings. If Codex CLI doesn't fit CI, this task may end up implementing a Claude Code self-review fallback — that's acceptable and preserves the review gate, even if not fully independent.
 
 ---
 
@@ -262,13 +295,45 @@ The product is web-first: FastAPI + Card Detail + Signals + Watchlist + Pro tier
 
 **Estimated effort:** S
 **Reference:** `docs/plan-v3.md` §3 B-3 ("Image coverage & retry — needs audit")
-**Notes:** Pure audit task, no code change. Output is documentation.
+**Notes:** Pure audit task, no code change. Output is documentation. Kept at P1 because imageless cards directly affect Card Detail page quality, which is a user-facing surface.
 
 ---
 
-#### TASK-205 — Dashboard structure audit vs. v3 spec
+#### TASK-302 — Pro tier waitlist form (promoted from P2)
 
 **Priority:** P1
+**Status:** ready
+**Owner:** Claude Code
+**Preconditions:** None
+
+**Why P1:** This is one of the few tasks that produces real product-state change without depending on Pro work. Concrete benefits even if Pro launch slips by 3 months:
+1. **Real conversion funnel data** — visitor → email capture rate is the first marketing metric the product has ever generated
+2. **Pre-built launch list** — when Pro goes live, day-1 has demand instead of zero
+3. **Early-believer identification** — useful for launch promo pricing decisions ($9 vs $12 first 100)
+4. **Operator habit shift** — switches the daily metric reflex from technical (`scheduler_run_log` success rate) to commercial (waitlist growth rate). This habit needs to exist BEFORE Pro launch, not after.
+
+**Definition of Done:**
+- A "Join the Pro waitlist" form on the homepage and `/pricing` placeholder
+- Email capture with confirmation email (use existing magic link infrastructure for sending — same SMTP path)
+- Stored in a `pro_waitlist` table: `email, signed_up_at, source_page, locale, ip_country (optional)`
+- Admin endpoint `/admin/diag/waitlist` returns count + recent N + simple growth rate (today vs 7d avg)
+- Double opt-in NOT required for v1 — single opt-in is fine for solo-operator scale; revisit if list crosses 1000
+- One end-to-end manual test: submit email, receive confirmation, verify row in DB
+
+**Estimated effort:** XS-S
+**Reference:** Marketing principle: build the list before the product so launch day has demand
+**Notes:**
+- **Do not** add complex marketing automation (drip campaigns, segmentation). Just capture the email. Pro launch is the action moment.
+- A simple "thanks, we'll email you when Pro launches" page is enough — don't over-design.
+- This is the **earliest** task that gives the operator any signal about market demand. Don't underweight that.
+
+---
+
+### P2 — important but not urgent
+
+#### TASK-205 — Dashboard structure audit vs. v3 spec (demoted from P1)
+
+**Priority:** P2
 **Status:** ready
 **Owner:** Claude Code
 **Preconditions:** None
@@ -280,13 +345,15 @@ The product is web-first: FastAPI + Card Detail + Signals + Watchlist + Pro tier
 
 **Estimated effort:** S
 **Reference:** `docs/plan-v3.md` §3 A-1
-**Notes:** Audit-only.
+**Notes:**
+- Demoted from P1 to P2 in v3 of this backlog. Reasoning: this is an audit producing knowledge, not product change. Dashboard module ordering is unlikely to be the bottleneck on Pro conversion vs. Pro tier not existing at all (TASK-301), or vs. there being no waitlist to convert into Pro (TASK-302).
+- Revisit after Pro launches if conversion data suggests dashboard is a friction point.
 
 ---
 
-#### TASK-206 — Signals page Pro/Free hierarchy audit
+#### TASK-206 — Signals page Pro/Free hierarchy audit (demoted from P1)
 
-**Priority:** P1
+**Priority:** P2
 **Status:** ready
 **Owner:** Claude Code
 **Preconditions:** None
@@ -297,11 +364,11 @@ The product is web-first: FastAPI + Card Detail + Signals + Watchlist + Pro tier
 
 **Estimated effort:** S
 **Reference:** `docs/plan-v3.md` §3 A-3
-**Notes:** Audit-only.
+**Notes:**
+- Demoted from P1 to P2 in v3 of this backlog. Same reasoning as TASK-205: audit produces knowledge, not change.
+- Will become more relevant when TASK-203 (payment design) reaches the CTA wiring step — that's when the Free/Pro visual hierarchy matters concretely.
 
 ---
-
-### P2 — important but not urgent
 
 #### TASK-301 — Pro tier launch implementation
 
@@ -326,25 +393,6 @@ The product is web-first: FastAPI + Card Detail + Signals + Watchlist + Pro tier
 **Estimated effort:** XL
 **Reference:** TASK-203 output; existing `permissions.py` framework
 **Notes:** This is the single largest unlock in the 12-month roadmap. Do not rush.
-
----
-
-#### TASK-302 — Pro tier soft launch waitlist
-
-**Priority:** P2
-**Status:** ready
-**Owner:** Claude Code
-**Preconditions:** None — this can run in parallel with the actual Pro work
-
-**Definition of Done:**
-- A simple "Join the Pro waitlist" form on the homepage / `/pricing` placeholder
-- Email capture + confirmation
-- Waitlist count visible to operator (admin endpoint or simple count query)
-- This becomes the marketing list for actual Pro launch
-
-**Estimated effort:** S
-**Reference:** Marketing principle: build the list before the product so launch day has demand
-**Notes:** Useful even if Pro launch slips.
 
 ---
 
@@ -451,6 +499,7 @@ When a task is `needs_decision`, log here:
 | 2026-05-02 | Pro tier payment provider: Stripe vs LemonSqueezy vs Paddle? (TASK-203) | open | — | — |
 | 2026-05-02 | Pokemon full historical coverage vs multi-TCG breadth — which gets resources first after Pro launches? (TASK-304) | open | — | — |
 | 2026-05-02 | Discord bot 24-hour deployment vs archive? | **resolved** | 2026-05-02 | **Archive.** Zero users on slash commands, web is the product, REST API alerts stay. See TASK-104. |
+| 2026-05-02 | Codex CLI in CI: feasible or use alternative? | open — research scheduled | — | TASK-103a will produce the answer |
 
 ---
 
