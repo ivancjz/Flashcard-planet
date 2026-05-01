@@ -7,10 +7,10 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Iterable
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session
 
-from backend.app.core.price_sources import SAMPLE_PRICE_SOURCE
+from backend.app.core.price_sources import EBAY_SOLD_PRICE_SOURCE, SAMPLE_PRICE_SOURCE
 from backend.app.models.price_history import PriceHistory
 
 HIGH_LIQUIDITY_LABEL = "High Liquidity"
@@ -264,10 +264,21 @@ def get_liquidity_snapshots(
     rows = db.execute(
         select(
             PriceHistory.asset_id,
-            func.sum(case((PriceHistory.captured_at >= cutoff_7d, 1), else_=0)).label("sales_count_7d"),
-            func.sum(case((PriceHistory.captured_at >= cutoff_30d, 1), else_=0)).label("sales_count_30d"),
+            func.sum(case(
+                (and_(PriceHistory.source == EBAY_SOLD_PRICE_SOURCE,
+                      PriceHistory.captured_at >= cutoff_7d), 1),
+                else_=0,
+            )).label("sales_count_7d"),
+            func.sum(case(
+                (and_(PriceHistory.source == EBAY_SOLD_PRICE_SOURCE,
+                      PriceHistory.captured_at >= cutoff_30d), 1),
+                else_=0,
+            )).label("sales_count_30d"),
             func.count(PriceHistory.id).label("history_depth"),
-            func.max(PriceHistory.captured_at).label("last_real_sale_at"),
+            func.max(case(
+                (PriceHistory.source == EBAY_SOLD_PRICE_SOURCE, PriceHistory.captured_at),
+                else_=None,
+            )).label("last_real_sale_at"),
             func.count(func.distinct(PriceHistory.source)).label("source_count"),
         )
         .where(
