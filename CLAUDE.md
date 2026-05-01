@@ -295,6 +295,16 @@ The `scheduler_run_log` shows `status=success, sets_failed=[]` for all 50+ runs 
 
 **Result**: when a scheduler job shows anomalous duration or a diagnostic tool returns unexpected errors, check external dependency health (Down Detector, StatusGator) before diagnosing internal code. The job behaving correctly under degraded upstream is a success mode, not a failure mode — don't send a PR to "fix" it.
 
+### Lesson 8: External dependency failures are free fault-injection tests — ask "is our system still correct?"
+
+The April 2026 eBay outage forced the signal system to operate on TCG API data only. This made Bug 1 (liquidity_service counting TCG polls as "sales") visible: without eBay data, every card had `liquidity_score=95-98` and `alert_confidence=83-86` driven entirely by hourly TCGPlayer polling. The leaderboard filled with "0 sales, BREAKOUT" entries that were pure TCGPlayer listing price movements.
+
+If the outage hadn't happened, Bug 1 might have persisted for months: eBay data would have been sparse but present, partially suppressing the worst false positives, and the core logic error would have stayed invisible.
+
+**Pattern to apply**: whenever an external dependency goes down or degrades, before restoring it, ask: *"Is our system producing correct output right now, or is the dependency's absence exposing a logic error in how we use it?"* If the output looks wrong with the dependency absent, the dependency was probably masking a bug — fix the bug before restoring the dependency.
+
+**Specific signal to watch**: if `scheduler_run_log` shows `status=success, records_written=0` for a job that calls an external API, and this persists for multiple consecutive runs — don't assume the API is healthy just because our code is running. The zero-output pattern requires its own alert category (see P2, feat/zero-output-alerting). A job that burns API quota and writes nothing is in the "ran usefully" vs "ran uselessly" gap that `status=success` cannot distinguish.
+
 ---
 
 ## 7. Current state anchors
