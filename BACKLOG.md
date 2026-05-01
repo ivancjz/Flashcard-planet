@@ -113,7 +113,7 @@ Format:
 #### TASK-103a — Codex CLI CI feasibility research
 
 **Priority:** P0
-**Status:** ready
+**Status:** in_progress
 **Owner:** Claude Code (research only — no code changes)
 **Preconditions:** Codex CLI is installed and authenticated locally (already true).
 
