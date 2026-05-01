@@ -117,13 +117,17 @@ The only exception: changes that touch **zero production code paths** — e.g., 
 
 ### How to trigger
 
-Before opening or merging a PR, run:
+**Automated (primary path):** `.github/workflows/codex-review.yml` runs on every PR and posts a `## Codex Review` comment automatically. Requires `OPENAI_API_KEY` secret set in the repo. No manual action needed.
+
+**Manual fallback** (when automated review hasn't run, or for local branch review before opening a PR):
 
 ```bash
-codex exec "Please review the following diff for [brief context: what this change does and why]. Focus on: correctness, security, silent failures, production risks. The project is a TCG signals SaaS; production DB has 200k+ price_history rows. Diff: $(git diff main)"
+codex exec review --base main --ephemeral -m o4-mini -o /tmp/review.txt && cat /tmp/review.txt
 ```
 
-Claude Code must run this itself — **do not delegate to the operator**. Capture codex's output in the PR description under a `## Codex Review` heading.
+Capture the output in the PR description under a `## Codex Review` heading.
+
+Claude Code must run this itself — **do not delegate to the operator**.
 
 ### Diagnostic endpoints as PR deliverables
 
