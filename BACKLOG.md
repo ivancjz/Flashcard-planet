@@ -143,8 +143,8 @@ A short report at `docs/audits/2026-XX-codex-ci-feasibility.md` answering:
 #### TASK-103b — Implement automated PR review (path TBD by 103a)
 
 **Priority:** P0
-**Status:** blocked
-**Blocked by:** TASK-103a
+**Status:** in_progress
+**Blocked by:** TASK-103a (complete)
 **Owner:** Claude Code
 **Preconditions:**
 - TASK-103a complete with operator-approved recommendation
