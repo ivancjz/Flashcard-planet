@@ -113,7 +113,7 @@ Format:
 #### TASK-103a — Codex CLI CI feasibility research
 
 **Priority:** P0
-**Status:** in_progress
+**Status:** complete — awaiting operator decision on OpenAI API key
 **Owner:** Claude Code (research only — no code changes)
 **Preconditions:** Codex CLI is installed and authenticated locally (already true).
 
@@ -499,7 +499,7 @@ When a task is `needs_decision`, log here:
 | 2026-05-02 | Pro tier payment provider: Stripe vs LemonSqueezy vs Paddle? (TASK-203) | open | — | — |
 | 2026-05-02 | Pokemon full historical coverage vs multi-TCG breadth — which gets resources first after Pro launches? (TASK-304) | open | — | — |
 | 2026-05-02 | Discord bot 24-hour deployment vs archive? | **resolved** | 2026-05-02 | **Archive.** Zero users on slash commands, web is the product, REST API alerts stay. See TASK-104. |
-| 2026-05-02 | Codex CLI in CI: feasible or use alternative? | open — research scheduled | — | TASK-103a will produce the answer |
+| 2026-05-02 | Codex CLI in CI: feasible or use alternative? | **open — needs operator decision** | — | TASK-103a complete. Path A (Codex + OpenAI API key) or Path B (Claude self-review). See `docs/audits/2026-05-02-codex-ci-feasibility.md` §5. |
 
 ---
 
