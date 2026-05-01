@@ -34,6 +34,7 @@ from backend.app.ingestion.provider_registry import (
     get_unimplemented_configured_providers,
 )
 from sqlalchemy import func, select, text as sa_text
+from sqlalchemy.orm import Session
 from backend.app.models.asset import Asset
 from backend.app.models.scheduler_run_log import SchedulerRunLog
 
@@ -45,6 +46,44 @@ logger = logging.getLogger(__name__)
 ebay_logger = logging.getLogger("backend.app.ingestion.ebay_scheduled")
 
 JOB_WALL_CLOCK_LIMIT = timedelta(minutes=30)
+
+_COMPLETED_STATUSES = {"success", "partial", "warning"}
+
+
+def get_zero_output_jobs(
+    session: Session,
+    *,
+    job_names: list[str],
+    window_hours: int,
+    now: datetime,
+) -> list[str]:
+    """Return job names that ran but wrote zero records across the entire window.
+
+    A job with no completed runs in the window is excluded — that is the 25h
+    absence check's territory, not a zero-output alert.
+    """
+    cutoff = now - timedelta(hours=window_hours)
+    flagged: list[str] = []
+    for job_name in job_names:
+        rows = session.execute(
+            select(
+                func.count().label("total"),
+                func.sum(
+                    SchedulerRunLog.records_written
+                ).label("total_records"),
+            )
+            .where(
+                SchedulerRunLog.job_name == job_name,
+                SchedulerRunLog.started_at >= cutoff,
+                SchedulerRunLog.status.in_(list(_COMPLETED_STATUSES)),
+            )
+        ).one()
+        total = rows.total or 0
+        total_records = rows.total_records or 0
+        if total > 0 and total_records == 0:
+            flagged.append(job_name)
+    return flagged
+
 
 _STARTUP_DELAY: dict[str, int] = {
     "scheduled-ingestion":    120,   #  2 min — first mover
@@ -306,6 +345,26 @@ def _send_heartbeat() -> None:
                     f"上次成功运行: {'从未' if last_ebay is None else last_ebay.started_at.isoformat()}\n"
                     "interval job 可能被 deploy 打断，或凭证失效，或每次 api_calls_used=0",
                 )
+
+        # Zero-output alert: jobs that ran completed runs but wrote zero records.
+        # Detects the eBay-outage pattern: API calls consumed, status=success, 0 rows written.
+        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO]
+        with SessionLocal() as _zero_session:
+            zero_output = get_zero_output_jobs(
+                _zero_session,
+                job_names=_monitored_jobs,
+                window_hours=settings.zero_output_alert_window_hours,
+                now=now,
+            )
+        if zero_output:
+            window_h = settings.zero_output_alert_window_hours
+            send_discord_alert(
+                "warning",
+                f"零产出告警: {len(zero_output)} 个 job 在 {window_h}h 内无数据写入",
+                "以下 job 有完成的运行记录但 records_written=0 贯穿整个窗口:\n"
+                + "\n".join(f"  • {j}" for j in zero_output)
+                + f"\n\n检查 scheduler_run_log (last {window_h}h) 和对应的外部 API 状态。",
+            )
 
         # Defensive: alert if any ingest path wrote market_segment=NULL in the last 24h.
         # Pre-backfill NULLs from old rows are excluded by the captured_at filter,

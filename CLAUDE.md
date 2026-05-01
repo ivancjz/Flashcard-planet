@@ -295,6 +295,43 @@ The `scheduler_run_log` shows `status=success, sets_failed=[]` for all 50+ runs 
 
 **Result**: when a scheduler job shows anomalous duration or a diagnostic tool returns unexpected errors, check external dependency health (Down Detector, StatusGator) before diagnosing internal code. The job behaving correctly under degraded upstream is a success mode, not a failure mode — don't send a PR to "fix" it.
 
+### Lesson 8: External dependency failures are free fault-injection tests — ask "is our system still correct?"
+
+The April 2026 eBay outage forced the signal system to operate on TCG API data only. This made Bug 1 (liquidity_service counting TCG polls as "sales") visible: without eBay data, every card had `liquidity_score=95-98` and `alert_confidence=83-86` driven entirely by hourly TCGPlayer polling. The leaderboard filled with "0 sales, BREAKOUT" entries that were pure TCGPlayer listing price movements.
+
+If the outage hadn't happened, Bug 1 might have persisted for months: eBay data would have been sparse but present, partially suppressing the worst false positives, and the core logic error would have stayed invisible.
+
+**Pattern to apply**: whenever an external dependency goes down or degrades, before restoring it, ask: *"Is our system producing correct output right now, or is the dependency's absence exposing a logic error in how we use it?"* If the output looks wrong with the dependency absent, the dependency was probably masking a bug — fix the bug before restoring the dependency.
+
+**Specific signal to watch**: if `scheduler_run_log` shows `status=success, records_written=0` for a job that calls an external API, and this persists for multiple consecutive runs — don't assume the API is healthy just because our code is running. The zero-output pattern requires its own alert category (see `get_zero_output_jobs` in `scheduler.py`). A job that burns API quota and writes nothing is in the "ran usefully" vs "ran uselessly" gap that `status=success` cannot distinguish.
+
+### Lesson 9: `status=success` ≠ useful output — monitor the gap separately
+
+`scheduler_run_log.status` only answers "did the job run to completion without exceptions." It says nothing about whether the job produced any value. The gap between "ran" and "ran usefully" is invisible to the existing 25h-absence alert.
+
+Canonical example: eBay ingest with `api_calls_used=201, records_written=0, status=success` for 14 consecutive runs over 2+ days. Monitoring was silent throughout.
+
+**Detection pattern**: for every job that calls an external API and writes to the DB, define a "useful output" metric (`records_written > 0` for ingest jobs). Alert separately when ALL completed runs in a sliding window have zero useful output. Implemented as `get_zero_output_jobs()` in `scheduler.py`, called from the heartbeat. Default window: 24h, configurable via `ZERO_OUTPUT_ALERT_WINDOW_HOURS`.
+
+**Addition rule**: whenever a new scheduled job is added that calls an external API, add it to `_monitored_jobs` in `_send_heartbeat`. "Job runs without errors" ≠ "job is working."
+
+### Lesson 10: Symptom timeline alignment across ≥3 independent sources is causal evidence
+
+During the eBay investigation, three independent anchors aligned:
+1. eBay outage reported externally: 2026-04-26 ~22:30 ET
+2. Last productive eBay ingest: 2026-04-27 08:37 UTC (47 records)
+3. `match_status_counts: {}` pattern began: 2026-04-28 03:22 UTC
+
+This upgraded "strongly consistent with outage" to "confirmed root cause" without needing direct HTTP response logs from eBay's API.
+
+**Rule**: when ≥3 independent anchors align coherently (outage starts → last success just before → first failure just after), accept this as causal evidence. Two-point alignment (only external report + our failure) requires more investigation before declaring root cause.
+
+### Lesson 11: Audit artifacts and fix PRs are separate — never mix them
+
+This audit ran: investigation → SQL evidence → Codex methodology review → reconciliation → findings report → separate fix PRs (P0, P1, P2, DC-2). Each step produced a durable artifact in `audits/2026-05-01/`. The pre-fix evidence (`p0-pre-fix-evidence.md`) is permanent; each fix is reversible and traceable back to the audit report.
+
+Mixing audit evidence with fix code makes the audit unverifiable. For future bugs: (1) document SQL evidence separately before touching code, (2) confirm root cause with runtime evidence, (3) open the fix in a dedicated PR referencing the evidence. Do not write fix code before step (2) completes.
+
 ---
 
 ## 7. Current state anchors

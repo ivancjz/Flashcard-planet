@@ -114,6 +114,7 @@ class Settings(BaseSettings):
     signal_move_min_baseline_n: int = Field(default=2, ge=1)
     ingest_schedule_enabled: bool = True
     ingest_interval_hours: float = Field(default=24.0, gt=0)
+    zero_output_alert_window_hours: int = Field(default=24, ge=1)
     gap_history_threshold: int = Field(default=7, ge=1)
     gap_set_coverage_threshold: float = Field(default=0.5, gt=0, le=1)
     backfill_batch_size: int = Field(default=100, ge=1, le=1000)

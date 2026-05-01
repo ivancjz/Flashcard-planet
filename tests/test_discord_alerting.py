@@ -35,6 +35,7 @@ def _fake_settings(**overrides):
         signal_sweep_alert_threshold=5000,
         ebay_scheduled_ingest_enabled=False,
         ebay_app_id="",
+        zero_output_alert_window_hours=24,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -268,6 +269,7 @@ class TestSendHeartbeat(unittest.TestCase):
         with (
             patch("backend.app.backstage.scheduler.get_settings", return_value=s),
             patch("backend.app.backstage.scheduler.SessionLocal") as mock_sl,
+            patch("backend.app.backstage.scheduler.get_zero_output_jobs", return_value=[]),
             patch("backend.app.backstage.scheduler.send_discord_alert") as mock_alert,
         ):
             mock_session = MagicMock()
