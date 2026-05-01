@@ -90,7 +90,7 @@ function CardItem({ card, watched, onClick, onToggleWatch }: {
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)' }}>{card.ebay_price != null ? `$${card.ebay_price.toFixed(2)}` : '—'}</div>
           </div>
           <div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>24h</div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>7d Δ</div>
             <div className={up ? 'up' : 'down'}>{formatDelta(card.price_delta_pct)}</div>
           </div>
         </div>

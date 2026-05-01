@@ -382,7 +382,7 @@ export default function CardDetailPage() {
             </div>
 
             <div className="surface" style={{ padding: '12px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>24h change</span>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>7d Change</span>
               <span className={up ? 'up' : 'down'} style={{ fontSize: 16, fontWeight: 700 }}>
                 {formatDelta(card.price_delta_pct)}
               </span>
