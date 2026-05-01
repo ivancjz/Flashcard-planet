@@ -382,10 +382,11 @@ If a task seems to require crossing these boundaries, **stop and report to the o
 ## 10. Getting started when you pick up this project
 
 1. Read `.claude/session-handoff-<latest>.md` for the most recent state.
-2. Run `git status && git log --oneline -20 && git branch -a` to see recent activity.
-3. Run `git log -1 --stat` to see the last commit's scope.
-4. If the session-handoff lists pending tasks, proceed with the highest priority one. If unclear, ask the operator.
-5. **Do not assume** that anything described in a session-handoff is still true 24 hours later. Verify the current state before acting.
+2. Read `BACKLOG.md` for the active task queue and how to pick a task without operator input.
+3. Run `git status && git log --oneline -20 && git branch -a` to see recent activity.
+4. Run `git log -1 --stat` to see the last commit's scope.
+5. If the session-handoff lists pending tasks, proceed with the highest priority one. If unclear, ask the operator.
+6. **Do not assume** that anything described in a session-handoff is still true 24 hours later. Verify the current state before acting.
 
 ---
 
