@@ -39,6 +39,13 @@ export default function NavBar() {
       </div>
       <div className="nav-links">
         {link('/market', '🎴 Market')}
+        <span
+          className="nav-link"
+          onClick={() => window.location.href = '/login'}
+          style={{ fontSize: 13 }}
+        >
+          Sign in
+        </span>
         {link('/watchlist', '⭐ Watchlist',
           watchlistCount > 0 && (
             <span style={{
