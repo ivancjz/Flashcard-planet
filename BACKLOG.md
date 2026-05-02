@@ -236,7 +236,7 @@ Format:
 #### TASK-401 — Add OpenAI as third LLM provider for AI analysis
 
 **Priority:** P1
-**Status:** in_progress
+**Status:** complete
 **Owner:** Claude Code
 
 **Background:** The codebase already runs Anthropic + Groq as dual LLM providers for signal explanation, mapping disambiguation, etc. Operator already purchased OpenAI API credits expecting to use them for PR review automation, but TASK-103b adopted Codex Cloud (Path C) instead — making the API key available for higher-value use.
@@ -431,6 +431,8 @@ When a task ships, move it here with PR number and merge date. Keep this section
 | TASK-103a | Codex CLI CI feasibility research | (research only) | 2026-05-02 | Codex CLI is headless-capable; ChatGPT OAuth blocks GitHub Secret storage; Path C (Codex Cloud) chosen. Report at `docs/audits/2026-05-02-codex-ci-feasibility.md` |
 | TASK-104 | Archive Discord bot, simplify product boundary | commit e09c100 | 2026-05-02 | bot/ archived to archive/discord-bot-2026/. OAuth routes removed. 845 tests pass. |
 | TASK-302 | Pro tier waitlist form | commit ef6f7e3 | 2026-05-02 | POST /api/v1/waitlist + admin diag + landing page form. 851 tests pass. Requires migration 0029 on prod. |
+| TASK-103b | PR review via Codex Cloud (Path C) | commit 47b3c63 | 2026-05-02 | AGENTS.md written. CLAUDE.md §4 updated. Operator enables Codex Cloud in chatgpt.com settings. |
+| TASK-401 | OpenAI as third LLM provider | commit 9dafe11 | 2026-05-02 | OpenAIProvider + task-type router + FallbackLLMProvider + IP tagging experiment. 861 tests pass. |
 
 ---
 
