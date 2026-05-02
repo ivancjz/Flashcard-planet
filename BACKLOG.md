@@ -194,7 +194,7 @@ Format:
 #### TASK-203 — Pro tier payment integration design doc
 
 **Priority:** P1
-**Status:** ready
+**Status:** in_progress
 **Owner:** Claude Code (research) + Ivan (decision)
 **Preconditions:** None
 
