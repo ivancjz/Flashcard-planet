@@ -21,7 +21,7 @@ from backend.app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-_KNOWN_PROVIDERS = frozenset({"anthropic", "groq"})
+_KNOWN_PROVIDERS = frozenset({"anthropic", "groq", "openai"})
 _httpx_client_cls = httpx.Client
 
 
@@ -164,7 +164,92 @@ class GroqProvider:
 
 
 
-# --- Factory ---
+class OpenAIProvider:
+    """Wraps the OpenAI chat completions API via httpx (no SDK dependency).
+
+    Uses gpt-4o-mini by default. Returns None (never raises) on any failure.
+    For structured JSON output, use ip_tagger.tag_asset_for_ip() instead.
+    """
+
+    def generate_text(self, system: str, user: str, max_tokens: int) -> str | None:
+        api_key = _setting_value("OPENAI_API_KEY", "openai_api_key")
+        if not api_key:
+            _log("openai_unavailable_no_key", level=logging.INFO)
+            return None
+
+        model = _setting_value("OPENAI_MODEL", "openai_model", "gpt-5.5")
+        base_url = _setting_value("OPENAI_BASE_URL", "openai_base_url", "https://api.openai.com/v1")
+        try:
+            with _httpx_client_cls(base_url=base_url, timeout=30.0) as client:
+                response = client.post(
+                    "/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user},
+                        ],
+                        "max_tokens": max_tokens,
+                    },
+                )
+                response.raise_for_status()
+                text = response.json()["choices"][0]["message"]["content"].strip()
+                return text or None
+        except Exception as exc:  # noqa: BLE001
+            _log("openai_request_failed", error_type=type(exc).__name__, message=str(exc))
+            return None
+
+
+class FallbackLLMProvider:
+    """Tries primary provider; if it returns None, tries fallback."""
+
+    def __init__(self, primary: LLMProvider, fallback: LLMProvider) -> None:
+        self._primary = primary
+        self._fallback = fallback
+
+    def generate_text(self, system: str, user: str, max_tokens: int) -> str | None:
+        result = self._primary.generate_text(system, user, max_tokens)
+        if result is not None:
+            return result
+        _log("llm_primary_returned_none_using_fallback", level=logging.INFO,
+             primary=type(self._primary).__name__, fallback=type(self._fallback).__name__)
+        return self._fallback.generate_text(system, user, max_tokens)
+
+
+# Task-type routing table (codified, not implicit)
+# primary → fallback for each task type
+_TASK_ROUTING: dict[str, tuple[str, str]] = {
+    "signal_explanation":    ("anthropic", "groq"),
+    "mapping_disambiguation": ("groq",      "anthropic"),
+    "structured_tagging":    ("openai",     "anthropic"),
+}
+
+_PROVIDER_MAP: dict[str, type] = {
+    "anthropic": AnthropicProvider,
+    "groq":      GroqProvider,
+    "openai":    OpenAIProvider,
+}
+
+
+def get_llm_provider_for_task(task_type: str) -> LLMProvider:
+    """Return a provider (with fallback) for the given task type.
+
+    Task types: signal_explanation, mapping_disambiguation, structured_tagging.
+    Unknown task types fall back to Anthropic with a warning.
+    """
+    routing = _TASK_ROUTING.get(task_type)
+    if routing is None:
+        _log("llm_task_type_unknown", task_type=task_type, fallback="anthropic")
+        return AnthropicProvider()
+
+    primary_name, fallback_name = routing
+    primary = _PROVIDER_MAP[primary_name]()
+    fallback = _PROVIDER_MAP[fallback_name]()
+    return FallbackLLMProvider(primary, fallback)
+
+
+# --- Factory (unchanged — existing callers unaffected) ---
 
 def get_llm_provider() -> LLMProvider:
     """Return the configured LLM provider.
@@ -177,4 +262,6 @@ def get_llm_provider() -> LLMProvider:
         _log("llm_provider_unknown", value=provider, fallback="anthropic")
     if provider == "groq":
         return GroqProvider()
+    if provider == "openai":
+        return OpenAIProvider()
     return AnthropicProvider()

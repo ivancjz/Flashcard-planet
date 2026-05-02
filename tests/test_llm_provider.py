@@ -124,6 +124,95 @@ class SignalExplainerFallbackTests(unittest.TestCase):
             db.commit.assert_not_called()
 
 
+class OpenAIProviderTests(unittest.TestCase):
+    def test_returns_none_when_key_empty(self):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            import backend.app.services.llm_provider as m
+            with patch.object(m.settings, "openai_api_key", ""):
+                result = m.OpenAIProvider().generate_text("sys", "user", 256)
+            self.assertIsNone(result)
+
+    def test_no_http_call_when_key_empty(self):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            import backend.app.services.llm_provider as m
+            original = m._httpx_client_cls
+            mock_cls = MagicMock()
+            m._httpx_client_cls = mock_cls
+            try:
+                with patch.object(m.settings, "openai_api_key", ""):
+                    m.OpenAIProvider().generate_text("sys", "user", 256)
+                mock_cls.assert_not_called()
+            finally:
+                m._httpx_client_cls = original
+
+    def test_openai_provider_factory(self):
+        with patch.dict(os.environ, {"LLM_PROVIDER": "openai"}):
+            import backend.app.services.llm_provider as m
+            self.assertIsInstance(m.get_llm_provider(), m.OpenAIProvider)
+
+
+class FallbackLLMProviderTests(unittest.TestCase):
+    def test_returns_primary_result_when_primary_succeeds(self):
+        import backend.app.services.llm_provider as m
+        primary = MagicMock()
+        primary.generate_text.return_value = "primary result"
+        fallback = MagicMock()
+        provider = m.FallbackLLMProvider(primary, fallback)
+        result = provider.generate_text("sys", "user", 256)
+        self.assertEqual(result, "primary result")
+        fallback.generate_text.assert_not_called()
+
+    def test_falls_back_when_primary_returns_none(self):
+        import backend.app.services.llm_provider as m
+        primary = MagicMock()
+        primary.generate_text.return_value = None
+        fallback = MagicMock()
+        fallback.generate_text.return_value = "fallback result"
+        provider = m.FallbackLLMProvider(primary, fallback)
+        result = provider.generate_text("sys", "user", 256)
+        self.assertEqual(result, "fallback result")
+        fallback.generate_text.assert_called_once()
+
+    def test_returns_none_when_both_fail(self):
+        import backend.app.services.llm_provider as m
+        primary = MagicMock()
+        primary.generate_text.return_value = None
+        fallback = MagicMock()
+        fallback.generate_text.return_value = None
+        provider = m.FallbackLLMProvider(primary, fallback)
+        result = provider.generate_text("sys", "user", 256)
+        self.assertIsNone(result)
+
+
+class ProviderRouterTests(unittest.TestCase):
+    def test_signal_explanation_routes_to_anthropic_primary(self):
+        import backend.app.services.llm_provider as m
+        provider = m.get_llm_provider_for_task("signal_explanation")
+        self.assertIsInstance(provider, m.FallbackLLMProvider)
+        self.assertIsInstance(provider._primary, m.AnthropicProvider)
+        self.assertIsInstance(provider._fallback, m.GroqProvider)
+
+    def test_mapping_disambiguation_routes_to_groq_primary(self):
+        import backend.app.services.llm_provider as m
+        provider = m.get_llm_provider_for_task("mapping_disambiguation")
+        self.assertIsInstance(provider, m.FallbackLLMProvider)
+        self.assertIsInstance(provider._primary, m.GroqProvider)
+        self.assertIsInstance(provider._fallback, m.AnthropicProvider)
+
+    def test_structured_tagging_routes_to_openai_primary(self):
+        import backend.app.services.llm_provider as m
+        provider = m.get_llm_provider_for_task("structured_tagging")
+        self.assertIsInstance(provider, m.FallbackLLMProvider)
+        self.assertIsInstance(provider._primary, m.OpenAIProvider)
+        self.assertIsInstance(provider._fallback, m.AnthropicProvider)
+
+    def test_unknown_task_type_falls_back_to_anthropic_and_logs(self):
+        import backend.app.services.llm_provider as m
+        with self.assertLogs("backend.app.services.llm_provider", level="WARNING"):
+            provider = m.get_llm_provider_for_task("nonexistent_task")
+        self.assertIsInstance(provider, m.AnthropicProvider)
+
+
 class AiMapperFallbackTests(unittest.TestCase):
     def test_map_batch_returns_pending_results_when_provider_returns_none(self):
         import importlib

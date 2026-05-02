@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
     groq_base_url: str = "https://api.groq.com/openai/v1"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-5.5"    # override via OPENAI_MODEL env var if account lacks access
+    openai_base_url: str = "https://api.openai.com/v1"
     llm_provider: str = "anthropic"
     secret_key: str = Field(default="change-me-in-production-use-a-long-random-string")
     jwt_expire_days: int = Field(default=30, ge=1)

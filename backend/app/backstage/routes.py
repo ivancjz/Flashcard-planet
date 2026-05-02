@@ -1907,3 +1907,31 @@ def admin_diag_waitlist(
             for r in recent_rows
         ],
     }
+
+
+@router.post("/trigger/ip-tagging-sample")
+def admin_trigger_ip_tagging_sample(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+    n: int = Query(default=100, ge=1, le=200),
+):
+    """Run the OpenAI IP tagging validation experiment on N random assets.
+
+    Samples n/2 Pokemon + n/2 YGO assets, tags each with franchise/character/themes/artist.
+    Remove after validation completes (target >85% accuracy; see TASK-401 DoD).
+    """
+    from backend.app.services.ip_tagger import run_ip_tagging_sample
+
+    result = run_ip_tagging_sample(db, n=n)
+    return {
+        "total_attempted": result.total_attempted,
+        "api_parse_succeeded": result.total_succeeded,
+        "api_parse_failed": result.total_failed,
+        "api_parse_success_rate": round(result.api_parse_success_rate, 3),
+        "accuracy_note": (
+            "api_parse_success_rate measures whether the API returned parseable JSON, "
+            "NOT whether the tags are semantically correct. "
+            "Manually verify ~30 random results below before declaring accuracy target met."
+        ),
+        "results": result.results,
+    }
