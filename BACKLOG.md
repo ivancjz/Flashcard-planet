@@ -4,7 +4,7 @@
 >
 > **This file is for Claude Code to consume autonomously.** When picking up a session and there is no specific operator instruction, read this file and start the highest-priority task you have evidence to safely execute. See §0 below.
 
-**Last updated:** 2026-05-02 (v3 — operator review revisions)
+**Last updated:** 2026-05-02 (v4 — Codex Cloud + OpenAI as analysis provider)
 **Maintained by:** Ivan (operator) with proposed updates from Claude Code via PR
 
 ---
@@ -42,7 +42,7 @@ These are not tasks. They are properties of the system that must hold at all tim
 - [ ] **Pokemon ingestion runs daily without manual intervention.** `scheduler_run_log` shows `ingestion` job with `status='success'` within the last 25 hours.
 - [ ] **All 6 scheduler jobs write `scheduler_run_log`.** No silent failures.
 - [ ] **Discord alerts fire within their 25h window.** If silent, investigate before any other work. Note: alerts are sent by backend via REST API in `alert_service.py`, not by a bot process. There is no Gateway connection to maintain.
-- [ ] **No PR merges to main without `## Codex Review` section.** This is a procedural invariant, enforced by Claude Code self-discipline (until automated by TASK-103b).
+- [ ] **No PR merges without Codex review** (auto-posted by Codex Cloud, or manually pasted as fallback — see `CLAUDE.md` §4).
 - [ ] **`market_segment` is populated on every new `price_history` row.** `null_audit` returns zero NULLs.
 - [ ] **Existing Pokemon Card Detail pages render correctly.** Any change touching `site.py`, `signal_service.py`, or `permissions.py` requires regression check on at least 3 sample assets across different sets.
 
@@ -87,7 +87,7 @@ Format:
 **Reference:** CLAUDE.md §7 ("Non-INSUFFICIENT YGO signals expected to appear around 2026-05-07"), `/admin/diag/ygo-verify-26` endpoint
 **Notes:**
 - This is a verification task, not a code change. If <30% threshold not met by 2026-05-14, escalate to operator — likely indicates either data freshness or threshold calibration issue.
-- After verification passes, **propose** a CLAUDE.md §6 entry as "Lesson 6: First non-Pokemon signal validated end-to-end" — but this is documentation maintenance, not a verification gate. Doing it well is encouraged; not doing it does not block task completion.
+- After verification passes, **propose** a CLAUDE.md §6 entry as "Lesson 6: First non-Pokemon signal validated end-to-end" — but this is documentation maintenance, not a verification gate.
 
 ---
 
@@ -110,84 +110,39 @@ Format:
 
 ---
 
-#### TASK-103a — Codex CLI CI feasibility research
+#### TASK-103b — PR review automation via Codex Cloud (Path C)
 
 **Priority:** P0
-**Status:** complete — awaiting operator decision on OpenAI API key
-**Owner:** Claude Code (research only — no code changes)
-**Preconditions:** Codex CLI is installed and authenticated locally (already true).
+**Status:** ready
+**Owner:** Ivan (5 min config) + Claude Code (AGENTS.md + CLAUDE.md updates)
 
-**Definition of Done:**
-A short report at `docs/audits/2026-XX-codex-ci-feasibility.md` answering:
+**Background:** TASK-103a confirmed Codex CLI is headless-capable in CI but blocked on auth (ChatGPT OAuth session can't be stored as GitHub Secret). Three paths surfaced:
+- Path A: OpenAI API key + custom GitHub Action
+- Path B: Claude Code self-review (loses independence)
+- **Path C (chosen): Codex Cloud automated review** — included in current ChatGPT subscription, no API key needed, OpenAI-managed infrastructure
 
-1. **What auth mechanism does Codex CLI v0.118.0 use?** (OpenAI API key / ChatGPT session token / OAuth / other) — find this by inspecting where Codex stores credentials locally and what env vars / config files it reads.
-2. **Is that auth form storable in GitHub Actions Secrets?**
-   - API keys: yes, trivially.
-   - Session tokens: no — they expire and are not designed for headless CI.
-   - OAuth refresh flows: depends on whether Codex supports non-interactive refresh.
-3. **If auth works in CI, does Codex CLI run headless?** Try `codex exec` from a non-TTY shell locally to simulate CI. Some CLIs require a TTY and fail silently in CI.
-4. **If Codex doesn't fit CI, list 2-3 alternatives** with one-line tradeoffs:
-   - GitHub Copilot CLI as reviewer
-   - Claude Code itself running with a "play independent reviewer" prompt (loses true independence but preserves the review gate)
-   - Other open-source LLM review tools (e.g., aider, sweep) — note any that exist in 2026
-5. **Recommendation:** which path to take in TASK-103b.
-
-**Estimated effort:** XS (research; one afternoon)
-**Reference:** CLAUDE.md §4 ("Claude Code must run this itself — do not delegate to the operator")
-**Notes:**
-- Pure research task. Do NOT modify any CI config or secrets in this task.
-- Output is a markdown file the operator can read in 5 minutes and decide direction.
-
----
-
----
-
-### P1 — should do this month
-
-#### TASK-104 — Archive Discord bot, simplify product boundary
-
-**Priority:** P1
-**Status:** complete
-**Owner:** Claude Code
-
-**Background:** `bot/main.py` has 9 fully-implemented slash commands (`/price`, `/predict`, `/history`, `/watch`, `/watchlist`, `/unwatch`, `/alerts`, `/topmovers`, `/topvalue`, `/alerthistory`) but has never been deployed. Zero users have used them. This is the largest "designed but never ran" surface in the codebase (CLAUDE.md Lesson 2 pattern).
-
-The product is web-first: FastAPI + Card Detail + Signals + Watchlist + Pro tier permissions + pricing page are all on web. Competitors (Card Ladder, MTGStocks, Collectr, Pokelytics) are all web-first. Discord-as-product-surface is a 2024 MVP decision that the product has outgrown.
-
-**What stays:** `backend/app/services/alert_service.py` — sends alerts via Discord REST API, not Gateway connection. Zero deployment cost, already works, you're used to it. Keep this as alert delivery channel only.
-
-**What goes:** `bot/main.py` slash command process, Discord OAuth-as-login binding (redundant with magic link + Google OAuth which already exist).
+**Why Path C:** Zero additional cost (already paid via ChatGPT subscription). Zero ongoing maintenance (OpenAI hosts it). Preserves full reviewer independence. Configures in 5 minutes vs hours for Path A. Path A's strength was "works without ChatGPT" — irrelevant when we have ChatGPT. The OpenAI API credit purchased earlier gets redirected to TASK-401 (LLM analysis pool) where it produces direct product value instead.
 
 **Preconditions:** None.
 
 **Definition of Done:**
-1. `bot/` directory moved to `archive/discord-bot-2026/` (preserve history; do not `git rm` outright in case future rollback needed)
-2. `archive/discord-bot-2026/ARCHIVED.md` written with:
-   - Date archived and reason
-   - Re-evaluation conditions (see Notes below)
-   - Pointer to `alert_service.py` for "where Discord alerts come from now"
-3. `requirements.txt`: if `discord.py` is ONLY referenced from `bot/`, remove it. If referenced elsewhere, keep with comment.
-4. `bot/api_client.py` and `bot/link_builder.py` move with the rest of `bot/`.
-5. Audit Discord OAuth binding routes in `backend/app/api/routes/auth.py`:
-   - `/account/link-discord` and `/account/link-discord/callback` — keep or remove based on whether anyone has actually linked. If no users have linked, remove. Keep magic link + Google OAuth untouched.
-6. `CLAUDE.md` §1 product description updated: "Web-first TCG market intelligence platform. Discord is an alert delivery channel via REST API, not a product surface."
-7. `CLAUDE.md` §2 architecture quick reference: remove any references to `bot/` as an active component. Note `alert_service.py` as the Discord integration point.
-8. `README.md` "What is included" section: remove "Discord bot with slash commands" line. Replace with "Discord alert delivery (one-way, via REST API)".
-9. Existing `tests/test_discord_binding.py` kept (it tests the Discord OAuth binding routes that may stay) OR removed if step 5 removes those routes.
-10. Run full test suite, confirm no regressions.
-11. Codex review.
+1. **Operator action (done)**: Log into chatgpt.com → Codex settings → enable Code review for `ivancjz/Flashcard-planet` repo. Toggle on "Automatic reviews".
+2. **Operator action (done)**: Verify the bot account is granted access to the repo via GitHub OAuth flow Codex initiates.
+3. `AGENTS.md` at repo root with review guidelines — **done** (committed 2026-05-02).
+4. CLAUDE.md §4 updated — **done** (committed 2026-05-02): Codex Cloud is primary; manual `codex exec review` is fallback.
+5. CLAUDE.md §1 invariant reworded: "No PR merges without Codex review (auto-posted by Codex Cloud, or manually pasted as fallback)" — **done**.
+6. **Validation**: Open one test PR. Confirm Codex Cloud posts a `## Codex Review` comment within 10 minutes.
 
-**Estimated effort:** S
-**Reference:** Conversation 2026-05-02 strategic discussion about Discord product role.
+**Estimated effort:** XS (config) + S (AGENTS.md authoring)
+**Reference:** TASK-103a research output. Conversation 2026-05-02.
 **Notes:**
-- **Re-evaluation conditions (write into ARCHIVED.md):**
-  - Pro users ≥ 30 AND at least 5 unprompted user requests for Discord integration
-  - OR: at least 1 competitor (Card Ladder, MTGStocks, Pokelytics, Collectr) demonstrates Discord bot as a measurable acquisition channel with public data
-  - In neither case has been met — do not redeploy
-- **Future Discord integration, if it ever happens, should be webhook-outbound** (Discord server admins install our webhook in their channels), NOT inbound bot. This is the correct 2026 Discord integration pattern: meet users in their existing communities, not pull them into ours.
-- Slash command code preservation: keep in archive intact so future redeployment is a `git mv` away, not a rewrite.
+- Plus subscribers get ~400–1000 code reviews per 5-hour window. At Ivan's PR cadence (~30 PR/month), this is ~100x headroom.
+- AGENTS.md is read by Codex Cloud automatically. It does not duplicate CLAUDE.md — it extracts the review-relevant subset.
+- If Codex Cloud is later removed from Plus tier, fall back to Path A. The OpenAI API key from TASK-401 is sufficient — only need to add a GitHub Action workflow at that point.
 
 ---
+
+### P1 — should do this month
 
 #### TASK-201 — YGO Tier 1 expansion to ~30 sets
 
@@ -278,39 +233,55 @@ The product is web-first: FastAPI + Card Detail + Signals + Watchlist + Pro tier
 
 ---
 
-#### TASK-302 — Pro tier waitlist form (promoted from P2)
+#### TASK-401 — Add OpenAI as third LLM provider for AI analysis
 
 **Priority:** P1
-**Status:** complete
+**Status:** ready
 **Owner:** Claude Code
-**Preconditions:** None
 
-**Why P1:** This is one of the few tasks that produces real product-state change without depending on Pro work. Concrete benefits even if Pro launch slips by 3 months:
-1. **Real conversion funnel data** — visitor → email capture rate is the first marketing metric the product has ever generated
-2. **Pre-built launch list** — when Pro goes live, day-1 has demand instead of zero
-3. **Early-believer identification** — useful for launch promo pricing decisions ($9 vs $12 first 100)
-4. **Operator habit shift** — switches the daily metric reflex from technical (`scheduler_run_log` success rate) to commercial (waitlist growth rate). This habit needs to exist BEFORE Pro launch, not after.
+**Background:** The codebase already runs Anthropic + Groq as dual LLM providers for signal explanation, mapping disambiguation, etc. Operator already purchased OpenAI API credits expecting to use them for PR review automation, but TASK-103b adopted Codex Cloud (Path C) instead — making the API key available for higher-value use.
+
+This task adds OpenAI as a third provider to the existing LLM analysis pool. The three providers serve different roles based on their strengths:
+
+- **Anthropic (Claude)**: long context, reasoning, natural-language explanations — signal explanation (user-facing copy)
+- **Groq**: fast, cheap, high-throughput — mapping disambiguation (frequent, structured, low creativity needed)
+- **OpenAI (gpt-4o-mini)**: strict JSON schema enforcement, function calling — structured tagging tasks (foundation for Phase 3 Cross-TCG Franchise Move detector)
+
+**Preconditions:**
+- OpenAI API key purchased (already done)
+- TASK-103b in progress or done (so Codex Cloud is the review path; this task doesn't fight for the same key)
 
 **Definition of Done:**
-- A "Join the Pro waitlist" form on the homepage and `/pricing` placeholder
-- Email capture with confirmation email (use existing magic link infrastructure for sending — same SMTP path)
-- Stored in a `pro_waitlist` table: `email, signed_up_at, source_page, locale, ip_country (optional)`
-- Admin endpoint `/admin/diag/waitlist` returns count + recent N + simple growth rate (today vs 7d avg)
-- Double opt-in NOT required for v1 — single opt-in is fine for solo-operator scale; revisit if list crosses 1000
-- One end-to-end manual test: submit email, receive confirmation, verify row in DB
+1. `backend/app/services/llm/` adds `OpenAIClient` matching the existing `AnthropicClient` / `GroqClient` interface
+2. Provider router updated with explicit routing rules:
+   - `signal_explanation` → Anthropic
+   - `mapping_disambiguation` → Groq
+   - `structured_tagging` (new task type) → OpenAI
+   - Fallback chain: each task type has a primary + 1 fallback. Default fallback ordering documented.
+3. `OPENAI_API_KEY` added to Railway env vars (backend service only)
+4. **Operator action**: OpenAI dashboard sets monthly budget cap at $20 (hard limit, alert at $15)
+5. **Small-scale IP tagging validation experiment**:
+   - Sample 100 assets across Pokemon (60) + YGO (40) for diversity
+   - Run through OpenAI with IP tagging prompt + JSON schema (FRANCHISE / CHARACTER / THEME / ARTIST)
+   - Manually verify ~30 random outputs to estimate accuracy
+   - Save results to `docs/audits/2026-XX-openai-ip-tagging-validation.md`
+   - Target: >85% accuracy. If lower, document failure modes. Do NOT proceed to full batch.
+6. TDD: provider failover test suite. Verify fallback is invoked when primary fails.
+7. **Do not modify** existing signal_explanation / mapping paths. Pure additive change.
+8. CLAUDE.md §2 updated: "Anthropic + Groq + OpenAI triple provider, with task-type routing"
 
-**Estimated effort:** XS-S
-**Reference:** Marketing principle: build the list before the product so launch day has demand
+**Estimated effort:** M
+**Reference:** CLAUDE.md memory (Anthropic + Groq dual provider). `02_cross_tcg_signal_design.md` (IP tagging foundation for Phase 3)
 **Notes:**
-- **Do not** add complex marketing automation (drip campaigns, segmentation). Just capture the email. Pro launch is the action moment.
-- A simple "thanks, we'll email you when Pro launches" page is enough — don't over-design.
-- This is the **earliest** task that gives the operator any signal about market demand. Don't underweight that.
+- The 100-sample experiment is a deliberate scope limit. Full 10K batch tagging is a Phase 3 task (~Q4 2026), not this one.
+- Use OpenAI Batch API for the 100-sample run (50% cheaper than sync API, latency irrelevant for validation).
+- If validation accuracy is <85%, file follow-up task TASK-402 ("iterate IP tagging prompt"), do NOT proceed to Phase 3 dependence on it.
 
 ---
 
 ### P2 — important but not urgent
 
-#### TASK-205 — Dashboard structure audit vs. v3 spec (demoted from P1)
+#### TASK-205 — Dashboard structure audit vs. v3 spec
 
 **Priority:** P2
 **Status:** ready
@@ -324,13 +295,11 @@ The product is web-first: FastAPI + Card Detail + Signals + Watchlist + Pro tier
 
 **Estimated effort:** S
 **Reference:** `docs/plan-v3.md` §3 A-1
-**Notes:**
-- Demoted from P1 to P2 in v3 of this backlog. Reasoning: this is an audit producing knowledge, not product change. Dashboard module ordering is unlikely to be the bottleneck on Pro conversion vs. Pro tier not existing at all (TASK-301), or vs. there being no waitlist to convert into Pro (TASK-302).
-- Revisit after Pro launches if conversion data suggests dashboard is a friction point.
+**Notes:** Demoted from P1 to P2. Dashboard module ordering is unlikely to be the bottleneck on Pro conversion vs. Pro tier not existing at all. Revisit after Pro launches.
 
 ---
 
-#### TASK-206 — Signals page Pro/Free hierarchy audit (demoted from P1)
+#### TASK-206 — Signals page Pro/Free hierarchy audit
 
 **Priority:** P2
 **Status:** ready
@@ -343,9 +312,7 @@ The product is web-first: FastAPI + Card Detail + Signals + Watchlist + Pro tier
 
 **Estimated effort:** S
 **Reference:** `docs/plan-v3.md` §3 A-3
-**Notes:**
-- Demoted from P1 to P2 in v3 of this backlog. Same reasoning as TASK-205: audit produces knowledge, not change.
-- Will become more relevant when TASK-203 (payment design) reaches the CTA wiring step — that's when the Free/Pro visual hierarchy matters concretely.
+**Notes:** Demoted from P1 to P2. Will become relevant when TASK-203 (payment design) reaches CTA wiring step.
 
 ---
 
@@ -391,7 +358,7 @@ The product is web-first: FastAPI + Card Detail + Signals + Watchlist + Pro tier
 
 **Estimated effort:** S
 **Reference:** CLAUDE.md §7, PR #13 Codex Review Finding #3
-**Notes:** Accepted tradeoff — only do this when the conditions above trigger. Listed here so it doesn't get forgotten.
+**Notes:** Accepted tradeoff — only do this when the conditions above trigger.
 
 ---
 
@@ -409,8 +376,7 @@ The product is web-first: FastAPI + Card Detail + Signals + Watchlist + Pro tier
 - Storage / cost impact assessed and acceptable
 
 **Estimated effort:** L
-**Reference:** Operator confirmed wanting this in the strategic conversation, but explicitly deferred. Worth revisiting once multi-TCG breadth is established.
-**Notes:** This is a "nice to have" until there's user demand evidence (Pro users asking for vintage sets we don't cover).
+**Notes:** "Nice to have" until there's user demand evidence (Pro users asking for vintage sets we don't cover).
 
 ---
 
@@ -422,14 +388,13 @@ The product is web-first: FastAPI + Card Detail + Signals + Watchlist + Pro tier
 **Preconditions:** TASK-301 has at least produced the English `/pricing` page
 
 **Definition of Done:**
-- Chinese translation of `/pricing` page using existing i18n framework (already used in alerts page per `plan-v3.md` I18N-1b)
+- Chinese translation of `/pricing` page using existing i18n framework
 - Translations match `03_pricing_page_copy.md` Chinese version
 - Currency display switches to ¥ when locale is `zh`
 - One end-to-end manual test in zh locale
 
 **Estimated effort:** S
 **Reference:** `03_pricing_page_copy.md` Chinese section, `plan-v3.md` I18N-1b
-**Notes:** Hong Kong / Taiwan / Singapore TCG investing communities are real but not the launch market.
 
 ---
 
@@ -438,17 +403,16 @@ The product is web-first: FastAPI + Card Detail + Signals + Watchlist + Pro tier
 **Priority:** P2
 **Status:** ready
 **Owner:** Claude Code
-**Preconditions:** TASK-104 completed (Discord bot archived). This task evaluates whether to also replace the REST API alert path.
+**Preconditions:** TASK-104 completed (Discord bot archived — done 2026-05-02).
 
 **Definition of Done:**
 - Evaluation written: should `alert_service.py`'s Discord REST API path be replaced by Sentry (errors) + Healthchecks.io (job heartbeat) + email (digest)?
 - Comparison covers: cost, signal-to-noise, operator-on-mobile experience, vendor lock-in
 - If replace: design doc + implementation as separate follow-up task
-- If keep as is: formal "keep" decision recorded in `docs/decisions/2026-XX-discord-alerts.md` so we don't relitigate
+- If keep as is: formal "keep" decision recorded in `docs/decisions/2026-XX-discord-alerts.md`
 
 **Estimated effort:** S (decision) or M (if implemented)
-**Reference:** Conversation 2026-05-02 — discussion of better alert tooling for solo operator
-**Notes:** Discord REST API alerts work. This is "nice to have" not "must do". Evaluate after Pro launch when alert volume might increase. **Do NOT start before TASK-104 is merged** — the order matters because TASK-104 is "remove the bot process", and TASK-306 is "evaluate the alert delivery layer". Confusing the two would scope-creep TASK-104.
+**Notes:** Discord REST API alerts work. Evaluate after Pro launch when alert volume might increase.
 
 ---
 
@@ -464,8 +428,7 @@ When a task ships, move it here with PR number and merge date. Keep this section
 
 | TASK | Title | PR | Merged | Outcome |
 |---|---|---|---|---|
-| TASK-103a | Codex CLI CI feasibility research | — | 2026-05-02 | Path A (OpenAI API key) confirmed viable. Report at `docs/audits/2026-05-02-codex-ci-feasibility.md` |
-| TASK-103b | Automated Codex PR review via GitHub Actions | commit 1ef1565 | 2026-05-02 | `.github/workflows/codex-review.yml` live on main. Requires `OPENAI_API_KEY` secret in repo settings. |
+| TASK-103a | Codex CLI CI feasibility research | (research only) | 2026-05-02 | Codex CLI is headless-capable; ChatGPT OAuth blocks GitHub Secret storage; Path C (Codex Cloud) chosen. Report at `docs/audits/2026-05-02-codex-ci-feasibility.md` |
 | TASK-104 | Archive Discord bot, simplify product boundary | commit e09c100 | 2026-05-02 | bot/ archived to archive/discord-bot-2026/. OAuth routes removed. 845 tests pass. |
 | TASK-302 | Pro tier waitlist form | commit ef6f7e3 | 2026-05-02 | POST /api/v1/waitlist + admin diag + landing page form. 851 tests pass. Requires migration 0029 on prod. |
 
@@ -481,7 +444,8 @@ When a task is `needs_decision`, log here:
 | 2026-05-02 | Pro tier payment provider: Stripe vs LemonSqueezy vs Paddle? (TASK-203) | open | — | — |
 | 2026-05-02 | Pokemon full historical coverage vs multi-TCG breadth — which gets resources first after Pro launches? (TASK-304) | open | — | — |
 | 2026-05-02 | Discord bot 24-hour deployment vs archive? | **resolved** | 2026-05-02 | **Archive.** Zero users on slash commands, web is the product, REST API alerts stay. See TASK-104. |
-| 2026-05-02 | Codex CLI in CI: feasible or use alternative? | **open — needs operator decision** | — | TASK-103a complete. Path A (Codex + OpenAI API key) or Path B (Claude self-review). See `docs/audits/2026-05-02-codex-ci-feasibility.md` §5. |
+| 2026-05-02 | Codex CLI in CI: feasible or use alternative? | **resolved** | 2026-05-02 | **Path C: Codex Cloud auto-reviews.** Free with ChatGPT subscription. Path A (API key + custom Action) is an anti-task. See TASK-103b. |
+| 2026-05-02 | OpenAI API key: use for PR review automation or LLM analysis pool? | **resolved** | 2026-05-02 | **LLM analysis pool (TASK-401).** PR review goes via Codex Cloud (free with subscription). API key produces direct product value via IP tagging foundation. |
 
 ---
 
@@ -499,6 +463,8 @@ Listed to prevent re-litigation:
 - **Hysteresis bands on signal thresholds** — investigated 2026-04-26, no data supports it (CLAUDE.md §11)
 - **Discord bot as product surface** — decided 2026-05-02 (TASK-104). The product is web-first. Discord is an outbound alert channel via REST API only. **No inbound bot, no slash commands, no Discord OAuth login.** If TCG influencers / community partners want Discord integration in the future, the right pattern is webhook-outbound (we deliver content into their existing servers), not asking users to join ours.
 - **Native mobile push notifications** — web push (PWA) is sufficient if we ever need real-time delivery. Native apps are off the table per the mobile app entry above; native push falls under that decision.
+- **Custom GitHub Action for PR review** — decided 2026-05-02 (TASK-103b). Codex Cloud is included in our existing ChatGPT subscription with zero ongoing maintenance. Building a custom Action duplicates effort for no gain. **Only revisit if Codex Cloud is removed from Plus tier or fundamentally changes behavior.**
+- **Routing all LLM tasks to a single provider** — decided 2026-05-02 (TASK-401). Anthropic, Groq, and OpenAI each have task types they're best at. Single-provider routing saves no money and loses heterogeneity benefits.
 
 If a task being proposed falls into one of the above, **reject without operator escalation**.
 

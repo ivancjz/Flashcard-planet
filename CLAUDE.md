@@ -108,7 +108,7 @@ Current known dead configs: none. Keep it that way.
 
 ## 4. Codex review gate (mandatory)
 
-The operator installed Codex CLI specifically to have an independent second opinion on code changes. Codex CLI is pre-authenticated and available via `codex exec "..."`.
+Codex Cloud (included in ChatGPT Plus subscription) provides independent automated code review on every PR. Review guidelines for Codex are in `AGENTS.md`.
 
 ### When to trigger codex review
 
@@ -118,17 +118,23 @@ The only exception: changes that touch **zero production code paths** — e.g., 
 
 ### How to trigger
 
-**Automated (primary path):** `.github/workflows/codex-review.yml` runs on every PR and posts a `## Codex Review` comment automatically. Requires `OPENAI_API_KEY` secret set in the repo. No manual action needed.
+**Automated (primary path):** Codex Cloud posts a `## Codex Review` comment on every PR automatically (configured by operator via chatgpt.com → Codex settings). No action needed — wait ~5–10 minutes after opening a PR.
 
-**Manual fallback** (when automated review hasn't run, or for local branch review before opening a PR):
+**Manual fallback** (when no Codex Cloud comment appears after 10 minutes, or for local pre-PR review):
 
-```bash
-codex exec review --base main --ephemeral -m o4-mini -o /tmp/review.txt && cat /tmp/review.txt
+Option A — trigger via PR comment:
+```
+@codex review
 ```
 
-Capture the output in the PR description under a `## Codex Review` heading.
+Option B — run locally and paste into PR description:
+```bash
+codex exec review --base main --ephemeral -o /tmp/review.txt && cat /tmp/review.txt
+```
 
-Claude Code must run this itself — **do not delegate to the operator**.
+Capture the output under a `## Codex Review` heading in the PR description.
+
+Claude Code must run the fallback itself — **do not delegate to the operator**.
 
 ### Diagnostic endpoints as PR deliverables
 
