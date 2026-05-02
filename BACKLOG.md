@@ -147,7 +147,7 @@ A short report at `docs/audits/2026-XX-codex-ci-feasibility.md` answering:
 #### TASK-104 — Archive Discord bot, simplify product boundary
 
 **Priority:** P1
-**Status:** in_progress
+**Status:** complete
 **Owner:** Claude Code
 
 **Background:** `bot/main.py` has 9 fully-implemented slash commands (`/price`, `/predict`, `/history`, `/watch`, `/watchlist`, `/unwatch`, `/alerts`, `/topmovers`, `/topvalue`, `/alerthistory`) but has never been deployed. Zero users have used them. This is the largest "designed but never ran" surface in the codebase (CLAUDE.md Lesson 2 pattern).
@@ -466,6 +466,7 @@ When a task ships, move it here with PR number and merge date. Keep this section
 |---|---|---|---|---|
 | TASK-103a | Codex CLI CI feasibility research | — | 2026-05-02 | Path A (OpenAI API key) confirmed viable. Report at `docs/audits/2026-05-02-codex-ci-feasibility.md` |
 | TASK-103b | Automated Codex PR review via GitHub Actions | commit 1ef1565 | 2026-05-02 | `.github/workflows/codex-review.yml` live on main. Requires `OPENAI_API_KEY` secret in repo settings. |
+| TASK-104 | Archive Discord bot, simplify product boundary | commit e09c100 | 2026-05-02 | bot/ archived to archive/discord-bot-2026/. OAuth routes removed. 845 tests pass. |
 
 ---
 
