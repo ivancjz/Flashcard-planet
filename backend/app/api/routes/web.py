@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 from backend.app.api.deps import get_database, get_optional_user
-from backend.app.core.permissions import resolve_tier
+from backend.app.core.permissions import Feature, can, resolve_tier
 from backend.app.models.user import User
 
 router = APIRouter(prefix="/api/v1/web", tags=["web"])
@@ -974,7 +974,11 @@ def web_cards_batch(
 
 
 @router.get("/cards/{asset_id}")
-def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
+def web_card_detail(
+    asset_id: str,
+    db: Session = Depends(get_database),
+    tier: str = Depends(_get_effective_tier),
+):
     row = db.execute(text("""
         SELECT
             a.id::text      AS asset_id,
@@ -985,10 +989,7 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
             s.label         AS signal,
             s.price_delta_pct,
             s.liquidity_score,
-            -- TEMP: ai_analysis returned unconditionally for testing phase.
-            -- Restore when commercial tier is finalized:
-            --   add tier param to this endpoint and gate on Feature.SIGNAL_EXPLANATION.
-            -- Original: field not included (explanation never returned to frontend).
+            -- Always fetch from DB; Python layer gates it to Pro tier only.
             s.explanation   AS ai_analysis,
             tcg.price       AS tcg_price,
             ebay.price      AS ebay_price,
@@ -1014,6 +1015,22 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
 
     if not row:
         raise HTTPException(status_code=404, detail="Card not found")
+
+    # AI Analysis: Pro-only. Auto-generate on first Pro visit if missing.
+    # Free users always receive null — prevents explanation leaking to non-Pro tier.
+    ai_analysis = None
+    if can(tier, Feature.SIGNAL_EXPLANATION) and row.signal not in (None, "INSUFFICIENT_DATA"):
+        ai_analysis = dict(row._mapping).get('ai_analysis')
+        if ai_analysis is None:
+            from sqlalchemy import select as _select
+            from backend.app.models.asset_signal import AssetSignal
+            from backend.app.services.signal_explainer import get_or_explain
+            import uuid as _uuid
+            signal_row = db.scalars(
+                _select(AssetSignal).where(AssetSignal.asset_id == _uuid.UUID(asset_id))
+            ).first()
+            if signal_row is not None:
+                ai_analysis = get_or_explain(db, signal_row)
 
     history = db.execute(text("""
         SELECT
@@ -1057,6 +1074,7 @@ def web_card_detail(asset_id: str, db: Session = Depends(get_database)):
 
     return {
         **dict(row._mapping),
+        "ai_analysis": ai_analysis,   # overrides row.ai_analysis with auto-generated value
         "price_history": [
             {"date": str(h.date),
              "tcg_price": float(h.tcg_price) if h.tcg_price else None,

@@ -266,9 +266,8 @@ class WebCardDetailTests(TestCase):
         detail_sql = str(db.execute.call_args_list[0].args[0])
         self.assertIn("CASE a.game WHEN 'yugioh' THEN 'ygoprodeck_api' ELSE 'pokemon_tcg_api' END", detail_sql)
 
-    # TEMP: tests added for testing phase — ai_analysis returned unconditionally.
-    # Restore when commercial tier is finalized: update to assert tier-gated behaviour.
-    def test_ai_analysis_returned_when_explanation_present(self):
+    def test_ai_analysis_returned_for_pro_tier_when_explanation_present(self):
+        """Pro users see ai_analysis when explanation is in DB."""
         card = _make_row(
             asset_id="abc123", name="Charizard", set_name="Base",
             rarity="ultra", card_type="pokemon", signal="BREAKOUT",
@@ -277,13 +276,35 @@ class WebCardDetailTests(TestCase):
             ai_analysis="Price jumped 15% above baseline on high eBay volume.",
         )
         db = self._make_db(card)
-        app, client = _make_app(db)
+        app = FastAPI()
+        app.include_router(web_router)
+        from fastapi.testclient import TestClient
+        app.dependency_overrides[get_database] = _db_dep(db)
+        app.dependency_overrides[_get_effective_tier] = lambda: "pro"
+        client = TestClient(app)
 
         resp = client.get("/api/v1/web/cards/abc123")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["ai_analysis"], "Price jumped 15% above baseline on high eBay volume.")
 
+    def test_ai_analysis_null_for_free_tier_even_when_explanation_present(self):
+        """Free users never see ai_analysis — tier gate applies."""
+        card = _make_row(
+            asset_id="abc123", name="Charizard", set_name="Base",
+            rarity="ultra", card_type="pokemon", signal="BREAKOUT",
+            price_delta_pct=15.0, liquidity_score=0.9,
+            tcg_price=100.0, ebay_price=90.0, image_url=None, spread_pct=10.0,
+            ai_analysis="Price jumped 15% above baseline on high eBay volume.",
+        )
+        db = self._make_db(card)
+        app, client = _make_app(db)  # _make_app sets tier='free'
+
+        resp = client.get("/api/v1/web/cards/abc123")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.json()["ai_analysis"])
+
     def test_ai_analysis_is_null_when_no_explanation(self):
+        """Free tier + no explanation → null."""
         card = _make_row(
             asset_id="abc123", name="Charizard", set_name="Base",
             rarity="ultra", card_type="pokemon", signal="IDLE",

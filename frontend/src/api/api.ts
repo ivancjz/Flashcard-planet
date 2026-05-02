@@ -3,9 +3,12 @@ import type { MarketStats, TickerItem, CardsResponse, CardDetail, AlertsResponse
 
 const BASE = ''  // same-origin: FastAPI serves both API and SPA
 
+// X-Dev-Tier header lets backend web endpoints resolve tier without full session lookup.
+// Set from UserContext after /me fetch, or localStorage fallback when not logged in.
+let _cachedTier: string = localStorage.getItem('fcp_dev_tier_override') ?? 'free'
+export function setCachedTier(t: string) { _cachedTier = t }
 function devTierHeaders(): Record<string, string> {
-  const t = localStorage.getItem('fcp_dev_tier_override')
-  return t === 'pro' ? { 'X-Dev-Tier': 'pro' } : {}
+  return _cachedTier === 'pro' ? { 'X-Dev-Tier': 'pro' } : {}
 }
 
 export async function fetchStats(): Promise<MarketStats> {
