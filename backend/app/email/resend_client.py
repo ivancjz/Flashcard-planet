@@ -11,7 +11,8 @@ _TEMPLATE_ENV = Environment(
     loader=FileSystemLoader(Path(__file__).parent / "templates")
 )
 
-FROM_ADDRESS = "Flashcard Planet <login@flashcardplanet.com>"
+# TODO: switch back to login@flashcardplanet.com once domain verified in Resend
+FROM_ADDRESS = "Flashcard Planet <onboarding@resend.dev>"
 
 
 def send_waitlist_confirmation_email(to_email: str) -> None:
