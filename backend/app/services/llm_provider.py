@@ -219,10 +219,11 @@ class FallbackLLMProvider:
 
 # Task-type routing table (codified, not implicit)
 # primary → fallback for each task type
+# 2026-05-02: signal_explanation moved to openai (anthropic key invalid)
 _TASK_ROUTING: dict[str, tuple[str, str]] = {
-    "signal_explanation":    ("anthropic", "groq"),
-    "mapping_disambiguation": ("groq",      "anthropic"),
-    "structured_tagging":    ("openai",     "anthropic"),
+    "signal_explanation":    ("openai", "groq"),
+    "mapping_disambiguation": ("groq",   "openai"),
+    "structured_tagging":    ("openai",  "groq"),
 }
 
 _PROVIDER_MAP: dict[str, type] = {
