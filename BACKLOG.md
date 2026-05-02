@@ -281,7 +281,7 @@ The product is web-first: FastAPI + Card Detail + Signals + Watchlist + Pro tier
 #### TASK-302 — Pro tier waitlist form (promoted from P2)
 
 **Priority:** P1
-**Status:** ready
+**Status:** in_progress
 **Owner:** Claude Code
 **Preconditions:** None
 
