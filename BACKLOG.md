@@ -94,7 +94,7 @@ Format:
 #### TASK-102 — Database backup infrastructure
 
 **Priority:** P0
-**Status:** needs_decision
+**Status:** in_progress
 **Owner:** Ivan (decision) → Claude Code (execution)
 **Preconditions:**
 - Operator decides between: (a) Railway Pro plan upgrade, (b) external `pg_dump` → S3/Backblaze daily, (c) hybrid
