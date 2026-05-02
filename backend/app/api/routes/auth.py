@@ -17,6 +17,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from backend.app.api.deps import get_current_user
+from backend.app.core.permissions import resolve_tier
 from backend.app.models.user import User
 
 web_router = APIRouter(tags=["auth"])
@@ -38,6 +39,7 @@ class UserResponse(BaseModel):
     email: str | None
     discord_user_id: str | None
     username: str | None
+    tier: str  # 'free' | 'pro' — resolved via DEV_PRO_EMAILS + access_tier
 
 
 @api_router.get("/me", response_model=UserResponse)
@@ -47,4 +49,5 @@ def auth_me(current_user: User = Depends(get_current_user)) -> UserResponse:
         email=current_user.email,
         discord_user_id=current_user.discord_user_id,
         username=current_user.username,
+        tier=resolve_tier(current_user.email, current_user.access_tier),
     )
