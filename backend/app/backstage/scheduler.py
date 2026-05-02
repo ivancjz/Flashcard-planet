@@ -17,6 +17,7 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_RETRY,
     JOB_SIGNALS,
     JOB_YGO,
+    JOB_EXPLANATION,
     finish_run,
     get_last_run,
     prune_old_runs,
@@ -92,6 +93,7 @@ _STARTUP_DELAY: dict[str, int] = {
     "ebay-ingestion":         660,   # 11 min — after signal-sweep, before heartbeat reports it
     "yugioh-ingestion":       780,   # 13 min — after heartbeat, YGO sets are small so runs fast
     "bulk-set-price-refresh": 900,   # 15 min — after ingestion (120s+~5min run) and signal (600s)
+    "explanation-sweep":      960,   # 16 min — after signal-sweep so new signals get explanations fast
     # "retry-pass" intentionally omitted — resume separately when confidence is high
 }
 
@@ -348,7 +350,7 @@ def _send_heartbeat() -> None:
 
         # Zero-output alert: jobs that ran completed runs but wrote zero records.
         # Detects the eBay-outage pattern: API calls consumed, status=success, 0 rows written.
-        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO]
+        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,
@@ -1089,7 +1091,36 @@ def build_scheduler() -> BackgroundScheduler:
         next_run_time=None,
     )
 
+    scheduler.add_job(
+        _run_explanation_sweep,
+        "interval",
+        hours=6,
+        id="explanation-sweep",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=None,
+    )
+
     return scheduler
+
+
+def _run_explanation_sweep() -> None:
+    """Generate AI explanations for all stale non-INSUFFICIENT_DATA signals."""
+    from backend.app.services.signal_explainer import bulk_generate_explanations
+
+    with SessionLocal() as db:
+        run_id = start_run(db, "explanation-sweep")
+        try:
+            written = bulk_generate_explanations(db)
+            finish_run(db, run_id, status="success", records_written=written)
+        except Exception as exc:
+            with SessionLocal() as err_db:
+                finish_run(err_db, run_id, status="error", error_message=str(exc))
+            logger.exception("explanation-sweep failed")
+        finally:
+            with SessionLocal() as prune_db:
+                prune_old_runs(prune_db, "explanation-sweep")
 
 
 def prepare_scheduler_for_startup(

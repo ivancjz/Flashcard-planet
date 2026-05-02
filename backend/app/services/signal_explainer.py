@@ -92,3 +92,25 @@ def get_or_explain(db: Session, signal: AssetSignal) -> str | None:
     if _is_fresh(signal):
         return signal.explanation
     return explain_signal(db, signal)
+
+
+def bulk_generate_explanations(db: Session) -> int:
+    """Generate explanations for all stale/missing non-INSUFFICIENT_DATA signals.
+
+    Returns number of explanations written. Called by the explanation-sweep scheduler job.
+    Skips signals that already have a fresh explanation (within EXPLANATION_MAX_AGE_HOURS).
+    """
+    from sqlalchemy import select
+    from backend.app.models.asset_signal import AssetSignal
+
+    signals = db.scalars(
+        select(AssetSignal).where(AssetSignal.label != "INSUFFICIENT_DATA")
+    ).all()
+
+    written = 0
+    for signal in signals:
+        if not _is_fresh(signal):
+            text = explain_signal(db, signal)
+            if text:
+                written += 1
+    return written

@@ -185,11 +185,11 @@ class FallbackLLMProviderTests(unittest.TestCase):
 
 
 class ProviderRouterTests(unittest.TestCase):
-    def test_signal_explanation_routes_to_anthropic_primary(self):
+    def test_signal_explanation_routes_to_openai_primary(self):
         import backend.app.services.llm_provider as m
         provider = m.get_llm_provider_for_task("signal_explanation")
         self.assertIsInstance(provider, m.FallbackLLMProvider)
-        self.assertIsInstance(provider._primary, m.AnthropicProvider)
+        self.assertIsInstance(provider._primary, m.OpenAIProvider)
         self.assertIsInstance(provider._fallback, m.GroqProvider)
 
     def test_mapping_disambiguation_routes_to_groq_primary(self):
@@ -197,14 +197,14 @@ class ProviderRouterTests(unittest.TestCase):
         provider = m.get_llm_provider_for_task("mapping_disambiguation")
         self.assertIsInstance(provider, m.FallbackLLMProvider)
         self.assertIsInstance(provider._primary, m.GroqProvider)
-        self.assertIsInstance(provider._fallback, m.AnthropicProvider)
+        self.assertIsInstance(provider._fallback, m.OpenAIProvider)
 
     def test_structured_tagging_routes_to_openai_primary(self):
         import backend.app.services.llm_provider as m
         provider = m.get_llm_provider_for_task("structured_tagging")
         self.assertIsInstance(provider, m.FallbackLLMProvider)
         self.assertIsInstance(provider._primary, m.OpenAIProvider)
-        self.assertIsInstance(provider._fallback, m.AnthropicProvider)
+        self.assertIsInstance(provider._fallback, m.GroqProvider)
 
     def test_unknown_task_type_falls_back_to_anthropic_and_logs(self):
         import backend.app.services.llm_provider as m
