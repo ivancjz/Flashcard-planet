@@ -115,7 +115,7 @@ docker stop pg-restore-test && docker rm pg-restore-test
 
 | Date | Run by | Backup used | RTO observed | Asset count match | Notes |
 |---|---|---|---|---|---|
-| *(pending — perform after first successful backup run)* | | | | | |
+| 2026-05-02 | ivancjz | backup-4 (297 MB) | Yes | 47s restore + ~3min download = **~4 min total** | assets=4371, price_rows=1,342,611, signals=4033 — exact match with production. postgres:18 container. |
 
 **DoD for TASK-102a:** Fill in the first row of this table. RTO must be documented before TASK-102a is considered complete.
 
