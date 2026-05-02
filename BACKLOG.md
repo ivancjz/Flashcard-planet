@@ -91,22 +91,6 @@ Format:
 
 ---
 
-#### TASK-102 — Database backup infrastructure
-
-**Priority:** P0
-**Status:** in_progress
-**Owner:** Ivan (decision) → Claude Code (execution)
-**Preconditions:**
-- Operator decides between: (a) Railway Pro plan upgrade, (b) external `pg_dump` → S3/Backblaze daily, (c) hybrid
-
-**Definition of Done:**
-- Daily backup running and visible in some monitorable location (Railway dashboard / S3 bucket / wherever)
-- One end-to-end restore drill performed against a non-prod DB; RTO documented as <4 hours
-- `docs/runbooks/disaster-recovery.md` written with exact commands to restore from backup
-
-**Estimated effort:** M
-**Reference:** CLAUDE.md §7 ("No backup infrastructure (Hobby plan). Operator accepted this risk explicitly; P0 remains on backlog.")
-**Notes:** **Must complete before TASK-301 (Pro tier launch).** Once real money is involved, the cost of a single point of failure goes up by orders of magnitude.
 
 ---
 
@@ -297,9 +281,9 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 
 #### TASK-301 — Pro tier launch implementation
 
-**Priority:** P2 (promotes to P1 when TASK-102 is done)
-**Status:** blocked
-**Blocked by:** TASK-102 (backups only — TASK-203 design + all 6 decisions are complete)
+**Priority:** P1 — both blockers resolved, promoting now
+**Status:** ready
+**Blocked by:** ~~TASK-102~~ (done) ~~TASK-203~~ (done)
 **Owner:** Claude Code + Ivan
 **Preconditions:**
 - Database backups in place (TASK-102 done) ← last remaining blocker
@@ -413,6 +397,8 @@ When a task ships, move it here with PR number and merge date. Keep this section
 | TASK-103b | PR review via Codex Cloud (Path C) | commit 47b3c63 | 2026-05-02 | AGENTS.md written. CLAUDE.md §4 updated. Operator enables Codex Cloud in chatgpt.com settings. |
 | TASK-401 | OpenAI as third LLM provider | commit 9dafe11 | 2026-05-02 | OpenAIProvider + task-type router + FallbackLLMProvider + IP tagging experiment. 861 tests pass. |
 | TASK-203 | Pro tier payment integration design doc | commit f1ee749 | 2026-05-02 | Design doc + 6-decision ADR. LemonSqueezy MoR, USD $12/$9 Founders, card-free 7d trial. TASK-301 now blocked only on TASK-102 (backups). |
+| TASK-102a | Daily pg_dump backup via GitHub Actions | commit a9c5cfb | 2026-05-02 | Workflow + disaster-recovery runbook. Operator must: create backup repo, add 3 secrets, run workflow_dispatch, perform restore drill. |
+| TASK-102b | Quarterly local backup download script | commit c1dc319 | 2026-05-02 | backend/scripts/backup_to_local.sh + quarterly-backup.md. Add quarterly reminder to Google Calendar. |
 
 ---
 
@@ -422,7 +408,7 @@ When a task is `needs_decision`, log here:
 
 | Date raised | Question | Status | Resolution date | Resolution |
 |---|---|---|---|---|
-| 2026-05-02 | Database backup: Railway Pro vs external `pg_dump` vs hybrid? (TASK-102) | open | — | — |
+| 2026-05-02 | Database backup: Railway Pro vs external dump vs hybrid? (TASK-102) | **resolved** | 2026-05-02 | **Free-tier hybrid**: GitHub Actions daily → private Releases (102a) + quarterly manual local download (102b). Re-evaluate at Pro users ≥ 10. |
 | 2026-05-02 | Pro tier payment provider, pricing, trial, refund, data retention, launch sequence (TASK-203) | **resolved** | 2026-05-02 | See `docs/decisions/2026-05-02-pro-launch-parameters.md`. LS MoR, USD $12/$9 Founders, card-free 7d trial, 14d self-service refund, 90d grace, waitlist-48h-then-public. |
 | 2026-05-02 | Pokemon full historical coverage vs multi-TCG breadth — which gets resources first after Pro launches? (TASK-304) | open | — | — |
 | 2026-05-02 | Discord bot 24-hour deployment vs archive? | **resolved** | 2026-05-02 | **Archive.** Zero users on slash commands, web is the product, REST API alerts stay. See TASK-104. |
