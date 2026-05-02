@@ -42,7 +42,7 @@ export default function AIAnalysisSection({ aiAnalysis }: Props) {
       </p>
 
       <a
-        href="mailto:hello@flashcardplanet.com"
+        href="/#pricing"
         style={{
           display: 'inline-flex', alignItems: 'center', gap: 6,
           fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12,
@@ -52,7 +52,7 @@ export default function AIAnalysisSection({ aiAnalysis }: Props) {
           transition: 'opacity 0.15s',
         }}
       >
-        Get early access →
+        Join the waitlist →
       </a>
     </div>
   )
