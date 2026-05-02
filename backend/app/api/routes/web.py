@@ -989,10 +989,7 @@ def web_card_detail(
             s.label         AS signal,
             s.price_delta_pct,
             s.liquidity_score,
-            -- TEMP: ai_analysis returned unconditionally for testing phase.
-            -- Restore when commercial tier is finalized:
-            --   add tier param to this endpoint and gate on Feature.SIGNAL_EXPLANATION.
-            -- Original: field not included (explanation never returned to frontend).
+            -- Always fetch from DB; Python layer gates it to Pro tier only.
             s.explanation   AS ai_analysis,
             tcg.price       AS tcg_price,
             ebay.price      AS ebay_price,
@@ -1019,18 +1016,21 @@ def web_card_detail(
     if not row:
         raise HTTPException(status_code=404, detail="Card not found")
 
-    # Auto-generate AI explanation for Pro users when missing
-    ai_analysis = dict(row._mapping).get('ai_analysis')
-    if ai_analysis is None and can(tier, Feature.SIGNAL_EXPLANATION) and row.signal not in (None, "INSUFFICIENT_DATA"):
-        from sqlalchemy import select as _select
-        from backend.app.models.asset_signal import AssetSignal
-        from backend.app.services.signal_explainer import get_or_explain
-        import uuid as _uuid
-        signal_row = db.scalars(
-            _select(AssetSignal).where(AssetSignal.asset_id == _uuid.UUID(asset_id))
-        ).first()
-        if signal_row is not None:
-            ai_analysis = get_or_explain(db, signal_row)
+    # AI Analysis: Pro-only. Auto-generate on first Pro visit if missing.
+    # Free users always receive null — prevents explanation leaking to non-Pro tier.
+    ai_analysis = None
+    if can(tier, Feature.SIGNAL_EXPLANATION) and row.signal not in (None, "INSUFFICIENT_DATA"):
+        ai_analysis = dict(row._mapping).get('ai_analysis')
+        if ai_analysis is None:
+            from sqlalchemy import select as _select
+            from backend.app.models.asset_signal import AssetSignal
+            from backend.app.services.signal_explainer import get_or_explain
+            import uuid as _uuid
+            signal_row = db.scalars(
+                _select(AssetSignal).where(AssetSignal.asset_id == _uuid.UUID(asset_id))
+            ).first()
+            if signal_row is not None:
+                ai_analysis = get_or_explain(db, signal_row)
 
     history = db.execute(text("""
         SELECT
