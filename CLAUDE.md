@@ -138,6 +138,7 @@ These three CLIs (`railway`, `gh`, `codex`) plus standard tools (`git`, `psql`, 
 ### Git workflow
 - Branches always `feat/<description>` or `fix/<description>`.
 - **One commit = one concern.** Day 1 merged a "bulk-refresh guard + 429 fixes" tangle and it cost us 10 hours of confusion. Keep PRs focused.
+- **Before `git commit`, always run `git status` and `git diff --staged`** to verify only files relevant to the current concern are staged. If unrelated changes are in the working tree (e.g., a different task in progress), `git stash` them first, commit the focused change, then `git stash pop`. The 2026-05-02 c1dc319 incident bundled DEV_PRO_EMAILS permission changes into a backup-script commit because both were in the working tree simultaneously — caught by self-review, not by CI.
 - Operator trusts you to push to main directly. **Do not abuse this** — push only after PR self-review + codex review gate (see §4).
 - Every commit message must include: what, why, and verification evidence. Format:
   ```
