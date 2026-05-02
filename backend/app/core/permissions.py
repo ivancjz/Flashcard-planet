@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import os
 from enum import Enum
 
 from backend.app.core.response_types import ProGateConfig
+
+
+def _parse_dev_pro_emails(raw: str) -> frozenset[str]:
+    return frozenset(e.strip().lower() for e in raw.split(",") if e.strip())
+
+
+_DEV_PRO_EMAILS: frozenset[str] = _parse_dev_pro_emails(os.getenv("DEV_PRO_EMAILS", ""))
 
 
 class Feature(str, Enum):
@@ -76,6 +84,13 @@ _TIER_CAPABILITIES: dict[str, frozenset[Feature]] = {
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
+
+def resolve_tier(email: str | None, stored_tier: str) -> str:
+    """Return effective tier: promotes to 'pro' if email is in DEV_PRO_EMAILS whitelist."""
+    if email and email.lower() in _DEV_PRO_EMAILS:
+        return "pro"
+    return stored_tier
+
 
 def can(access_tier: str, feature: Feature) -> bool:
     """Return True if *access_tier* grants *feature*."""

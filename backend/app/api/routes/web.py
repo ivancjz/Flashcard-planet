@@ -6,7 +6,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -14,7 +14,9 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-from backend.app.api.deps import get_database
+from backend.app.api.deps import get_database, get_optional_user
+from backend.app.core.permissions import resolve_tier
+from backend.app.models.user import User
 
 router = APIRouter(prefix="/api/v1/web", tags=["web"])
 
@@ -23,10 +25,11 @@ router = APIRouter(prefix="/api/v1/web", tags=["web"])
 _PRO_ONLY_SORTS: frozenset[str] = frozenset({"volume", "recent"})  # currently unused
 
 
-def _get_effective_tier(request: Request) -> str:
-    """Phase 1: read X-Dev-Tier header only. Phase 2: replace with real auth."""
-    dev_tier = request.headers.get("X-Dev-Tier", "").lower()
-    return dev_tier if dev_tier in {"pro", "free"} else "free"
+def _get_effective_tier(user: User | None = Depends(get_optional_user)) -> str:
+    """Return effective tier for the authenticated user, applying DEV_PRO_EMAILS override."""
+    if user is None:
+        return "free"
+    return resolve_tier(user.email, user.access_tier)
 
 
 @router.get("/stats")
@@ -124,7 +127,6 @@ def web_filter_rarities(
 
 @router.get("/cards")
 def web_cards(
-    request: Request,
     signal: str = Query(default="ALL"),
     sort: str = Query(default="change"),
     game: str = Query(default="pokemon"),
@@ -136,8 +138,8 @@ def web_cards(
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0),
     db: Session = Depends(get_database),
+    tier: str = Depends(_get_effective_tier),
 ):
-    tier = _get_effective_tier(request)
     requested_sort = sort
     # TEMP: Pro tier gate removed for testing phase. Restore when commercial tier is finalized.
     # Restore: if sort in _PRO_ONLY_SORTS and tier != "pro": sort = "change"
@@ -675,13 +677,16 @@ class CardsBatchRequest(BaseModel):
 
 
 @router.post("/cards/batch")
-def web_cards_batch(request: Request, body: CardsBatchRequest, db: Session = Depends(get_database)):
+def web_cards_batch(
+    body: CardsBatchRequest,
+    db: Session = Depends(get_database),
+    tier: str = Depends(_get_effective_tier),
+):
     """Fetch cards by explicit asset_ids list (for Watchlist).
     No game filter — asset UUIDs are game-agnostic.
     Primary source (TCG price) is determined per-asset via SQL CASE on a.game.
     Cap: 500 asset_ids per request.
     """
-    tier = _get_effective_tier(request)
     # TEMP: Pro tier gate removed for testing phase. Restore when commercial tier is finalized.
     # Restore: if body.sort in _PRO_ONLY_SORTS and tier != "pro": body.sort = "change"
 

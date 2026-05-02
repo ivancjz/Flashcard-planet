@@ -8,7 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.core.permissions import Feature, can, get_capabilities
+from backend.app.core.permissions import Feature, can, get_capabilities, resolve_tier
 from backend.app.core.security import decode_access_token
 from backend.app.db.session import get_db
 from backend.app.models.user import User
@@ -65,7 +65,7 @@ def get_current_user(user: User | None = Depends(get_optional_user)) -> User:
 def require_tier(feature: Feature):
     """FastAPI dependency factory that enforces a feature gate."""
     def _dep(user: User = Depends(get_current_user)) -> User:
-        if not can(user.access_tier, feature):
+        if not can(resolve_tier(user.email, user.access_tier), feature):
             raise HTTPException(status_code=403, detail="Pro subscription required.")
         return user
     return _dep
@@ -77,4 +77,4 @@ def get_user_capabilities(
     """Returns the frozenset of Features for the current user (or empty if unauthenticated)."""
     if user is None:
         return frozenset()
-    return get_capabilities(user.access_tier)
+    return get_capabilities(resolve_tier(user.email, user.access_tier))

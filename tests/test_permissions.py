@@ -1,4 +1,5 @@
 import pytest
+import backend.app.core.permissions as perms_module
 from backend.app.core.permissions import Feature, can, get_capabilities
 from backend.app.models.enums import AccessTier
 
@@ -123,3 +124,26 @@ class TestGetProGateConfig:
         result = get_pro_gate_config("nonexistent_feature", "free")
         assert result.is_locked is True
         assert result.upgrade_reason  # non-empty
+
+
+class TestResolveDevProTier:
+    def test_dev_pro_email_grants_pro(self, monkeypatch):
+        from backend.app.core.permissions import resolve_tier
+        monkeypatch.setattr(perms_module, "_DEV_PRO_EMAILS", frozenset({"ivan@test.com"}))
+        assert resolve_tier("ivan@test.com", "free") == "pro"
+
+    def test_dev_pro_email_case_insensitive(self, monkeypatch):
+        from backend.app.core.permissions import resolve_tier
+        monkeypatch.setattr(perms_module, "_DEV_PRO_EMAILS", frozenset({"ivan@test.com"}))
+        assert resolve_tier("IVAN@TEST.COM", "free") == "pro"
+
+    def test_no_env_var_means_no_override(self, monkeypatch):
+        from backend.app.core.permissions import resolve_tier
+        monkeypatch.setattr(perms_module, "_DEV_PRO_EMAILS", frozenset())
+        assert resolve_tier("ivan@test.com", "free") == "free"
+
+    def test_invalid_email_in_env_var_no_crash(self):
+        from backend.app.core.permissions import _parse_dev_pro_emails
+        assert _parse_dev_pro_emails("  ,  ,  ") == frozenset()
+        assert _parse_dev_pro_emails("") == frozenset()
+        assert _parse_dev_pro_emails("ivan@test.com, , ") == frozenset({"ivan@test.com"})

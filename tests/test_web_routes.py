@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from backend.app.api.deps import get_database
-from backend.app.api.routes.web import router as web_router
+from backend.app.api.routes.web import router as web_router, _get_effective_tier
 
 
 def _make_row(**kwargs):
@@ -27,6 +27,7 @@ def _make_app(db):
     app = FastAPI()
     app.include_router(web_router)
     app.dependency_overrides[get_database] = _db_dep(db)
+    app.dependency_overrides[_get_effective_tier] = lambda: "free"
     return app, TestClient(app)
 
 
