@@ -59,6 +59,80 @@ All 5 use `interval` trigger + startup resume via `prepare_scheduler_for_startup
 
 ---
 
+## 2.5. CLI tools available to you
+
+The operator's local environment has these CLIs installed and authenticated. **Use them directly** — do not ask the operator to copy/paste dashboard screenshots, do not write Python wrappers for what a one-liner can do, do not assume you don't have access until you've tried.
+
+### Railway CLI (`railway`)
+
+Authenticated against the operator's Railway account. Linked to the Flashcard Planet project.
+
+**Use it for:**
+
+- **Inspect production env vars**: `railway variables` — confirms whether a feature flag (e.g., `EBAY_SCHEDULED_INGEST_ENABLED`, `DEV_PRO_EMAILS`) is actually set in production. Faster and more reliable than asking the operator to check the dashboard.
+- **Run one-off SQL against production**: `railway run psql $DATABASE_URL -c "SELECT count(*) FROM assets WHERE game='ygo';"` — for verification queries that don't fit in the diagnostic endpoint pattern.
+- **Tail production logs**: `railway logs --service backend` — when a deploy might have failed silently or you need to see a stack trace.
+- **Trigger manual deploys** (rarely): `railway up` — only when CI is broken and the operator explicitly asks.
+- **Run scripts in production environment**: `railway run python -m scripts.<name>` — connects to production DB with proper env vars without leaking credentials.
+
+**Do NOT use it for:**
+
+- Modifying production env vars (`railway variables set ...`) without explicit operator instruction. Env vars are configuration decisions, not code.
+- Restarting services unprompted. If a deploy is misbehaving, report and wait.
+- Touching any other Railway project. The operator may have other projects in their account; you operate only on Flashcard Planet.
+
+**Verifying it's available:** `railway whoami` should return the operator's email.
+
+### GitHub CLI (`gh`)
+
+Authenticated as `ivancjz`. Has read/write access to `ivancjz/Flashcard-planet` and `ivancjz/flashcard-planet-backups` (private backup repo).
+
+**Use it for:**
+
+- **Open PRs**: `gh pr create --title "..." --body "..."` — instead of writing instructions for the operator to do it manually. The PR template / body should still follow CLAUDE.md §3 commit message conventions.
+- **Read PR / issue state**: `gh pr list`, `gh pr view <num>`, `gh issue list` — when you need to know what's open without asking.
+- **Check workflow runs**: `gh run list --workflow daily-backup.yml` — verify Codex Cloud reviews posted, daily backup ran, etc.
+- **Download artifacts / releases**: `gh release download --repo ivancjz/flashcard-planet-backups <tag>` — for restore drills, debugging, or manual backup retrieval.
+- **Comment on PRs**: `gh pr comment <num> --body "..."` — when leaving notes for the operator or for Codex Cloud follow-up.
+- **Trigger workflow_dispatch**: `gh workflow run daily-backup.yml` — to manually run the daily backup, useful for first-time setup verification or after a failure.
+
+**Do NOT use it for:**
+
+- Force-pushing to main (`gh ...` won't do this directly, but git can — see CLAUDE.md §3 git workflow rules).
+- Closing issues / PRs without operator approval if they aren't your own.
+- Modifying repository settings (`gh repo edit ...`) — settings are operator decisions.
+- Touching any repo other than `ivancjz/Flashcard-planet` and `ivancjz/flashcard-planet-backups`.
+
+**Verifying it's available:** `gh auth status` should show authenticated as `ivancjz`.
+
+### Codex CLI (`codex exec`)
+
+Already documented in §4. Used for fallback PR review when Codex Cloud is unavailable. Pre-authenticated.
+
+---
+
+### General CLI usage rules
+
+These three CLIs (`railway`, `gh`, `codex`) plus standard tools (`git`, `psql`, `docker`, `bash`, `python`) are your direct execution surface. Default to using them rather than:
+
+- Asking the operator for screenshots
+- Writing Python scripts to do what a CLI one-liner does
+- Assuming you can't access something until you've tried
+
+**When in doubt, run the read-only command first** (`railway variables`, `gh pr list`, `psql ... -c "SELECT ..."`) and report what you found. Read-only operations are essentially free.
+
+**When you'd modify state with a CLI** (set an env var, push a commit, restart a service), follow the same rules as for code changes:
+
+- Verify-not-assume — confirm the current state before writing
+- Report what you ran in the "Verified by" block
+- For irreversible actions, get explicit operator confirmation
+
+**Pattern to avoid:** writing `os.environ.get(...)` checks inside a Python REPL when `railway variables` would answer the question in 1 second from outside the application. The CLIs exist precisely so you don't have to write throwaway code for state inspection.
+
+**Pattern to embrace:** every time you'd say "operator, can you check X in the Railway dashboard?" — first ask yourself if `railway` CLI can answer it. 90% of the time it can.
+
+---
+
 ## 3. Critical conventions (do not violate without explicit operator approval)
 
 ### Git workflow
