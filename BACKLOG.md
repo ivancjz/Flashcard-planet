@@ -140,27 +140,6 @@ A short report at `docs/audits/2026-XX-codex-ci-feasibility.md` answering:
 
 ---
 
-#### TASK-103b — Implement automated PR review (path TBD by 103a)
-
-**Priority:** P0
-**Status:** in_progress
-**Blocked by:** TASK-103a (complete)
-**Owner:** Claude Code
-**Preconditions:**
-- TASK-103a complete with operator-approved recommendation
-
-**Definition of Done:**
-- An automated review runs on every PR and posts findings as a PR comment under a `## Codex Review` (or equivalent) heading
-- The automation runs without operator intervention
-- Existing manual `codex exec` workflow remains as a fallback documented in CLAUDE.md
-- At least 1 PR has gone through the full automated cycle, with the comment visible on the PR
-
-**Estimated effort:** M
-**Reference:** TASK-103a output
-**Notes:**
-- This is one of the three changes that converts Claude Code from "reactive 9-5 helper" to "24-hour async builder" (the others being TASK-102 backups and TASK-104 product surface cleanup).
-- The exact implementation depends entirely on 103a findings. If Codex CLI doesn't fit CI, this task may end up implementing a Claude Code self-review fallback — that's acceptable and preserves the review gate, even if not fully independent.
-
 ---
 
 ### P1 — should do this month
@@ -485,7 +464,8 @@ When a task ships, move it here with PR number and merge date. Keep this section
 
 | TASK | Title | PR | Merged | Outcome |
 |---|---|---|---|---|
-| — | (placeholder — first migrations into this format) | — | — | — |
+| TASK-103a | Codex CLI CI feasibility research | — | 2026-05-02 | Path A (OpenAI API key) confirmed viable. Report at `docs/audits/2026-05-02-codex-ci-feasibility.md` |
+| TASK-103b | Automated Codex PR review via GitHub Actions | commit 1ef1565 | 2026-05-02 | `.github/workflows/codex-review.yml` live on main. Requires `OPENAI_API_KEY` secret in repo settings. |
 
 ---
 
