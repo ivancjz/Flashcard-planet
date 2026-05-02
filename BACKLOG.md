@@ -181,7 +181,7 @@ Format:
 #### TASK-204 — Image backfill retry audit
 
 **Priority:** P1
-**Status:** ready
+**Status:** complete
 **Owner:** Claude Code
 **Preconditions:** None
 
@@ -381,7 +381,13 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 
 ### needs_triage (proposed by Claude Code or operator, not yet prioritized)
 
-(Empty — this is the dump zone. Add new tasks here when discovered, then the next triage pass moves them to P0/P1/P2.)
+#### TASK-T01 — YGO image retry path
+**Proposed:** 2026-05-02 (TASK-204 audit finding)
+`_query_missing_image()` only covers `game='pokemon'`. YGO assets that lack images have no retry path. ~20 LOC fix in `pokemon_tcg.py` + `ygo.py`. Not urgent (67 YGO assets today), but needed before YGO expansion to 300+ assets (TASK-201).
+
+#### TASK-T02 — Add failed_backfill_queue count to diagnostics
+**Proposed:** 2026-05-02 (TASK-204 audit finding)
+`failed_backfill_queue` permanent failure count is not visible in any admin endpoint. Add to next diagnostic endpoint PR alongside TASK-301 diag work.
 
 ---
 
@@ -397,6 +403,7 @@ When a task ships, move it here with PR number and merge date. Keep this section
 | TASK-103b | PR review via Codex Cloud (Path C) | commit 47b3c63 | 2026-05-02 | AGENTS.md written. CLAUDE.md §4 updated. Operator enables Codex Cloud in chatgpt.com settings. |
 | TASK-401 | OpenAI as third LLM provider | commit 9dafe11 | 2026-05-02 | OpenAIProvider + task-type router + FallbackLLMProvider + IP tagging experiment. 861 tests pass. |
 | TASK-203 | Pro tier payment integration design doc | commit f1ee749 | 2026-05-02 | Design doc + 6-decision ADR. LemonSqueezy MoR, USD $12/$9 Founders, card-free 7d trial. TASK-301 now blocked only on TASK-102 (backups). |
+| TASK-204 | Image backfill retry audit | (audit only) | 2026-05-02 | Two-layer retry exists (backfill_pass + retry_pass). ~0% imageless rate for Pokemon. Gap: YGO has no image retry path. See docs/audits/2026-05-02-image-backfill.md |
 | TASK-102a | Daily pg_dump backup via GitHub Actions | commit a9c5cfb | 2026-05-02 | Workflow + disaster-recovery runbook. Operator must: create backup repo, add 3 secrets, run workflow_dispatch, perform restore drill. |
 | TASK-102b | Quarterly local backup download script | commit c1dc319 | 2026-05-02 | backend/scripts/backup_to_local.sh + quarterly-backup.md. Add quarterly reminder to Google Calendar. |
 
