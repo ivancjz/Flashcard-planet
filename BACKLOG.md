@@ -236,7 +236,7 @@ Format:
 #### TASK-401 — Add OpenAI as third LLM provider for AI analysis
 
 **Priority:** P1
-**Status:** ready
+**Status:** in_progress
 **Owner:** Claude Code
 
 **Background:** The codebase already runs Anthropic + Groq as dual LLM providers for signal explanation, mapping disambiguation, etc. Operator already purchased OpenAI API credits expecting to use them for PR review automation, but TASK-103b adopted Codex Cloud (Path C) instead — making the API key available for higher-value use.
