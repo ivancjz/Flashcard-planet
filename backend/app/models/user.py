@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String
+from sqlalchemy import Boolean, DateTime, Index, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -28,6 +28,20 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    # Subscription fields (populated by LemonSqueezy webhook handler)
+    # subscription_status values: free | trialing | active | past_due | cancelled | expired
+    subscription_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="free", default="free")
+    subscription_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)           # 'lemonsqueezy'
+    subscription_provider_id: Mapped[str | None] = mapped_column(String(128), nullable=True)       # LS subscription ID
+    subscription_current_period_end: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    subscription_cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
+    trial_started_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+
+    __table_args__ = (
+        Index("ix_users_subscription_status", "subscription_status"),
     )
 
     watchlists: Mapped[list["Watchlist"]] = relationship(
