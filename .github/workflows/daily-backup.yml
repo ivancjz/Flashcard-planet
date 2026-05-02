@@ -1,0 +1,74 @@
+name: Daily Database Backup
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # 04:00 UTC daily
+  workflow_dispatch:        # manual trigger for drill and first-run test
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Install postgresql-client-18
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            > /etc/apt/sources.list.d/pgdg.list'
+          wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-18
+
+      - name: Run pg_dump
+        run: |
+          set -euo pipefail
+          # Strip SQLAlchemy driver prefix if present (postgresql+psycopg:// → postgresql://)
+          DB_URL="${DATABASE_URL/postgresql+psycopg:\/\//postgresql://}"
+          pg_dump --no-owner --no-acl "$DB_URL" | gzip > backup.sql.gz
+          # Sanity check: a valid dump of any non-trivial DB is at least 50 KB
+          MIN_BYTES=51200
+          ACTUAL_BYTES=$(stat -c%s backup.sql.gz)
+          if [ "$ACTUAL_BYTES" -lt "$MIN_BYTES" ]; then
+            echo "ERROR: backup file is only ${ACTUAL_BYTES} bytes — likely a failed or empty dump"
+            exit 1
+          fi
+          echo "Backup size: $(du -sh backup.sql.gz | cut -f1)"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Upload to backup repo as prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          files: backup.sql.gz
+          tag_name: backup-${{ github.run_number }}
+          name: "Backup #${{ github.run_number }} — ${{ github.run_id }}"
+          prerelease: true
+          repository: ivancjz/flashcard-planet-backups
+          token: ${{ secrets.BACKUP_REPO_TOKEN }}
+
+      - name: Prune releases older than 30 days
+        run: |
+          CUTOFF=$(date -u -d '30 days ago' +%s)
+          SAFE_CUTOFF=$(date -u -d '7 days ago' +%s)
+          gh release list --repo ivancjz/flashcard-planet-backups --limit 200 \
+            --json tagName,publishedAt \
+            | jq -r '.[] | [.tagName, .publishedAt] | @tsv' \
+            | while IFS=$'\t' read -r tag published_at; do
+                release_ts=$(date -u -d "$published_at" +%s 2>/dev/null || echo 0)
+                if [ "$release_ts" -lt "$CUTOFF" ] && [ "$release_ts" -lt "$SAFE_CUTOFF" ]; then
+                  echo "Deleting old release: $tag ($published_at)"
+                  gh release delete "$tag" --repo ivancjz/flashcard-planet-backups --yes --cleanup-tag
+                fi
+              done
+        env:
+          GH_TOKEN: ${{ secrets.BACKUP_REPO_TOKEN }}
+
+      - name: Alert Discord on failure
+        if: failure()
+        run: |
+          curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"**[BACKUP FAILED]** Daily pg_dump did not complete. Run #${{ github.run_number }}. Check: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_ALERT_WEBHOOK_URL }}
