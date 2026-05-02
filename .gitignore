@@ -6,6 +6,7 @@ logs/
 .worktrees/
 *.log
 .claude/
+.codexhome/
 frontend/dist/
 .pytest_cache/
 .pytest-cache-local/

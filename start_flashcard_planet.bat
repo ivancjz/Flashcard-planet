@@ -16,9 +16,7 @@ start "Flashcard API" cmd /k "cd /d C:\Flashcard-planet && call .venv\Scripts\ac
 
 timeout /t 3 >nul
 
-echo [3/3] Starting Discord bot...
-start "Flashcard Bot" cmd /k "cd /d C:\Flashcard-planet && call .venv\Scripts\activate.bat && python -m bot.main"
-
 echo.
 echo Flashcard Planet startup commands launched.
+echo Note: Discord bot is archived (archive/discord-bot-2026/). Alert delivery uses webhook only.
 pause

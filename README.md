@@ -1,14 +1,14 @@
 # Flashcard Planet
 
-Flashcard Planet is a real-time card market intelligence MVP for trading cards and collectibles. This repository intentionally starts as a clean Python monolith: FastAPI for the backend API, PostgreSQL for persistence, and `discord.py` for the first bot interface.
+Flashcard Planet is a web-first TCG market intelligence platform. FastAPI backend, PostgreSQL persistence, Discord alert delivery via REST API webhook.
 
 ## What is included
 
 - FastAPI backend with a working price search endpoint and watchlist endpoints.
 - PostgreSQL-ready SQLAlchemy models for `assets`, `price_history`, `users`, `watchlists`, and `alerts`.
 - Universal asset model that can support Pokemon, sports cards, and future categories in the same schema.
-- Discord bot with slash commands for `/price`, `/history`, `/predict`, `/topvalue`, `/topmovers`, `/watch`, `/watchlist`, `/unwatch`, and `/alerts`.
-- APScheduler-based ingestion and alert evaluation loop for automatic Discord DM notifications.
+- APScheduler-based ingestion and alert evaluation loop.
+- Discord alert delivery (one-way, via REST API webhook — no bot process).
 - Seed data script with a few cross-category sample assets.
 - First real ingestion pipeline using the Pokemon TCG API for a curated fixed set of Pokemon cards, now expanded to all Base Set Pokemon cards.
 - Docker Compose for local PostgreSQL.
@@ -18,10 +18,10 @@ Flashcard Planet is a real-time card market intelligence MVP for trading cards a
 ```text
 backend/
   app/
-bot/
 database/
 scripts/
 docs/
+archive/     (archived code — see archive/discord-bot-2026/ARCHIVED.md)
 ```
 
 ## Data model decisions

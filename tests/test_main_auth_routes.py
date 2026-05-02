@@ -33,8 +33,3 @@ class MainAuthRoutesTests(unittest.TestCase):
         resp = client.get("/auth/google/login", follow_redirects=False)
         self.assertNotEqual(resp.status_code, 404)
 
-    def test_link_discord_route_exists(self):
-        """GET /account/link-discord must exist (401 when not logged in is fine)."""
-        client = self._get_client()
-        resp = client.get("/account/link-discord", follow_redirects=False)
-        self.assertNotEqual(resp.status_code, 404)

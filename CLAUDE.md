@@ -9,7 +9,7 @@ This file is the project context for any Claude instance working on this codebas
 **Flashcard Planet** is a TCG (Trading Card Game) investment signals SaaS, targeting retail TCG investors who want price movement alerts and AI-powered analysis. Pokémon TCG is the first game live; Yu-Gi-Oh is scaffolded; MTG / One Piece are roadmap.
 
 - **Operator**: Ivan (solo dev, Melbourne, AEST). GitHub: `ivancjz`.
-- **Stack**: Python 3.13 + FastAPI + SQLAlchemy 2 + Alembic + APScheduler + httpx + Postgres 18. Discord for alerts.
+- **Stack**: Python 3.13 + FastAPI + SQLAlchemy 2 + Alembic + APScheduler + httpx + Postgres 18. Web-first product; Discord is an outbound alert delivery channel via REST API webhook only.
 - **Hosting**: Railway. Hobby plan. ~AUD 300/month. **No automatic backups** (Pro plan required — not on Pro).
 - **Deploy**: GitHub main → Railway auto-deploy.
 - **Branch strategy**: `feat/*` or `fix/*` → PR → self-review → merge main → auto-deploy.
@@ -31,6 +31,7 @@ This file is the project context for any Claude instance working on this codebas
 - `backend/app/ingestion/` — `pokemon_tcg.py` (Pokemon TCG API), `ebay_sold.py` (eBay sold listings), `ygo.py` (Yu-Gi-Oh scaffold).
 - `backend/app/services/signal_service.py` — Signal computation. Dual-window algorithm (baseline ≥7d + current ≤24h). See `SWEEP_BATCH_SIZE` at file top.
 - `backend/app/models/` — SQLAlchemy models.
+- `backend/app/alerting/discord.py` — Discord alert delivery via REST API webhook. This is the only Discord integration point. No bot process; no Gateway connection.
 - `scripts/import_pokemon_cards.py` — CLI for manual Pokemon set imports.
 
 ### Models you'll touch most

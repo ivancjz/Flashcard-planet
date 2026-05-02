@@ -51,9 +51,7 @@ class Settings(BaseSettings):
     database_url: str = Field(
         default="postgresql+psycopg://flashcard:flashcard@localhost:5432/flashcard_planet"
     )
-    bot_token: str = ""
-    discord_application_id: str = ""
-    discord_guild_id: str = ""
+    bot_token: str = ""      # Discord bot token — used by alert_service.py for user DM notifications
     backend_base_url: str = f"http://localhost:{os.environ.get('PORT', 8000)}"
     scheduler_poll_seconds: int = 300
     pokemon_tcg_api_base_url: str = "https://api.pokemontcg.io/v2"
@@ -85,9 +83,6 @@ class Settings(BaseSettings):
     groq_base_url: str = "https://api.groq.com/openai/v1"
     llm_provider: str = "anthropic"
     secret_key: str = Field(default="change-me-in-production-use-a-long-random-string")
-    discord_client_id: str = ""
-    discord_client_secret: str = ""
-    discord_redirect_uri: str = ""   # e.g. https://yourdomain.com/auth/callback
     jwt_expire_days: int = Field(default=30, ge=1)
     # Auth v2
     google_client_id: str = ""
