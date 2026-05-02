@@ -14,6 +14,18 @@ _TEMPLATE_ENV = Environment(
 FROM_ADDRESS = "Flashcard Planet <login@flashcardplanet.com>"
 
 
+def send_waitlist_confirmation_email(to_email: str) -> None:
+    """Send a Pro waitlist confirmation email via Resend."""
+    resend.api_key = get_settings().resend_api_key
+    html = _TEMPLATE_ENV.get_template("waitlist_confirmation.html").render()
+    resend.Emails.send({
+        "from": FROM_ADDRESS,
+        "to": [to_email],
+        "subject": "You're on the Flashcard Planet Pro waitlist",
+        "html": html,
+    })
+
+
 def send_magic_link_email(to_email: str, magic_url: str) -> None:
     """Send a Magic Link login email via Resend."""
     resend.api_key = get_settings().resend_api_key

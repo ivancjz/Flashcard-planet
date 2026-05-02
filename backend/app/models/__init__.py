@@ -7,8 +7,9 @@ from backend.app.models.graded_observation_audit import GradedObservationAudit
 from backend.app.models.scheduler_run_log import SchedulerRunLog
 from backend.app.models.observation_match_log import ObservationMatchLog
 from backend.app.models.price_history import PriceHistory
+from backend.app.models.pro_waitlist import ProWaitlist
 from backend.app.models.upgrade_request import UpgradeRequest
 from backend.app.models.user import User
 from backend.app.models.watchlist import Watchlist
 
-__all__ = ["Alert", "AlertHistory", "Asset", "AssetSignal", "FailedBackfillQueue", "GradedObservationAudit", "ObservationMatchLog", "PriceHistory", "SchedulerRunLog", "UpgradeRequest", "User", "Watchlist"]
+__all__ = ["Alert", "AlertHistory", "Asset", "AssetSignal", "FailedBackfillQueue", "GradedObservationAudit", "ObservationMatchLog", "PriceHistory", "ProWaitlist", "SchedulerRunLog", "UpgradeRequest", "User", "Watchlist"]

@@ -24,6 +24,7 @@ from backend.app.models.enums import AccessTier
 from backend.app.models.graded_observation_audit import GradedObservationAudit
 from backend.app.models.price_history import PriceHistory
 from backend.app.models.scheduler_run_log import SchedulerRunLog
+from backend.app.models.pro_waitlist import ProWaitlist
 from backend.app.models.user import User
 from backend.app.services.scheduler_run_log_service import (
     JOB_BULK_REFRESH,
@@ -1866,4 +1867,43 @@ def admin_diag_ygo_13set_coverage(
         "sets_with_assets": sets_with_assets,
         "sets_with_prices": sets_with_prices,
         "per_set": result,
+    }
+
+
+@router.get("/diag/waitlist")
+def admin_diag_waitlist(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+    recent_n: int = 20,
+):
+    """Pro waitlist: total count, recent sign-ups, 7-day growth rate."""
+    total = db.execute(text("SELECT COUNT(*) FROM pro_waitlist")).scalar() or 0
+
+    today_count = db.execute(text(
+        "SELECT COUNT(*) FROM pro_waitlist WHERE signed_up_at >= CURRENT_DATE"
+    )).scalar() or 0
+
+    week_avg = db.execute(text(
+        "SELECT COUNT(*) / 7.0 FROM pro_waitlist WHERE signed_up_at >= NOW() - INTERVAL '7 days'"
+    )).scalar() or 0
+
+    recent_rows = db.execute(text(
+        "SELECT email, signed_up_at, source_page, locale, ip_country "
+        "FROM pro_waitlist ORDER BY signed_up_at DESC LIMIT :n"
+    ), {"n": recent_n}).fetchall()
+
+    return {
+        "total": total,
+        "today": today_count,
+        "daily_avg_7d": round(float(week_avg), 2),
+        "recent": [
+            {
+                "email": r.email,
+                "signed_up_at": r.signed_up_at.isoformat(),
+                "source_page": r.source_page,
+                "locale": r.locale,
+                "ip_country": r.ip_country,
+            }
+            for r in recent_rows
+        ],
     }
