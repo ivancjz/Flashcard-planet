@@ -4,7 +4,7 @@
 >
 > **This file is for Claude Code to consume autonomously.** When picking up a session and there is no specific operator instruction, read this file and start the highest-priority task you have evidence to safely execute. See §0 below.
 
-**Last updated:** 2026-05-02 (v4 — Codex Cloud + OpenAI as analysis provider)
+**Last updated:** 2026-05-02 (v5 — Pro launch parameters decided, TASK-203 complete)
 **Maintained by:** Ivan (operator) with proposed updates from Claude Code via PR
 
 ---
@@ -191,27 +191,6 @@ Format:
 
 ---
 
-#### TASK-203 — Pro tier payment integration design doc
-
-**Priority:** P1
-**Status:** in_progress
-**Owner:** Claude Code (research) + Ivan (decision)
-**Preconditions:** None
-
-**Definition of Done:**
-- A design doc at `docs/strategy/06_pro_tier_launch.md` covering:
-  - Payment provider comparison: Stripe vs LemonSqueezy vs Paddle (focus on Australian solo developer + cross-border buyer + tax handling)
-  - Required schema changes to `users` (subscription_status, subscription_provider_id, current_period_end, etc.)
-  - Webhook handling (subscription.created / .updated / .deleted, payment_intent.failed)
-  - Free trial enforcement strategy (7 days)
-  - `/pricing` page implementation plan (frontend file location, i18n keys, CTA wiring)
-  - 5 CTA placement points per `03_pricing_page_copy.md` (Card Detail / Signals page / Watchlist / Cross-TCG teaser / Alert limit)
-  - Refund / cancellation flow
-  - "What if I stop paying?" data retention policy
-
-**Estimated effort:** S (research only)
-**Reference:** `docs/strategy/03_pricing_page_copy.md`, `backend/app/core/permissions.py`
-**Notes:** Operator's decision required before any code is written. This task produces the **plan**; TASK-301 will be the implementation once the plan is approved.
 
 ---
 
@@ -318,14 +297,14 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 
 #### TASK-301 — Pro tier launch implementation
 
-**Priority:** P2 (currently — promotes to P1 when TASK-102 + TASK-203 are both done)
+**Priority:** P2 (promotes to P1 when TASK-102 is done)
 **Status:** blocked
-**Blocked by:** TASK-102 (backups), TASK-203 (payment design)
+**Blocked by:** TASK-102 (backups only — TASK-203 design + all 6 decisions are complete)
 **Owner:** Claude Code + Ivan
 **Preconditions:**
-- Database backups in place (TASK-102 done)
-- Payment provider chosen and design doc approved (TASK-203 done)
-- Pricing decided ($12/mo recommended; launch promo $9/mo for first 100 users to be confirmed)
+- Database backups in place (TASK-102 done) ← last remaining blocker
+- ~~Payment provider chosen and design doc approved~~ — done (LemonSqueezy, see ADR)
+- ~~Pricing decided~~ — done (USD $12/mo standard, USD $9/mo Founders lifetime lock-in, first 100)
 
 **Definition of Done:**
 - `/pricing` page live with full feature comparison table from `03_pricing_page_copy.md`
@@ -433,6 +412,7 @@ When a task ships, move it here with PR number and merge date. Keep this section
 | TASK-302 | Pro tier waitlist form | commit ef6f7e3 | 2026-05-02 | POST /api/v1/waitlist + admin diag + landing page form. 851 tests pass. Requires migration 0029 on prod. |
 | TASK-103b | PR review via Codex Cloud (Path C) | commit 47b3c63 | 2026-05-02 | AGENTS.md written. CLAUDE.md §4 updated. Operator enables Codex Cloud in chatgpt.com settings. |
 | TASK-401 | OpenAI as third LLM provider | commit 9dafe11 | 2026-05-02 | OpenAIProvider + task-type router + FallbackLLMProvider + IP tagging experiment. 861 tests pass. |
+| TASK-203 | Pro tier payment integration design doc | commit f1ee749 | 2026-05-02 | Design doc + 6-decision ADR. LemonSqueezy MoR, USD $12/$9 Founders, card-free 7d trial. TASK-301 now blocked only on TASK-102 (backups). |
 
 ---
 
@@ -443,7 +423,7 @@ When a task is `needs_decision`, log here:
 | Date raised | Question | Status | Resolution date | Resolution |
 |---|---|---|---|---|
 | 2026-05-02 | Database backup: Railway Pro vs external `pg_dump` vs hybrid? (TASK-102) | open | — | — |
-| 2026-05-02 | Pro tier payment provider: Stripe vs LemonSqueezy vs Paddle? (TASK-203) | open | — | — |
+| 2026-05-02 | Pro tier payment provider, pricing, trial, refund, data retention, launch sequence (TASK-203) | **resolved** | 2026-05-02 | See `docs/decisions/2026-05-02-pro-launch-parameters.md`. LS MoR, USD $12/$9 Founders, card-free 7d trial, 14d self-service refund, 90d grace, waitlist-48h-then-public. |
 | 2026-05-02 | Pokemon full historical coverage vs multi-TCG breadth — which gets resources first after Pro launches? (TASK-304) | open | — | — |
 | 2026-05-02 | Discord bot 24-hour deployment vs archive? | **resolved** | 2026-05-02 | **Archive.** Zero users on slash commands, web is the product, REST API alerts stay. See TASK-104. |
 | 2026-05-02 | Codex CLI in CI: feasible or use alternative? | **resolved** | 2026-05-02 | **Path C: Codex Cloud auto-reviews.** Free with ChatGPT subscription. Path A (API key + custom Action) is an anti-task. See TASK-103b. |
