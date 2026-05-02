@@ -177,7 +177,7 @@ class OpenAIProvider:
             _log("openai_unavailable_no_key", level=logging.INFO)
             return None
 
-        model = _setting_value("OPENAI_MODEL", "openai_model", "gpt-5.5")
+        model = _setting_value("OPENAI_MODEL", "openai_model", "gpt-4o-mini")
         base_url = _setting_value("OPENAI_BASE_URL", "openai_base_url", "https://api.openai.com/v1")
         try:
             with _httpx_client_cls(base_url=base_url, timeout=30.0) as client:

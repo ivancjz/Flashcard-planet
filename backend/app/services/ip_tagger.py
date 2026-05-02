@@ -80,7 +80,7 @@ def tag_asset_for_ip(name: str, game: str, set_name: str) -> IPTagResult | None:
         logger.info("ip_tagger_skipped_no_openai_key")
         return None
 
-    model = _setting_value("OPENAI_MODEL", "openai_model", "gpt-5.5")
+    model = _setting_value("OPENAI_MODEL", "openai_model", "gpt-4o-mini")
     user_msg = f"Card: {name}\nGame: {game}\nSet: {set_name}"
 
     try:
