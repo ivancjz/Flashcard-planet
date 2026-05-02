@@ -147,7 +147,7 @@ A short report at `docs/audits/2026-XX-codex-ci-feasibility.md` answering:
 #### TASK-104 — Archive Discord bot, simplify product boundary
 
 **Priority:** P1
-**Status:** ready
+**Status:** in_progress
 **Owner:** Claude Code
 
 **Background:** `bot/main.py` has 9 fully-implemented slash commands (`/price`, `/predict`, `/history`, `/watch`, `/watchlist`, `/unwatch`, `/alerts`, `/topmovers`, `/topvalue`, `/alerthistory`) but has never been deployed. Zero users have used them. This is the largest "designed but never ran" surface in the codebase (CLAUDE.md Lesson 2 pattern).
