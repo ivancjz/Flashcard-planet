@@ -37,3 +37,14 @@ def send_magic_link_email(to_email: str, magic_url: str) -> None:
         "subject": "Your Flashcard Planet login link",
         "html": html,
     })
+
+
+def send_digest_email(to_email: str, subject: str, html: str) -> None:
+    """Send a Market Digest email via Resend."""
+    resend.api_key = get_settings().resend_api_key
+    resend.Emails.send({
+        "from": FROM_ADDRESS,
+        "to": [to_email],
+        "subject": subject,
+        "html": html,
+    })
