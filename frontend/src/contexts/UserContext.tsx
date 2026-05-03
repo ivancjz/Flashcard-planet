@@ -6,6 +6,13 @@ export type Tier = 'free' | 'plus' | 'pro'
 
 const STORAGE_KEY = 'fcp_dev_tier_override'
 
+// Exported for testing. Maps any raw tier string to a typed Tier value.
+// Any unrecognised value coerces to 'free' — fail-safe for future enum additions.
+export function parseTier(raw: string | null | undefined): Tier {
+  if (raw === 'pro' || raw === 'plus') return raw
+  return 'free'
+}
+
 interface UserContextValue {
   tier: Tier
   email: string | null
@@ -34,14 +41,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
       })
       .then(data => {
         setEmail(data.email ?? null)
-        const t: Tier = data.tier === 'pro' ? 'pro' : 'free'
+        const t = parseTier(data.tier)
         setTier(t)
         setCachedTier(t)  // keep X-Dev-Tier header in sync
       })
       .catch(() => {
         // Not logged in — fall back to localStorage dev override (dev/testing only)
         const stored = localStorage.getItem(STORAGE_KEY)
-        const t: Tier = stored === 'pro' ? 'pro' : 'free'
+        const t = parseTier(stored)
         setTier(t)
         setCachedTier(t)
       })

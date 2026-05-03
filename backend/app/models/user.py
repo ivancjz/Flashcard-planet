@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, Index, String
+from sqlalchemy import Boolean, DateTime, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -42,7 +43,7 @@ class User(Base):
     trial_started_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     is_founders: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
-    founders_locked_price_usd: Mapped[float | None] = mapped_column(nullable=True)
+    founders_locked_price_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
 
     __table_args__ = (
         Index("ix_users_subscription_status", "subscription_status"),
