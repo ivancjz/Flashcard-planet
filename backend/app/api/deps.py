@@ -65,7 +65,7 @@ def get_current_user(user: User | None = Depends(get_optional_user)) -> User:
 def require_tier(feature: Feature):
     """FastAPI dependency factory that enforces a feature gate."""
     def _dep(user: User = Depends(get_current_user)) -> User:
-        if not can(resolve_tier(user.email, user.access_tier), feature):
+        if not can(resolve_tier(user.email, user.access_tier, user.subscription_tier, user.subscription_status), feature):
             raise HTTPException(status_code=403, detail="Pro subscription required.")
         return user
     return _dep
@@ -77,4 +77,4 @@ def get_user_capabilities(
     """Returns the frozenset of Features for the current user (or empty if unauthenticated)."""
     if user is None:
         return frozenset()
-    return get_capabilities(resolve_tier(user.email, user.access_tier))
+    return get_capabilities(resolve_tier(user.email, user.access_tier, user.subscription_tier, user.subscription_status))

@@ -31,7 +31,9 @@ class User(Base):
     )
 
     # Subscription fields (populated by LemonSqueezy webhook handler)
+    # subscription_tier values: free | plus | pro
     # subscription_status values: free | trialing | active | past_due | cancelled | expired
+    subscription_tier: Mapped[str] = mapped_column(String(16), nullable=False, server_default="free", default="free")
     subscription_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="free", default="free")
     subscription_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)           # 'lemonsqueezy'
     subscription_provider_id: Mapped[str | None] = mapped_column(String(128), nullable=True)       # LS subscription ID
@@ -39,6 +41,8 @@ class User(Base):
     subscription_cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
     trial_started_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    is_founders: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
+    founders_locked_price_usd: Mapped[float | None] = mapped_column(nullable=True)
 
     __table_args__ = (
         Index("ix_users_subscription_status", "subscription_status"),
