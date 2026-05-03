@@ -160,3 +160,76 @@ class TestGetDigestCandidates:
         cards = get_digest_candidates(db, date(2026, 5, 4))
         ids = [c.asset_id for c in cards]
         assert len(ids) == len(set(ids))
+
+
+class TestGetOrGenerateExplanation:
+    TODAY = date(2026, 5, 4)
+    CARD_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
+
+    def _db_with_cache(self, cached_text: str | None):
+        from unittest.mock import patch
+        db = MagicMock()
+        if cached_text is not None:
+            row = MagicMock()
+            row.explanation = cached_text
+            db.scalars.return_value.first.return_value = row
+        else:
+            db.scalars.return_value.first.return_value = None
+        db.add = MagicMock()
+        db.commit = MagicMock()
+        return db
+
+    def test_cache_hit_returns_cached_text_without_llm_call(self):
+        from unittest.mock import patch
+        from backend.app.services.market_digest import get_or_generate_explanation
+        db = self._db_with_cache("Charizard jumped 15% on high eBay volume.")
+        with patch("backend.app.services.market_digest.get_llm_provider") as mock_llm:
+            result = get_or_generate_explanation(
+                db, self.CARD_ID, "BREAKOUT", self.TODAY, "Charizard", 15.0
+            )
+        assert result == "Charizard jumped 15% on high eBay volume."
+        mock_llm.assert_not_called()
+
+    def test_cache_miss_calls_llm_and_persists(self):
+        from unittest.mock import patch
+        from backend.app.services.market_digest import get_or_generate_explanation
+        db = self._db_with_cache(None)
+        with patch("backend.app.services.market_digest.get_llm_provider") as mock_llm:
+            mock_llm.return_value.generate_text.return_value = "Generated explanation."
+            result = get_or_generate_explanation(
+                db, self.CARD_ID, "MOVE", self.TODAY, "Pikachu", 8.5
+            )
+        assert result == "Generated explanation."
+        db.add.assert_called_once()
+        db.commit.assert_called_once()
+
+    def test_different_signal_types_are_separate_cache_keys(self):
+        """BREAKOUT and MOVE for same card+date are independent cache entries."""
+        from unittest.mock import patch
+        from backend.app.services.market_digest import get_or_generate_explanation
+        db_breakout = self._db_with_cache("Breakout explanation.")
+        db_move = self._db_with_cache(None)
+
+        with patch("backend.app.services.market_digest.get_llm_provider") as mock_llm:
+            mock_llm.return_value.generate_text.return_value = "Move explanation."
+            result_breakout = get_or_generate_explanation(
+                db_breakout, self.CARD_ID, "BREAKOUT", self.TODAY, "Card", 15.0
+            )
+            result_move = get_or_generate_explanation(
+                db_move, self.CARD_ID, "MOVE", self.TODAY, "Card", 8.0
+            )
+
+        assert result_breakout == "Breakout explanation."
+        assert result_move == "Move explanation."
+
+    def test_llm_failure_returns_fallback_string(self):
+        from unittest.mock import patch
+        from backend.app.services.market_digest import get_or_generate_explanation
+        db = self._db_with_cache(None)
+        with patch("backend.app.services.market_digest.get_llm_provider") as mock_llm:
+            mock_llm.return_value.generate_text.return_value = None
+            result = get_or_generate_explanation(
+                db, self.CARD_ID, "BREAKOUT", self.TODAY, "Card", 10.0
+            )
+        assert isinstance(result, str)
+        assert len(result) > 0

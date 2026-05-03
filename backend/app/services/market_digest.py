@@ -12,10 +12,12 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from backend.app.models.digest_explanation_cache import DigestExplanationCache
 from backend.app.models.user import User
+from backend.app.services.llm_provider import get_llm_provider
 
 logger = logging.getLogger(__name__)
 
@@ -172,3 +174,54 @@ def get_digest_candidates(db: Session, today: date) -> list[DigestCard]:
         _add(popular_rows, "popular")
 
     return selected
+
+
+_SYSTEM_PROMPT = (
+    "You are a TCG investment analyst. Write one concise sentence (≤20 words) "
+    "explaining why a card received its signal, based on the card name, signal type, "
+    "and 7-day price change provided. Be factual and direct."
+)
+
+
+def get_or_generate_explanation(
+    db: Session,
+    card_id: uuid.UUID,
+    signal_type: str,
+    date_utc: date,
+    card_name: str,
+    price_delta_pct: Optional[float],
+) -> str:
+    """Cache-first LLM explanation. Cache key: (card_id, date_utc, signal_type)."""
+    cached = db.scalars(
+        select(DigestExplanationCache).where(
+            DigestExplanationCache.card_id == card_id,
+            DigestExplanationCache.date_utc == date_utc,
+            DigestExplanationCache.signal_type == signal_type,
+        )
+    ).first()
+
+    if cached is not None:
+        return cached.explanation
+
+    # Cache miss — call LLM
+    delta_str = f"{price_delta_pct:+.1f}%" if price_delta_pct is not None else "N/A"
+    user_msg = f"{card_name} | signal={signal_type} | 7d_change={delta_str}"
+    try:
+        text_result = get_llm_provider().generate_text(_SYSTEM_PROMPT, user_msg, 80)
+    except Exception as e:
+        logger.warning("digest_llm_failed card=%s error=%s", card_id, e)
+        text_result = None
+
+    explanation = text_result or f"{card_name} received a {signal_type} signal with {delta_str} price change."
+
+    provider = os.getenv("LLM_PROVIDER", "anthropic")
+    row = DigestExplanationCache(
+        card_id=card_id,
+        signal_type=signal_type,
+        date_utc=date_utc,
+        explanation=explanation,
+        generated_by=provider,
+    )
+    db.add(row)
+    db.commit()
+    return explanation
