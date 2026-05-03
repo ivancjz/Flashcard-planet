@@ -29,7 +29,7 @@ def _get_effective_tier(user: User | None = Depends(get_optional_user)) -> str:
     """Return effective tier for the authenticated user, applying DEV_PRO_EMAILS override."""
     if user is None:
         return "free"
-    return resolve_tier(user.email, user.access_tier)
+    return resolve_tier(user.email, user.access_tier, user.subscription_tier, user.subscription_status)
 
 
 @router.get("/stats")

@@ -13,43 +13,35 @@ def _parse_dev_pro_emails(raw: str) -> frozenset[str]:
 _DEV_PRO_EMAILS: frozenset[str] = _parse_dev_pro_emails(os.getenv("DEV_PRO_EMAILS", ""))
 
 
+class Tier(str, Enum):
+    FREE = "free"
+    PLUS = "plus"
+    PRO  = "pro"
+
+
 class Feature(str, Enum):
     # ── Price history ────────────────────────────────────────────────────
-    # Free  : 7-day window
-    # Pro   : 180-day window
     PRICE_HISTORY_FULL = "price_history_full"
 
     # ── Card Detail extras ───────────────────────────────────────────────
-    # Source breakdown (eBay % vs TCG %) and match-confidence badge
     CARD_SOURCE_BREAKDOWN = "card_source_breakdown"
-    # Full AI signal explanation text
     SIGNAL_EXPLANATION = "signal_explanation"
 
     # ── Signals feed ────────────────────────────────────────────────────
-    # Free  : top-5 by (confidence desc, computed_at desc), no scores shown
-    # Pro   : full feed, confidence scores visible
     SIGNALS_FULL_FEED = "signals_full_feed"
-    # Confidence score visible in the signals list / detail
     SIGNALS_CONFIDENCE = "signals_confidence"
-    # AI explanation visible
     SIGNALS_AI_EXPLANATION = "signals_ai_explanation"
 
     # ── Alerts ──────────────────────────────────────────────────────────
-    # Free  : up to FREE_ALERT_LIMIT alerts, absolute-price trigger only
-    # Pro   : unlimited alerts, percentage triggers unlocked
     ALERTS_EXTENDED = "alerts_extended"
     ALERTS_PCT_TRIGGER = "alerts_pct_trigger"
     ALERTS_UNLIMITED = "alerts_unlimited"
 
     # ── Watchlist ────────────────────────────────────────────────────────
-    # Free  : up to FREE_WATCHLIST_LIMIT cards
-    # Pro   : unlimited
     WATCHLIST_EXTENDED = "watchlist_extended"
     WATCHLIST_UNLIMITED = "watchlist_unlimited"
 
     # ── Top Movers / Dashboard ───────────────────────────────────────────
-    # Free  : basic name + price-change list
-    # Pro   : liquidity score + volume trend columns
     MOVERS_DETAIL = "movers_detail"
     LIQUIDITY_SCORE = "liquidity_score"
 
@@ -57,14 +49,37 @@ class Feature(str, Enum):
     SOURCE_COMPARISON = "source_comparison"
 
     # ── Pro Insights ─────────────────────────────────────────────────────
-    # Curated subset of KPI data for Pro users (distinct from /admin/diagnostics)
     PRO_INSIGHTS = "pro_insights"
 
+
+# ── Feature → minimum tier required ─────────────────────────────────────────
+# Plus features: extended data, AI analysis, unlimited usage
+# Pro features: deep analytics, Pro-only outputs
+FEATURE_TIER_REQUIREMENTS: dict[Feature, Tier] = {
+    # ── Plus tier ─────────────────────────────────────────────────────────
+    Feature.PRICE_HISTORY_FULL:      Tier.PLUS,
+    Feature.CARD_SOURCE_BREAKDOWN:   Tier.PLUS,
+    Feature.SIGNAL_EXPLANATION:      Tier.PLUS,
+    Feature.SIGNALS_FULL_FEED:       Tier.PLUS,
+    Feature.SIGNALS_CONFIDENCE:      Tier.PLUS,
+    Feature.SIGNALS_AI_EXPLANATION:  Tier.PLUS,
+    Feature.ALERTS_EXTENDED:         Tier.PLUS,
+    Feature.ALERTS_PCT_TRIGGER:      Tier.PLUS,
+    Feature.ALERTS_UNLIMITED:        Tier.PLUS,
+    Feature.WATCHLIST_EXTENDED:      Tier.PLUS,
+    Feature.WATCHLIST_UNLIMITED:     Tier.PLUS,
+    Feature.MOVERS_DETAIL:           Tier.PLUS,
+    Feature.SOURCE_COMPARISON:       Tier.PLUS,
+    # ── Pro tier ──────────────────────────────────────────────────────────
+    Feature.LIQUIDITY_SCORE:         Tier.PRO,
+    Feature.PRO_INSIGHTS:            Tier.PRO,
+}
 
 # ── Hard limits (used by service layer, not just bool gates) ─────────────────
 
 FREE_HISTORY_DAYS: int = 7
-PRO_HISTORY_DAYS: int = 180
+PLUS_HISTORY_DAYS: int = 180
+PRO_HISTORY_DAYS:  int = 180   # same value today; separate constant for future expansion
 
 FREE_ALERT_LIMIT: int = 5
 PRO_ALERT_LIMIT: int | None = None           # None = unlimited
@@ -72,24 +87,63 @@ PRO_ALERT_LIMIT: int | None = None           # None = unlimited
 FREE_WATCHLIST_LIMIT: int = 10
 PRO_WATCHLIST_LIMIT: int | None = None       # None = unlimited
 
-FREE_SIGNALS_LIMIT: int = 5                  # top-N after sort by confidence
+FREE_SIGNALS_LIMIT: int = 5
+
+DEEP_ANALYSIS_DAILY_LIMIT_PRO: int = 5
 
 
-# ── Capability map ───────────────────────────────────────────────────────────
-
-_TIER_CAPABILITIES: dict[str, frozenset[Feature]] = {
-    "free": frozenset(),
-    "pro":  frozenset(Feature),   # all features
+# ── Tier ordering for capability checks ─────────────────────────────────────
+_TIER_ORDER: dict[str, int] = {
+    Tier.FREE: 0,
+    Tier.PLUS: 1,
+    Tier.PRO:  2,
 }
+
+# ── Capability sets derived from FEATURE_TIER_REQUIREMENTS ──────────────────
+# A tier can use a feature when TIER_ORDER[user_tier] >= TIER_ORDER[required_tier].
+# _TIER_CAPABILITIES is derived once at module load for O(1) can() lookups.
+def _build_capabilities() -> dict[str, frozenset[Feature]]:
+    result: dict[str, frozenset[Feature]] = {"free": frozenset()}
+    for tier in (Tier.PLUS, Tier.PRO):
+        result[tier.value] = frozenset(
+            f for f, required in FEATURE_TIER_REQUIREMENTS.items()
+            if _TIER_ORDER[required] <= _TIER_ORDER[tier]
+        )
+    return result
+
+
+_TIER_CAPABILITIES: dict[str, frozenset[Feature]] = _build_capabilities()
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
-def resolve_tier(email: str | None, stored_tier: str) -> str:
-    """Return effective tier: promotes to 'pro' if email is in DEV_PRO_EMAILS whitelist."""
+_ACTIVE_STATUSES = frozenset({"active", "trialing"})
+
+
+def resolve_tier(
+    email: str | None,
+    access_tier: str,
+    subscription_tier: str | None = None,
+    subscription_status: str | None = None,
+) -> str:
+    """Return effective tier string.
+
+    Priority:
+      1. DEV_PRO_EMAILS override → always 'pro'
+      2. Active/trialing LemonSqueezy subscription → subscription_tier value
+      3. Legacy access_tier ('plus' or 'pro' granted manually) → access_tier
+      4. Default → 'free'
+    """
     if email and email.lower() in _DEV_PRO_EMAILS:
-        return "pro"
-    return stored_tier
+        return Tier.PRO
+
+    if subscription_status in _ACTIVE_STATUSES and subscription_tier in (Tier.PLUS, Tier.PRO):
+        return subscription_tier
+
+    if access_tier in (Tier.PLUS, Tier.PRO):
+        return access_tier
+
+    return Tier.FREE
 
 
 def can(access_tier: str, feature: Feature) -> bool:
@@ -115,13 +169,13 @@ def watchlist_limit(access_tier: str) -> int | None:
 
 
 def signals_limit(access_tier: str) -> int | None:
-    """Return signals feed cap. None = unlimited (Pro). Int = take top-N (Free)."""
+    """Return signals feed cap. None = unlimited (Plus/Pro). Int = top-N (Free)."""
     return None if can(access_tier, Feature.SIGNALS_FULL_FEED) else FREE_SIGNALS_LIMIT
 
 
 def history_days(access_tier: str) -> int:
     """Return price history window in days for tier."""
-    return PRO_HISTORY_DAYS if can(access_tier, Feature.PRICE_HISTORY_FULL) else FREE_HISTORY_DAYS
+    return PLUS_HISTORY_DAYS if can(access_tier, Feature.PRICE_HISTORY_FULL) else FREE_HISTORY_DAYS
 
 
 _PRO_GATE_STRATEGIES: dict[str, ProGateConfig] = {
@@ -147,8 +201,8 @@ _PRO_GATE_STRATEGIES: dict[str, ProGateConfig] = {
 
 
 def get_pro_gate_config(feature: str, access_tier: str) -> ProGateConfig:
-    """Return ProGateConfig for feature+tier. Unlocked if Pro; locked with strategy if Free."""
-    if (access_tier or "").lower() == "pro":
+    """Return ProGateConfig for feature+tier. Unlocked if Plus/Pro; locked with strategy if Free."""
+    if (access_tier or "").lower() in (Tier.PLUS, Tier.PRO):
         return ProGateConfig(is_locked=False)
     strategy = _PRO_GATE_STRATEGIES.get(feature)
     if strategy is None:

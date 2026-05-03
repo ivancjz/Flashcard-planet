@@ -49,5 +49,5 @@ def auth_me(current_user: User = Depends(get_current_user)) -> UserResponse:
         email=current_user.email,
         discord_user_id=current_user.discord_user_id,
         username=current_user.username,
-        tier=resolve_tier(current_user.email, current_user.access_tier),
+        tier=resolve_tier(current_user.email, current_user.access_tier, current_user.subscription_tier, current_user.subscription_status),
     )
