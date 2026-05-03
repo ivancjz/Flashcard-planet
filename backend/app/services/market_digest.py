@@ -16,6 +16,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from backend.app.models.digest_explanation_cache import DigestExplanationCache
+from backend.app.models.digest_send_log import DigestSendLog
 from backend.app.models.user import User
 from backend.app.services.llm_provider import get_llm_provider
 
@@ -34,6 +35,13 @@ class DigestCard:
     price_delta_pct: Optional[float]
     current_price: Optional[float]
     explanation: str
+
+
+@dataclass
+class DigestStats:
+    total_assets: int
+    games: list[str]
+    last_updated_utc: datetime
 
 
 def should_send_digest(user: User, today: date, *, has_signals: bool) -> bool:
@@ -225,3 +233,94 @@ def get_or_generate_explanation(
     db.add(row)
     db.commit()
     return explanation
+
+
+def render_digest_subject(cards: list[DigestCard], trigger_type: str) -> str:
+    if trigger_type == "weekly_fallback":
+        return "Your weekly TCG market digest"
+    breakout_count = sum(1 for c in cards if c.signal_type == "BREAKOUT")
+    return f"Today's TCG market — {breakout_count} BREAKOUTs"
+
+
+def render_digest_html(
+    user: User,
+    cards: list[DigestCard],
+    trigger_type: str,
+    stats: DigestStats,
+) -> str:
+    from jinja2 import Environment, FileSystemLoader
+    from pathlib import Path
+
+    template_dir = Path(__file__).resolve().parents[2] / "email" / "templates"
+    env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
+    tmpl = env.get_template("market_digest.html")
+
+    name = getattr(user, "username", None) or (
+        user.email.split("@")[0] if user.email else "TCG investor"
+    )
+    return tmpl.render(
+        user_name=name,
+        cards=cards,
+        trigger_type=trigger_type,
+        stats=stats,
+        app_url=os.getenv("APP_URL", "https://flashcard-planet.up.railway.app"),
+    )
+
+
+def _get_digest_stats(db: Session) -> DigestStats:
+    row = db.execute(text("""
+        SELECT
+            COUNT(DISTINCT a.id)       AS total_assets,
+            ARRAY_AGG(DISTINCT a.game) AS games,
+            MAX(ph.captured_at)        AS last_updated_utc
+        FROM assets a
+        LEFT JOIN price_history ph ON ph.asset_id = a.id
+    """)).fetchone()
+    return DigestStats(
+        total_assets=row.total_assets or 0,
+        games=sorted(row.games or []),
+        last_updated_utc=row.last_updated_utc or datetime.now(UTC),
+    )
+
+
+def send_digest(
+    db: Session,
+    user: User,
+    cards: list[DigestCard],
+    trigger_type: str,
+    today: date,
+) -> None:
+    """Build + send email + write audit log + update user.last_digest_sent_at."""
+    from backend.app.email.resend_client import send_digest_email
+
+    stats = _get_digest_stats(db)
+    subject = render_digest_subject(cards, trigger_type)
+    html = render_digest_html(user, cards, trigger_type, stats)
+
+    to_email = DRY_RUN_EMAIL if DRY_RUN else user.email
+    dedupe_key = f"user{user.id}-{today.isoformat()}"
+
+    try:
+        send_digest_email(to_email, subject, html)
+        status = "sent"
+        error_msg = None
+    except Exception as e:
+        status = "failed"
+        error_msg = str(e)
+        logger.error("digest_send_failed user=%s error=%s", user.id, e)
+
+    log_row = DigestSendLog(
+        user_id=user.id,
+        subject=subject,
+        cards_included=[str(c.asset_id) for c in cards],
+        trigger_type=trigger_type,
+        delivery_status=status,
+        error_message=error_msg,
+        dedupe_key=dedupe_key,
+    )
+    db.add(log_row)
+
+    if status == "sent":
+        user.last_digest_sent_at = datetime.now(UTC)
+
+    db.commit()

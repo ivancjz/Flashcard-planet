@@ -233,3 +233,37 @@ class TestGetOrGenerateExplanation:
             )
         assert isinstance(result, str)
         assert len(result) > 0
+
+
+def _digest_card(signal_type: str = "BREAKOUT", name: str = "Charizard") -> "DigestCard":
+    from backend.app.services.market_digest import DigestCard
+    return DigestCard(
+        asset_id=uuid.uuid4(),
+        name=name,
+        game="pokemon",
+        signal_type=signal_type,
+        price_delta_pct=15.0,
+        current_price=42.0,
+        explanation="Price jumped on high eBay volume.",
+    )
+
+
+class TestRenderDigestSubject:
+    def test_event_subject_shows_breakout_count(self):
+        from backend.app.services.market_digest import render_digest_subject
+        cards = [_digest_card("BREAKOUT"), _digest_card("BREAKOUT"), _digest_card("MOVE")]
+        subject = render_digest_subject(cards, "event")
+        assert "2 BREAKOUTs" in subject
+        assert "Today's TCG market" in subject
+
+    def test_weekly_fallback_subject(self):
+        from backend.app.services.market_digest import render_digest_subject
+        cards = [_digest_card("popular")]
+        subject = render_digest_subject(cards, "weekly_fallback")
+        assert "weekly" in subject.lower() or "market digest" in subject.lower()
+
+    def test_zero_breakouts_event_subject(self):
+        from backend.app.services.market_digest import render_digest_subject
+        cards = [_digest_card("MOVE")]
+        subject = render_digest_subject(cards, "event")
+        assert "0 BREAKOUTs" in subject or "TCG" in subject
