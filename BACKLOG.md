@@ -389,6 +389,16 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 **Proposed:** 2026-05-02 (TASK-204 audit finding)
 `failed_backfill_queue` permanent failure count is not visible in any admin endpoint. Add to next diagnostic endpoint PR alongside TASK-301 diag work.
 
+#### TASK-301e2 — Market Digest Section 2: Personalised watchlist movers
+**Proposed:** 2026-05-03
+**Status:** deferred — do not start without operator approval
+**Trigger:** User-reported demand for cross-device watchlist sync
+**Depends on:** Server-side watchlist persistence decision (see anti-task above)
+**Context:** TASK-301e ships digest with global BREAKOUTs only. Section 2
+(watchlist movers) requires server-side knowledge of each user's watchlist,
+which is currently localStorage-only. This task picks up when a Plus subscriber
+explicitly reports needing cross-device watchlist sync.
+
 #### TASK-701 — Deep Analysis (Pro hero, post-launch)
 **Proposed:** 2026-05-04
 **Status:** deferred — do not start until Pro launch + ≥10 paying Pro users
@@ -473,6 +483,12 @@ Listed to prevent re-litigation:
 - **Custom GitHub Action for PR review** — decided 2026-05-02 (TASK-103b). Codex Cloud is included in our existing ChatGPT subscription with zero ongoing maintenance. Building a custom Action duplicates effort for no gain. **Only revisit if Codex Cloud is removed from Plus tier or fundamentally changes behavior.**
 - **Routing all LLM tasks to a single provider** — decided 2026-05-02 (TASK-401). Anthropic, Groq, and OpenAI each have task types they're best at. Single-provider routing saves no money and loses heterogeneity benefits.
 - **Server-side watchlist persistence before user demand** — decided 2026-05-03 (TASK-301d). Watchlist is currently localStorage. Adding server-side storage implies cross-device sync, conflict resolution, and versioning — product decisions that should be user-driven (user reports losing watchlist on device switch), not pre-built on engineering convenience. F-4 watchlist limit is a conversion nudge, not a true paywall; client-side enforcement is sufficient. **Only revisit if:** (a) a Plus subscriber explicitly reports device-switch data loss, OR (b) a product decision to enable cross-device sync as a Plus feature is made.
+- **Server-side watchlist before Section 2 of Market Digest** — decided
+  2026-05-03 (TASK-301e). TASK-301d chose client-side localStorage watchlist.
+  TASK-301e Section 2 (watchlist movers in digest) is therefore deferred to
+  TASK-301e2. Bridging them by adding server-side watchlist here would revisit
+  TASK-301d; that decision should be driven by user demand (cross-device sync
+  request), not by digest personalisation convenience.
 
 If a task being proposed falls into one of the above, **reject without operator escalation**.
 
