@@ -403,3 +403,131 @@ class WebAlertsTests(TestCase):
         app, client = _make_app(db)
         resp = client.get("/api/v1/web/alerts?filter=HIGH")
         self.assertEqual(resp.status_code, 200)
+
+
+# ── TASK-301b: F-13 price history window gate ─────────────────────────────────
+
+def _make_tier_app(db, tier):
+    """Like _make_app but with a configurable tier override."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    app = FastAPI()
+    app.include_router(web_router)
+    app.dependency_overrides[get_database] = _db_dep(db)
+    app.dependency_overrides[_get_effective_tier] = lambda: tier
+    return app, TestClient(app)
+
+
+class WebCardDetailHistoryWindowTests(TestCase):
+    """F-13: price history query window is tier-gated server-side."""
+
+    def _make_db(self, card_row):
+        db = MagicMock()
+        db.execute.side_effect = [
+            MagicMock(fetchone=MagicMock(return_value=card_row)),
+            MagicMock(fetchall=MagicMock(return_value=[])),   # price history
+            MagicMock(fetchall=MagicMock(return_value=[])),   # signal history
+        ]
+        return db
+
+    def _card_row(self, ai_analysis=None):
+        return _make_row(
+            asset_id="abc123", name="Charizard", set_name="Base",
+            rarity="ultra", card_type="pokemon", signal="BREAKOUT",
+            price_delta_pct=15.0, liquidity_score=0.9,
+            tcg_price=100.0, ebay_price=90.0, image_url=None, spread_pct=10.0,
+            ai_analysis=ai_analysis,
+        )
+
+    def test_free_tier_history_sql_uses_7_day_window(self):
+        db = self._make_db(self._card_row())
+        app, client = _make_tier_app(db, "free")
+
+        resp = client.get("/api/v1/web/cards/abc123")
+
+        self.assertEqual(resp.status_code, 200)
+        history_sql = str(db.execute.call_args_list[1].args[0])
+        self.assertIn("7 days", history_sql)
+        self.assertNotIn("30 days", history_sql)
+        self.assertNotIn("180 days", history_sql)
+
+    def test_plus_tier_history_sql_uses_180_day_window(self):
+        # Provide cached ai_analysis so the pro AI branch doesn't add extra DB calls
+        db = self._make_db(self._card_row(ai_analysis="Cached explanation."))
+        app, client = _make_tier_app(db, "plus")
+
+        resp = client.get("/api/v1/web/cards/abc123")
+
+        self.assertEqual(resp.status_code, 200)
+        history_sql = str(db.execute.call_args_list[1].args[0])
+        self.assertIn("180 days", history_sql)
+        self.assertNotIn("7 days", history_sql)
+        self.assertNotIn("30 days", history_sql)
+
+    def test_pro_tier_history_sql_uses_180_day_window(self):
+        db = self._make_db(self._card_row(ai_analysis="Cached explanation."))
+        app, client = _make_tier_app(db, "pro")
+
+        resp = client.get("/api/v1/web/cards/abc123")
+
+        self.assertEqual(resp.status_code, 200)
+        history_sql = str(db.execute.call_args_list[1].args[0])
+        self.assertIn("180 days", history_sql)
+        self.assertNotIn("30 days", history_sql)
+
+    def test_history_window_is_in_sql_not_python_truncation(self):
+        """Server-side: the INTERVAL in the query itself must match the tier window."""
+        db = self._make_db(self._card_row())
+        app, client = _make_tier_app(db, "free")
+
+        client.get("/api/v1/web/cards/abc123")
+
+        # Price history is call index 1; verify the SQL — not the Python result set
+        history_sql = str(db.execute.call_args_list[1].args[0])
+        self.assertIn("INTERVAL", history_sql)
+        self.assertIn("7 days", history_sql)
+
+
+# ── TASK-301c: F-17 CSV export tier gate ─────────────────────────────────────
+
+class WebExportCsvGateTests(TestCase):
+    """F-17: /cards/export requires Plus tier or above."""
+
+    def _make_db_export(self):
+        db = MagicMock()
+        db.execute.return_value.fetchall.return_value = []
+        return db
+
+    def test_free_tier_returns_403(self):
+        db = self._make_db_export()
+        app, client = _make_app(db)       # _make_app defaults to "free"
+        resp = client.get("/api/v1/web/cards/export")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_unauthenticated_returns_403(self):
+        """_get_effective_tier returns 'free' for unauthenticated — same gate applies."""
+        db = self._make_db_export()
+        app, client = _make_app(db)
+        resp = client.get("/api/v1/web/cards/export")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_plus_tier_returns_csv_200(self):
+        db = self._make_db_export()
+        app, client = _make_tier_app(db, "plus")
+        resp = client.get("/api/v1/web/cards/export")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("text/csv", resp.headers.get("content-type", ""))
+
+    def test_pro_tier_returns_csv_200(self):
+        db = self._make_db_export()
+        app, client = _make_tier_app(db, "pro")
+        resp = client.get("/api/v1/web/cards/export")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("text/csv", resp.headers.get("content-type", ""))
+
+    def test_gate_is_before_sql_no_db_query_for_free(self):
+        """Free tier must be rejected before any DB query executes."""
+        db = self._make_db_export()
+        app, client = _make_app(db)
+        client.get("/api/v1/web/cards/export")
+        db.execute.assert_not_called()
