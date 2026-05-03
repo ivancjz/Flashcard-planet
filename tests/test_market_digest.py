@@ -399,3 +399,78 @@ class TestDigestIntegration:
 
         db.add.assert_called()  # DigestSendLog row was written
         db.commit.assert_called()
+
+
+# ── P0 fix: resolve_subscribers dry-run uses real DB user ──────────────────────
+
+class TestResolveSubscribers:
+    def test_dry_run_returns_operator_user(self):
+        from unittest.mock import patch
+        from backend.app.services.market_digest import resolve_subscribers
+
+        operator = MagicMock()
+        operator.id = uuid.uuid4()
+        db = MagicMock()
+        db.scalars.return_value.first.return_value = operator
+
+        with patch("backend.app.services.market_digest.DRY_RUN", True):
+            result = resolve_subscribers(db)
+
+        assert result == [operator]
+        db.scalars.return_value.first.assert_called_once()
+        db.scalars.return_value.all.assert_not_called()
+
+    def test_dry_run_missing_operator_returns_none(self):
+        from unittest.mock import patch
+        from backend.app.services.market_digest import resolve_subscribers
+
+        db = MagicMock()
+        db.scalars.return_value.first.return_value = None
+
+        with patch("backend.app.services.market_digest.DRY_RUN", True):
+            result = resolve_subscribers(db)
+
+        assert result is None
+
+    def test_normal_run_uses_subscriber_all_query(self):
+        from unittest.mock import patch
+        from backend.app.services.market_digest import resolve_subscribers
+
+        users = [MagicMock(), MagicMock()]
+        db = MagicMock()
+        db.scalars.return_value.all.return_value = users
+
+        with patch("backend.app.services.market_digest.DRY_RUN", False):
+            result = resolve_subscribers(db)
+
+        assert result == users
+        db.scalars.return_value.all.assert_called_once()
+        db.scalars.return_value.first.assert_not_called()
+
+
+# ── P1 fix: get_digest_candidates raw-segment filter ─────────────────────────
+
+class TestGetDigestCandidatesRawSegment:
+    def _db_empty(self):
+        db = MagicMock()
+        results = [MagicMock(fetchall=MagicMock(return_value=[])) for _ in range(3)]
+        db.execute.side_effect = results
+        return db
+
+    def test_breakout_query_includes_raw_segment_filter(self):
+        db = self._db_empty()
+        get_digest_candidates(db, date(2026, 5, 4))
+        breakout_sql = str(db.execute.call_args_list[0].args[0])
+        assert "market_segment = 'raw'" in breakout_sql
+
+    def test_move_query_includes_raw_segment_filter(self):
+        db = self._db_empty()
+        get_digest_candidates(db, date(2026, 5, 4))
+        move_sql = str(db.execute.call_args_list[1].args[0])
+        assert "market_segment = 'raw'" in move_sql
+
+    def test_popular_query_includes_raw_segment_filter(self):
+        db = self._db_empty()
+        get_digest_candidates(db, date(2026, 5, 4))
+        popular_sql = str(db.execute.call_args_list[2].args[0])
+        assert "market_segment = 'raw'" in popular_sql

@@ -116,6 +116,7 @@ def get_digest_candidates(db: Session, today: date) -> list[DigestCard]:
             WHERE asset_id = a.id
               AND source = CASE a.game WHEN 'yugioh' THEN 'ygoprodeck_api'
                            ELSE 'pokemon_tcg_api' END
+              AND market_segment = 'raw'
             ORDER BY captured_at DESC LIMIT 1
         ) ph ON TRUE
         WHERE s.label = 'BREAKOUT'
@@ -142,6 +143,7 @@ def get_digest_candidates(db: Session, today: date) -> list[DigestCard]:
                 WHERE asset_id = a.id
                   AND source = CASE a.game WHEN 'yugioh' THEN 'ygoprodeck_api'
                                ELSE 'pokemon_tcg_api' END
+                  AND market_segment = 'raw'
                 ORDER BY captured_at DESC LIMIT 1
             ) ph ON TRUE
             WHERE s.label = 'MOVE'
@@ -174,6 +176,7 @@ def get_digest_candidates(db: Session, today: date) -> list[DigestCard]:
                 WHERE asset_id = a.id
                   AND source = CASE a.game WHEN 'yugioh' THEN 'ygoprodeck_api'
                                ELSE 'pokemon_tcg_api' END
+                  AND market_segment = 'raw'
                 ORDER BY captured_at DESC LIMIT 1
             ) ph ON TRUE
             ORDER BY COALESCE(wl.wl_count, 0) DESC, s.liquidity_score DESC NULLS LAST
@@ -265,6 +268,28 @@ def render_digest_html(
         stats=stats,
         app_url=os.getenv("APP_URL", "https://flashcard-planet.up.railway.app"),
     )
+
+
+def resolve_subscribers(db: Session) -> list[User] | None:
+    """Return the list of users to send digest to.
+
+    In DRY_RUN mode: returns [operator_user] if the operator email exists in DB,
+    None otherwise (caller must treat None as abort — logs no_op).
+    In normal mode: returns all active Plus/Pro subscribers with digest enabled.
+    """
+    if DRY_RUN:
+        operator = db.scalars(
+            select(User).where(User.email == DRY_RUN_EMAIL)
+        ).first()
+        return [operator] if operator is not None else None
+
+    return db.scalars(
+        select(User).where(
+            User.subscription_tier.in_(["plus", "pro"]),
+            User.subscription_status.in_(["active", "trialing"]),
+            User.digest_frequency != "off",
+        )
+    ).all()
 
 
 def _get_digest_stats(db: Session) -> DigestStats:

@@ -1153,6 +1153,7 @@ def _send_market_digests() -> None:
         DRY_RUN,
         get_digest_candidates,
         get_or_generate_explanation,
+        resolve_subscribers,
         send_digest,
         should_send_digest,
     )
@@ -1204,26 +1205,12 @@ def _send_market_digests() -> None:
                     card.price_delta_pct,
                 )
 
-            # Query eligible subscribers
-            subscribers = db.scalars(
-                select(User).where(
-                    User.subscription_tier.in_(["plus", "pro"]),
-                    User.subscription_status.in_(["active", "trialing"]),
-                    User.digest_frequency != "off",
-                )
-            ).all()
-
-            if DRY_RUN:
-                from unittest.mock import MagicMock as _MM
-                dry_user = _MM()
-                dry_user.id = "dry-run"
-                dry_user.email = "ivancheng236@gmail.com"
-                dry_user.username = "operator"
-                dry_user.digest_frequency = "daily"
-                dry_user.last_digest_sent_at = None
-                dry_user.created_at = datetime.now(UTC) - timedelta(days=30)
-                dry_user.trial_started_at = None
-                subscribers = [dry_user]
+            # Resolve subscriber list (dry-run: operator only; normal: all active paid users)
+            subscribers = resolve_subscribers(db)
+            if subscribers is None:
+                finish_run(db, run_id, status="no_op",
+                           meta_json={"reason": "dry_run_user_not_found"})
+                return
 
             sent_count = 0
             fail_count = 0
