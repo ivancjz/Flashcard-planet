@@ -89,6 +89,7 @@ class TestFeatureEnum:
             "liquidity_score",
             "source_comparison",
             "pro_insights",
+            "export_csv",
         }
         actual = {f.value for f in Feature}
         assert actual == expected
@@ -359,3 +360,13 @@ class TestFeatureTierRequirements:
         # All Feature enum values require at least Plus — Free users get none
         for feature, tier in FEATURE_TIER_REQUIREMENTS.items():
             assert tier != Tier.FREE, f"{feature} should not be Tier.FREE"
+
+    def test_export_csv_maps_to_plus(self):
+        from backend.app.core.permissions import FEATURE_TIER_REQUIREMENTS, Tier
+        assert FEATURE_TIER_REQUIREMENTS[Feature.EXPORT_CSV] == Tier.PLUS
+
+    def test_plus_can_export_csv(self):
+        assert can("plus", Feature.EXPORT_CSV) is True
+
+    def test_free_cannot_export_csv(self):
+        assert can("free", Feature.EXPORT_CSV) is False

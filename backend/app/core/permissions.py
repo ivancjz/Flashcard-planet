@@ -51,6 +51,9 @@ class Feature(str, Enum):
     # ── Pro Insights ─────────────────────────────────────────────────────
     PRO_INSIGHTS = "pro_insights"
 
+    # ── Export ───────────────────────────────────────────────────────────
+    EXPORT_CSV = "export_csv"
+
 
 # ── Feature → minimum tier required ─────────────────────────────────────────
 # Plus features: extended data, AI analysis, unlimited usage
@@ -70,6 +73,7 @@ FEATURE_TIER_REQUIREMENTS: dict[Feature, Tier] = {
     Feature.WATCHLIST_UNLIMITED:     Tier.PLUS,
     Feature.MOVERS_DETAIL:           Tier.PLUS,
     Feature.SOURCE_COMPARISON:       Tier.PLUS,
+    Feature.EXPORT_CSV:              Tier.PLUS,
     # ── Pro tier ──────────────────────────────────────────────────────────
     Feature.LIQUIDITY_SCORE:         Tier.PRO,
     Feature.PRO_INSIGHTS:            Tier.PRO,

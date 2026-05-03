@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 from backend.app.api.deps import get_database, get_optional_user
-from backend.app.core.permissions import Feature, can, resolve_tier
+from backend.app.core.permissions import Feature, can, history_days, resolve_tier
 from backend.app.models.user import User
 
 router = APIRouter(prefix="/api/v1/web", tags=["web"])
@@ -492,8 +492,11 @@ def export_cards(
     price_max: float | None = Query(default=None),
     asset_ids: str | None = Query(default=None),
     db: Session = Depends(get_database),
+    tier: str = Depends(_get_effective_tier),
 ):
-    """Export filtered cards as CSV (UTF-8 BOM, Excel-compatible). Max 5000 rows."""
+    """Export filtered cards as CSV (UTF-8 BOM, Excel-compatible). Max 5000 rows. Requires Plus tier."""
+    if not can(tier, Feature.EXPORT_CSV):
+        raise HTTPException(status_code=403, detail="Plus subscription required for CSV export.")
     params: dict = {"game": game, "limit": _EXPORT_LIMIT}
 
     signal_filter = "" if signal == "ALL" else "AND s.label = :signal"
@@ -1032,7 +1035,8 @@ def web_card_detail(
             if signal_row is not None:
                 ai_analysis = get_or_explain(db, signal_row)
 
-    history = db.execute(text("""
+    _history_days = history_days(tier)
+    history = db.execute(text(f"""
         SELECT
             DATE(ph.captured_at) AS date,
             AVG(ph.price) FILTER (
@@ -1042,7 +1046,7 @@ def web_card_detail(
         FROM price_history ph
         JOIN assets a ON a.id = ph.asset_id
         WHERE ph.asset_id = CAST(:asset_id AS uuid)
-          AND ph.captured_at >= NOW() - INTERVAL '30 days'
+          AND ph.captured_at >= NOW() - INTERVAL '{_history_days} days'
         GROUP BY DATE(ph.captured_at)
         ORDER BY date ASC
     """), {"asset_id": asset_id}).fetchall()
