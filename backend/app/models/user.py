@@ -45,6 +45,14 @@ class User(Base):
     is_founders: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
     founders_locked_price_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
 
+    # Market Digest preferences
+    digest_frequency: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="daily", default="daily"
+    )
+    last_digest_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     __table_args__ = (
         Index("ix_users_subscription_status", "subscription_status"),
     )
@@ -58,3 +66,5 @@ class User(Base):
         super().__init__(**kwargs)
         if self.access_tier is None:
             self.access_tier = "free"
+        if self.digest_frequency is None:
+            self.digest_frequency = "daily"
