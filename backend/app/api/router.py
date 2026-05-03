@@ -11,6 +11,7 @@ from backend.app.api.routes.signals import router as signals_router
 from backend.app.api.routes.cards import router as cards_router
 from backend.app.api.routes.watchlists import router as watchlists_router
 from backend.app.api.routes.waitlist import router as waitlist_router
+from backend.app.api.routes.account import router as account_router
 from backend.app.api.routes.web import router as web_router
 from backend.app.core.config import get_settings
 
@@ -28,4 +29,5 @@ api_router.include_router(watchlists_router, prefix=settings.api_prefix)
 api_router.include_router(cards_router, prefix=settings.api_prefix)
 api_router.include_router(review_router, prefix=settings.api_prefix)
 api_router.include_router(waitlist_router, prefix=settings.api_prefix)
+api_router.include_router(account_router, prefix=settings.api_prefix)
 api_router.include_router(web_router)
