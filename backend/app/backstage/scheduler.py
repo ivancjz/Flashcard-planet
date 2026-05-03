@@ -11,6 +11,7 @@ from backend.app.ingestion.pokemon_tcg import backfill_single_card, run_backfill
 from backend.app.services.backfill_retry_service import run_retry_pass
 from backend.app.services.scheduler_run_log_service import (
     JOB_BULK_REFRESH,
+    JOB_DIGEST,
     JOB_EBAY,
     JOB_HEARTBEAT,
     JOB_INGESTION,
@@ -94,6 +95,7 @@ _STARTUP_DELAY: dict[str, int] = {
     "yugioh-ingestion":       780,   # 13 min — after heartbeat, YGO sets are small so runs fast
     "bulk-set-price-refresh": 900,   # 15 min — after ingestion (120s+~5min run) and signal (600s)
     "explanation-sweep":      960,   # 16 min — after signal-sweep so new signals get explanations fast
+    "market-digest-send":     1200,  # 20 min — after all other jobs have warmed up
     # "retry-pass" intentionally omitted — resume separately when confidence is high
 }
 
@@ -1102,6 +1104,21 @@ def build_scheduler() -> BackgroundScheduler:
         next_run_time=None,
     )
 
+    scheduler.add_job(
+        _send_market_digests,
+        "interval",
+        minutes=30,
+        id="market-digest-send",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=None,
+    )
+    logger.info(
+        "Market Digest job registered. trigger=interval/30min first_run=startup+%ds",
+        _STARTUP_DELAY.get("market-digest-send", 1200),
+    )
+
     return scheduler
 
 
@@ -1121,6 +1138,118 @@ def _run_explanation_sweep() -> None:
         finally:
             with SessionLocal() as prune_db:
                 prune_old_runs(prune_db, "explanation-sweep")
+
+
+def _send_market_digests() -> None:
+    """Market Digest job — fires every 30 min, executes only in 06:45–07:15 UTC window.
+
+    Idempotency:
+      Gate 1: time-window check (06:45–07:15 UTC)
+      Gate 2: job-level dedupe (any send today → skip)
+    """
+    import time as _time_module
+    from datetime import time as _time
+    from backend.app.services.market_digest import (
+        DRY_RUN,
+        get_digest_candidates,
+        get_or_generate_explanation,
+        send_digest,
+        should_send_digest,
+    )
+    from backend.app.models.user import User
+    from sqlalchemy import select, text as sa_text
+
+    with SessionLocal() as db:
+        run_id = start_run(db, JOB_DIGEST)
+        try:
+            now_utc = datetime.now(UTC)
+            t = now_utc.time()
+
+            # Gate 1: only execute in the 06:45–07:15 UTC window
+            if not (_time(6, 45) <= t <= _time(7, 15)):
+                finish_run(db, run_id, status="no_op",
+                           meta_json={"reason": "outside_send_window",
+                                      "current_utc": t.isoformat()})
+                return
+
+            # Gate 2: job-level dedupe — skip if any send completed today
+            today_utc = now_utc.date()
+            existing = db.execute(
+                sa_text("SELECT 1 FROM digest_send_log WHERE sent_at::date = :d LIMIT 1"),
+                {"d": today_utc},
+            ).fetchone()
+            if existing:
+                finish_run(db, run_id, status="no_op",
+                           meta_json={"reason": "already_sent_today",
+                                      "date": today_utc.isoformat()})
+                return
+
+            # Build today's candidate cards (shared across all users)
+            candidates = get_digest_candidates(db, today_utc)
+            has_signals = any(c.signal_type in ("BREAKOUT", "MOVE") for c in candidates)
+
+            if not candidates:
+                finish_run(db, run_id, status="no_op",
+                           meta_json={"reason": "insufficient_content"})
+                return
+
+            # Populate explanations
+            for card in candidates:
+                card.explanation = get_or_generate_explanation(
+                    db,
+                    card.asset_id,
+                    card.signal_type,
+                    today_utc,
+                    card.name,
+                    card.price_delta_pct,
+                )
+
+            # Query eligible subscribers
+            subscribers = db.scalars(
+                select(User).where(
+                    User.subscription_tier.in_(["plus", "pro"]),
+                    User.subscription_status.in_(["active", "trialing"]),
+                    User.digest_frequency != "off",
+                )
+            ).all()
+
+            if DRY_RUN:
+                from unittest.mock import MagicMock as _MM
+                dry_user = _MM()
+                dry_user.id = "dry-run"
+                dry_user.email = "ivancheng236@gmail.com"
+                dry_user.username = "operator"
+                dry_user.digest_frequency = "daily"
+                dry_user.last_digest_sent_at = None
+                dry_user.created_at = datetime.now(UTC) - timedelta(days=30)
+                dry_user.trial_started_at = None
+                subscribers = [dry_user]
+
+            sent_count = 0
+            fail_count = 0
+
+            for user in subscribers:
+                trigger_type = "event" if has_signals else "weekly_fallback"
+                if not should_send_digest(user, today_utc, has_signals=has_signals):
+                    continue
+                try:
+                    send_digest(db, user, candidates, trigger_type, today_utc)
+                    sent_count += 1
+                except Exception as e:
+                    logger.error("digest_batch_error user=%s error=%s", getattr(user, "id", "?"), e)
+                    fail_count += 1
+                _time_module.sleep(0.2)
+
+            status = "success" if fail_count == 0 else ("partial" if sent_count > 0 else "error")
+            finish_run(db, run_id, status=status, records_written=sent_count,
+                       errors=fail_count,
+                       meta_json={"sent": sent_count, "failed": fail_count,
+                                  "dry_run": DRY_RUN})
+        except Exception as e:
+            finish_run(db, run_id, status="error", error_message=str(e))
+            logger.exception("market-digest-send job failed: %s", e)
+        finally:
+            prune_old_runs(db, JOB_DIGEST)
 
 
 def prepare_scheduler_for_startup(

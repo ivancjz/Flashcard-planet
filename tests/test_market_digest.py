@@ -267,3 +267,56 @@ class TestRenderDigestSubject:
         cards = [_digest_card("MOVE")]
         subject = render_digest_subject(cards, "event")
         assert "0 BREAKOUTs" in subject or "TCG" in subject
+
+
+class TestMarketDigestJobIdempotency:
+    """Tests for the time-window and dedupe gates inside _send_market_digests."""
+
+    def test_job_noop_outside_send_window(self):
+        """Job called at 08:00 UTC → status='no_op', reason='outside_send_window'."""
+        from unittest.mock import patch, MagicMock, call
+        from datetime import timezone
+        from backend.app.backstage.scheduler import _send_market_digests
+
+        now_utc = datetime(2026, 5, 4, 8, 0, 0, tzinfo=UTC)
+        mock_db = MagicMock()
+        mock_db.__enter__ = MagicMock(return_value=mock_db)
+        mock_db.__exit__ = MagicMock(return_value=False)
+
+        with patch("backend.app.backstage.scheduler.SessionLocal", return_value=mock_db), \
+             patch("backend.app.backstage.scheduler.datetime") as mock_dt, \
+             patch("backend.app.backstage.scheduler.start_run", return_value=1) as mock_start, \
+             patch("backend.app.backstage.scheduler.finish_run") as mock_finish:
+
+            mock_dt.now.return_value = now_utc
+
+            _send_market_digests()
+
+            assert mock_finish.called
+            call_kwargs = mock_finish.call_args[1]
+            assert call_kwargs["status"] == "no_op"
+
+    def test_job_noop_when_already_sent_today(self):
+        """Job at 07:00 UTC but digest_send_log has today's row → status='no_op'."""
+        from unittest.mock import patch, MagicMock
+        from backend.app.backstage.scheduler import _send_market_digests
+
+        now_utc = datetime(2026, 5, 4, 7, 0, 0, tzinfo=UTC)
+        mock_db = MagicMock()
+        mock_db.__enter__ = MagicMock(return_value=mock_db)
+        mock_db.__exit__ = MagicMock(return_value=False)
+        # Simulate "already sent today" row exists
+        mock_db.execute.return_value.fetchone.return_value = MagicMock()
+
+        with patch("backend.app.backstage.scheduler.SessionLocal", return_value=mock_db), \
+             patch("backend.app.backstage.scheduler.datetime") as mock_dt, \
+             patch("backend.app.backstage.scheduler.start_run", return_value=1), \
+             patch("backend.app.backstage.scheduler.finish_run") as mock_finish:
+
+            mock_dt.now.return_value = now_utc
+
+            _send_market_digests()
+
+            assert mock_finish.called
+            call_kwargs = mock_finish.call_args[1]
+            assert call_kwargs["status"] == "no_op"
