@@ -2,7 +2,7 @@ import { createContext, useState, useEffect, useContext } from 'react'
 import type { ReactNode } from 'react'
 import { setCachedTier } from '../api/api'
 
-export type Tier = 'free' | 'pro'
+export type Tier = 'free' | 'plus' | 'pro'
 
 const STORAGE_KEY = 'fcp_dev_tier_override'
 

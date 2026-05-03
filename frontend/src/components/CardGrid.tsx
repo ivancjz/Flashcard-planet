@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import type { CardSummary } from '../types/api'
 import { useWatchlist } from '../hooks/useWatchlist'
 import CardArt from './CardArt'
 import SignalBadge from './SignalBadge'
 import Sparkline from './Sparkline'
 import { signalToMeta, formatDelta } from '../lib/utils'
+import PlusUpgradeModal from './PlusUpgradeModal'
 
 interface CardGridProps {
   cards: CardSummary[]
@@ -105,6 +107,7 @@ function CardItem({ card, watched, onClick, onToggleWatch }: {
 
 export default function CardGrid({ cards, onCardClick, loading, emptyState }: CardGridProps) {
   const { isWatched, toggle } = useWatchlist()
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
 
   if (loading) {
     return (
@@ -129,7 +132,9 @@ export default function CardGrid({ cards, onCardClick, loading, emptyState }: Ca
           onToggleWatch={() => {
             const result = toggle(card.asset_id)
             if (!result.ok) {
-              if (result.reason === 'cap') {
+              if (result.reason === 'tier_limit') {
+                setShowUpgradeModal(true)
+              } else if (result.reason === 'cap') {
                 alert('Watchlist is full (max 500 cards). Remove some to add more.')
               } else if (result.reason === 'storage') {
                 alert('Could not save watchlist. Storage may be disabled.')
@@ -138,6 +143,7 @@ export default function CardGrid({ cards, onCardClick, loading, emptyState }: Ca
           }}
         />
       ))}
+      {showUpgradeModal && <PlusUpgradeModal onClose={() => setShowUpgradeModal(false)} />}
     </div>
   )
 }

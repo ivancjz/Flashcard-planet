@@ -135,7 +135,7 @@ export default function LandingPage() {
         </div>
 
         {/* Plans */}
-        <div style={{ marginTop: 80 }}>
+        <div id="plus" style={{ marginTop: 80, scrollMarginTop: 80 }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, marginBottom: 8, textAlign: 'center' }}>
             Simple pricing
           </h2>

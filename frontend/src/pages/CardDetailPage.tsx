@@ -5,6 +5,7 @@ import CardArt from '../components/CardArt'
 import SignalBadge from '../components/SignalBadge'
 import AIAnalysisSection from '../components/AIAnalysisSection'
 import SignalTimeline from '../components/SignalTimeline'
+import PlusUpgradeModal from '../components/PlusUpgradeModal'
 import { fetchCard } from '../api/api'
 import { signalToMeta, formatDelta } from '../lib/utils'
 import { useWatchlist } from '../hooks/useWatchlist'
@@ -283,6 +284,7 @@ export default function CardDetailPage() {
   const [card, setCard] = useState<CardDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const { isWatched, toggle } = useWatchlist()
 
   useEffect(() => {
@@ -350,7 +352,8 @@ export default function CardDetailPage() {
                 onClick={() => {
                   const result = toggle(card.asset_id)
                   if (!result.ok) {
-                    if (result.reason === 'cap') alert('Watchlist is full (max 500 cards). Remove some to add more.')
+                    if (result.reason === 'tier_limit') setShowUpgradeModal(true)
+                    else if (result.reason === 'cap') alert('Watchlist is full (max 500 cards). Remove some to add more.')
                     else if (result.reason === 'storage') alert('Could not save watchlist. Storage may be disabled.')
                   }
                 }}
@@ -425,6 +428,7 @@ export default function CardDetailPage() {
           </div>
         </div>
       </div>
+      {showUpgradeModal && <PlusUpgradeModal onClose={() => setShowUpgradeModal(false)} />}
     </div>
   )
 }
