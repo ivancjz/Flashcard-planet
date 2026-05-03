@@ -178,6 +178,7 @@ Current known dead configs: none. Keep it that way.
 - **Local DB absolute counts are not authoritative**: when a local audit surfaces an unexpected number (e.g., "22,654 NULL rows"), do not act on the number — first run the same query on production. Local DBs can be arbitrarily stale relative to production migrations and backfills. Trends, shapes, and source lists from local DB are usable; absolute counts are not. The default response to an alarming local count is "production audit before deciding scope," not "expand the PR scope to fix the local number."
 - **Trigger functions: `clock_timestamp()` not `CURRENT_TIMESTAMP`**: in PL/pgSQL trigger functions that compare against "now", always use `clock_timestamp()` (wall-clock, advances during the transaction). `CURRENT_TIMESTAMP` / `NOW()` are pinned to transaction start — a 10-minute ingest transaction using `CURRENT_TIMESTAMP` would false-reject valid rows captured mid-transaction, producing silent data loss that looks identical to "eBay API missed some listings."
 - **Cross-PR assumption tracking**: when a PR's correctness depends on an assumption established by a previous PR (e.g., "PR A guaranteed `market_segment` is set on all rows"), the new PR's verification step must re-run the SQL that established that assumption — not assume it still holds. PRs are merged at different times against different data; assumptions drift. List the inherited assumptions in the PR description's "Assumptions" section, with the SQL used to verify each.
+- **Enum extension verification**: when a PR adds a new value to any enum (e.g. `Tier.PLUS`, a new `subscription_status`), grep the entire codebase for all sites that handle that enum before merging: TypeScript type definitions and union types, ternary / switch coercion sites (frontend + backend), database CHECK constraints, API serialisation/deserialisation, UI badge/conditional-rendering components, and tests that hard-reference the enum. List the updated sites in the PR description under "Enum sites updated". A new value silently falling through to a default is P0 if a paying user sees the free-tier UI; P1 if a feature flag is silently disabled. **Flag any PR that adds an enum value but omits this grep step.**
 
 ---
 
@@ -417,6 +418,22 @@ This upgraded "strongly consistent with outage" to "confirmed root cause" withou
 This audit ran: investigation → SQL evidence → Codex methodology review → reconciliation → findings report → separate fix PRs (P0, P1, P2, DC-2). Each step produced a durable artifact in `audits/2026-05-01/`. The pre-fix evidence (`p0-pre-fix-evidence.md`) is permanent; each fix is reversible and traceable back to the audit report.
 
 Mixing audit evidence with fix code makes the audit unverifiable. For future bugs: (1) document SQL evidence separately before touching code, (2) confirm root cause with runtime evidence, (3) open the fix in a dedicated PR referencing the evidence. Do not write fix code before step (2) completes.
+
+### Lesson 12: Adjacent spec decisions can produce silent contradictions
+
+TASK-301d (2026-05-03) decided watchlist runs client-side. TASK-301e (written later the same day) spec'd "Section 2: watchlist movers" assuming server-side watchlist data existed. Both decisions were individually correct; together they were inconsistent — invisible to anyone reading only one spec.
+
+**Pattern**: when a task spec references another system, table, service, or capability, verify that the referenced thing exists *and behaves as the spec assumes* before writing any implementation. "It should exist" is not verification. Use grep / SQL / code-read to confirm current state. If a contradiction surfaces, stop, name both conflicting decisions, and wait for operator resolution — do not pick a side silently.
+
+**Trigger**: any spec that references another task's output, another service's API, a schema column introduced by a different PR, or a behaviour owned by a different task. These are cross-boundary assumptions that can diverge without either side knowing.
+
+### Lesson 13: A new enum value silently coerced to default is a silent tier downgrade
+
+PR #43 (2026-05-04) added `Tier.PLUS` on the backend. `UserContext.tsx` on the frontend had two ternary coercion sites that pattern-matched on `'pro'` only — anything else fell through to `'free'`. Every `plus` subscriber saw free-tier UI. The backend change was correct; the bug was entirely in the frontend coercion layer, and no test covered the `plus` value because it hadn't existed when the tests were written.
+
+The gap: enum values added on one side of the stack are invisible to other sides unless explicitly grepped. The backend `Tier` class, the DB CHECK constraint, the TypeScript union type, and every conditional or ternary that switches on tier are four separate surfaces that must all be updated atomically. Missing even one is a silent regression.
+
+**Result**: see "Enum extension verification" in §3 Code patterns. Every PR that introduces a new enum value must enumerate all handling sites in its description and verify each was updated. Codex Cloud caught this as P1 in review — the pattern is predictable enough that Codex can be relied on to flag it, but the checklist should be run before opening the PR, not after.
 
 ---
 

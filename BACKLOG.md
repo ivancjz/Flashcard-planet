@@ -440,6 +440,7 @@ Listed to prevent re-litigation:
 - **Native mobile push notifications** — web push (PWA) is sufficient if we ever need real-time delivery. Native apps are off the table per the mobile app entry above; native push falls under that decision.
 - **Custom GitHub Action for PR review** — decided 2026-05-02 (TASK-103b). Codex Cloud is included in our existing ChatGPT subscription with zero ongoing maintenance. Building a custom Action duplicates effort for no gain. **Only revisit if Codex Cloud is removed from Plus tier or fundamentally changes behavior.**
 - **Routing all LLM tasks to a single provider** — decided 2026-05-02 (TASK-401). Anthropic, Groq, and OpenAI each have task types they're best at. Single-provider routing saves no money and loses heterogeneity benefits.
+- **Server-side watchlist persistence before user demand** — decided 2026-05-03 (TASK-301d). Watchlist is currently localStorage. Adding server-side storage implies cross-device sync, conflict resolution, and versioning — product decisions that should be user-driven (user reports losing watchlist on device switch), not pre-built on engineering convenience. F-4 watchlist limit is a conversion nudge, not a true paywall; client-side enforcement is sufficient. **Only revisit if:** (a) a Plus subscriber explicitly reports device-switch data loss, OR (b) a product decision to enable cross-device sync as a Plus feature is made.
 
 If a task being proposed falls into one of the above, **reject without operator escalation**.
 
