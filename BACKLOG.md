@@ -379,6 +379,36 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 
 ---
 
+#### TASK-501 — Domain setup + codebase URL migration
+
+**Priority:** P1
+**Status:** needs_decision — operator must complete Cloudflare/Railway steps first
+**Owner:** operator (steps 1–9) → Claude Code (step 10 code PR)
+
+**Operator action items (no code):**
+1. Register `flashcardplanet.com` on Cloudflare (~$10/yr). If taken, decide on alternative (.io / .app / .co).
+2. Cloudflare Email Routing: `hello@flashcardplanet.com` → `ivancheng236@gmail.com`
+3. Railway → Custom Domains → add `flashcardplanet.com` → apply DNS records in Cloudflare
+4. Wait SSL propagation (~5–10 min). Verify: `curl -I https://flashcardplanet.com` returns 200.
+5. Railway env var: set `APP_URL=https://flashcardplanet.com`
+6. Google Cloud Console: add `https://flashcardplanet.com/auth/google/callback` as authorized redirect URI; remove old Railway URL.
+7. Resend: verify `flashcardplanet.com` domain to unlock `hello@flashcardplanet.com` as sender.
+
+**Claude Code action (step 10 — after operator confirms domain is live):**
+
+Code PR (≤2 files, ~10 lines):
+- `backend/app/services/market_digest.py:269` — default APP_URL fallback: `flashcard-planet.up.railway.app` → `flashcardplanet.com`
+- `backend/app/email/resend_client.py:15` — FROM_ADDRESS: `onboarding@resend.dev` → `hello@flashcardplanet.com` (after Resend verification)
+
+**Audit results (2026-05-04):** Everything else is env-var driven (`settings.app_url`). No CORS changes needed (frontend uses same-origin relative URLs). Auth flows, magic links, and email templates all use `{{ app_url }}` dynamically.
+
+**Precondition for Claude Code PR:** operator says "domain is live + APP_URL set".
+
+**Estimated effort:** XS (code PR after operator completes infra)
+**Reference:** Conversation 2026-05-04 domain audit.
+
+---
+
 ### needs_triage (proposed by Claude Code or operator, not yet prioritized)
 
 #### TASK-T01 — YGO image retry path
