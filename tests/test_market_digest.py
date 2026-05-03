@@ -320,3 +320,82 @@ class TestMarketDigestJobIdempotency:
             assert mock_finish.called
             call_kwargs = mock_finish.call_args[1]
             assert call_kwargs["status"] == "no_op"
+
+
+class TestDigestIntegration:
+    """Integration: routing logic, grace period, weekly cadence."""
+
+    def _make_user(
+        self,
+        *,
+        frequency: str,
+        hours_old: int = 48,
+        last_sent_days_ago: int | None = None,
+    ):
+        from datetime import UTC
+        u = MagicMock()
+        u.id = uuid.uuid4()
+        u.email = f"{frequency}@test.com"
+        u.username = frequency
+        u.digest_frequency = frequency
+        u.created_at = datetime.now(UTC) - timedelta(hours=hours_old)
+        u.trial_started_at = None
+        if last_sent_days_ago is not None:
+            u.last_digest_sent_at = datetime.now(UTC) - timedelta(days=last_sent_days_ago)
+        else:
+            u.last_digest_sent_at = None
+        return u
+
+    def test_off_user_not_sent(self):
+        users = [
+            self._make_user(frequency="daily"),
+            self._make_user(frequency="off"),
+            self._make_user(frequency="weekly"),
+        ]
+        today = date.today()
+        sent = [u for u in users if should_send_digest(u, today, has_signals=True)]
+        freqs = [u.digest_frequency for u in sent]
+        assert "off" not in freqs
+
+    def test_new_user_skipped_in_grace_period(self):
+        new_user = self._make_user(frequency="daily", hours_old=5)
+        assert should_send_digest(new_user, date.today(), has_signals=True) is False
+
+    def test_weekly_user_not_sent_within_7_days(self):
+        user = self._make_user(frequency="weekly", last_sent_days_ago=3)
+        assert should_send_digest(user, date.today(), has_signals=True) is False
+
+    def test_weekly_user_sent_after_7_days(self):
+        user = self._make_user(frequency="weekly", last_sent_days_ago=8)
+        assert should_send_digest(user, date.today(), has_signals=True) is True
+
+    def test_single_user_smtp_failure_does_not_raise(self):
+        """send_digest catching an SMTP error must not propagate — batch continues."""
+        from unittest.mock import patch
+        from backend.app.services.market_digest import send_digest, DigestCard, DigestStats
+
+        card = DigestCard(
+            asset_id=uuid.uuid4(), name="Pikachu", game="pokemon",
+            signal_type="BREAKOUT", price_delta_pct=10.0, current_price=5.0,
+            explanation="Test.",
+        )
+        user = MagicMock()
+        user.id = uuid.uuid4()
+        user.email = "test@test.com"
+        user.username = "test"
+        db = MagicMock()
+        stats = DigestStats(total_assets=100, games=["pokemon"],
+                            last_updated_utc=datetime.now(UTC))
+        db.execute.return_value.fetchone.return_value = stats
+
+        with patch("backend.app.email.resend_client.send_digest_email",
+                   side_effect=Exception("SMTP error")), \
+             patch("backend.app.services.market_digest._get_digest_stats",
+                   return_value=stats), \
+             patch("backend.app.services.market_digest.render_digest_html",
+                   return_value="<html>test</html>"):
+            # Must not raise — failure is captured in send log
+            send_digest(db, user, [card], "event", date.today())
+
+        db.add.assert_called()  # DigestSendLog row was written
+        db.commit.assert_called()
