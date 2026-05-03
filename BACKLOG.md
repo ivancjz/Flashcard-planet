@@ -389,6 +389,38 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 **Proposed:** 2026-05-02 (TASK-204 audit finding)
 `failed_backfill_queue` permanent failure count is not visible in any admin endpoint. Add to next diagnostic endpoint PR alongside TASK-301 diag work.
 
+#### TASK-701 — Deep Analysis (Pro hero, post-launch)
+**Proposed:** 2026-05-04
+**Status:** deferred — do not start until Pro launch + ≥10 paying Pro users
+**ADR reference:** ADR-06v3 §F-23
+
+Differentiation from Plus Card Detail AI Analysis (TASK-301e):
+
+| Dimension | Plus AI Analysis (current) | Pro Deep Analysis (TASK-701) |
+|---|---|---|
+| Length | 1–2 sentences | 4–6 paragraphs structured |
+| Content | Data restatement + simple observation | Drivers / Historical pattern / Operational thesis / Risks |
+| External lookup | None | Web search (Reddit / Twitter / official news) |
+| Historical matching | None | Similar (liquidity + price movement) combos in DB |
+| Actionable guidance | No | "hold" / "wait" / "exit" with explicit reasoning |
+| Risk quantification | No | Yes |
+| Cost | ~$0.005/call (cached aggressively) | ~$0.30/call |
+| Rate limit | N/A | 5 calls/day per Pro user |
+| Cache strategy | Shared by (card, signal_label) 24h | Per (asset, date) 24h per user |
+
+**Why the distinction matters for pricing:**
+Plus AI Analysis is a convenience feature — it saves the user from pasting data into ChatGPT themselves. Pro Deep Analysis is a capability gap — web search + historical pattern matching is structurally impossible to replicate with ChatGPT alone on public TCG data. This is where the Pro $30/month price point is justified.
+
+**Implementation notes (when ready):**
+- New endpoint: `POST /api/v1/predict/deep` (Pro-gated, rate-limited via `llm_request_log` table)
+- Provider: Anthropic with `web_search_20250305` tool enabled (TASK-401 router)
+- Structured output schema: `{ drivers, historical_pattern, thesis, risks, guidance }`
+- `guidance.action` must be one of `hold | wait | exit | accumulate` — no `buy` language
+- Daily counter resets UTC 00:00; persisted in `llm_request_log` with `task_type='deep_analysis'`
+- Cost monitoring: alert if daily Deep Analysis spend > $15 (50 users × 5 calls × $0.30 = $75/day max; alert at 20%)
+- Response time: 15–30s acceptable (stream to frontend)
+- Precondition: `llm_request_log` table must exist (TASK-604 or equivalent)
+
 ---
 
 ## 3. Completed (last 30 days)
