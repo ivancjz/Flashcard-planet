@@ -155,7 +155,7 @@ Format:
 #### TASK-202 — One Piece TCG integration research spike
 
 **Priority:** P1
-**Status:** ready
+**Status:** complete
 **Owner:** Claude Code (research) + Ivan (decision)
 **Preconditions:**
 - TASK-201 not blocked
@@ -469,6 +469,7 @@ When a task ships, move it here with PR number and merge date. Keep this section
 
 | TASK | Title | PR | Merged | Outcome |
 |---|---|---|---|---|
+| TASK-202 | One Piece TCG integration research spike | (research only) | 2026-05-04 | Design doc at docs/strategy/05_onepiece_integration.md. Recommended: optcgapi.com (free Phase 1) → tcgapi.dev Pro ($49.99/mo Phase 2). eBay Browse API via existing integration. First 5 sets: OP01, OP05, OP08, OP09, OP13. Operator go/no-go required. |
 | TASK-103a | Codex CLI CI feasibility research | (research only) | 2026-05-02 | Codex CLI is headless-capable; ChatGPT OAuth blocks GitHub Secret storage; Path C (Codex Cloud) chosen. Report at `docs/audits/2026-05-02-codex-ci-feasibility.md` |
 | TASK-104 | Archive Discord bot, simplify product boundary | commit e09c100 | 2026-05-02 | bot/ archived to archive/discord-bot-2026/. OAuth routes removed. 845 tests pass. |
 | TASK-302 | Pro tier waitlist form | commit ef6f7e3 | 2026-05-02 | POST /api/v1/waitlist + admin diag + landing page form. 851 tests pass. Requires migration 0029 on prod. |
