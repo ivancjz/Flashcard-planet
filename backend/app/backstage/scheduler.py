@@ -352,7 +352,7 @@ def _send_heartbeat() -> None:
 
         # Zero-output alert: jobs that ran completed runs but wrote zero records.
         # Detects the eBay-outage pattern: API calls consumed, status=success, 0 rows written.
-        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION]
+        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION, JOB_DIGEST]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,
