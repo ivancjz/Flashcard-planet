@@ -114,14 +114,16 @@ class TestJobStatsHelper:
         assert result["run_count_24h"] == 2
 
     def test_failure_count_24h(self):
+        """failure_count_24h counts any run with errors > 0, including partial."""
         from backend.app.backstage.routes import _job_stats
         with _session() as db:
-            _insert_run(db, "yugioh-ingestion", status="success", minutes_ago=30)
-            _insert_run(db, "yugioh-ingestion", status="error", minutes_ago=60)
-            _insert_run(db, "yugioh-ingestion", status="failed", minutes_ago=90)
+            _insert_run(db, "yugioh-ingestion", status="success", errors=0, minutes_ago=30)
+            _insert_run(db, "yugioh-ingestion", status="error", errors=1, minutes_ago=60)
+            _insert_run(db, "yugioh-ingestion", status="partial", errors=2, minutes_ago=90)  # Codex P1: partial with errors must count
+            _insert_run(db, "yugioh-ingestion", status="failed", errors=1, minutes_ago=120)
             result = _job_stats(db, "yugioh-ingestion")
-        assert result["failure_count_24h"] == 2
-        assert result["run_count_24h"] == 3
+        assert result["failure_count_24h"] == 3, "error + partial(errors>0) + failed all count as failures"
+        assert result["run_count_24h"] == 4
 
 
 class TestAdminStatsSchedulerSection:

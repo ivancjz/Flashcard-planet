@@ -482,7 +482,7 @@ def _job_stats(db: Session, job_name: str) -> dict[str, Any]:
         .filter(
             SchedulerRunLog.job_name == job_name,
             SchedulerRunLog.started_at >= cutoff_24h,
-            SchedulerRunLog.status.in_(["error", "failed"]),
+            SchedulerRunLog.errors > 0,
         )
         .scalar()
     ) or 0
