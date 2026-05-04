@@ -28,11 +28,14 @@ from backend.app.models.pro_waitlist import ProWaitlist
 from backend.app.models.user import User
 from backend.app.services.scheduler_run_log_service import (
     JOB_BULK_REFRESH,
+    JOB_DIGEST,
     JOB_EBAY,
+    JOB_EXPLANATION,
     JOB_HEARTBEAT,
     JOB_INGESTION,
     JOB_RETRY,
     JOB_SIGNALS,
+    JOB_YGO,
 )
 from backend.app.services.diagnostics_summary_service import build_standardized_diagnostics_summary
 from backend.app.services.signal_service import sweep_signals
@@ -455,7 +458,8 @@ def admin_reject_upgrade(
     return RedirectResponse(url="/admin/upgrade-requests", status_code=303)
 
 
-def _last_run_summary(db: Session, job_name: str) -> dict[str, Any] | None:
+def _job_stats(db: Session, job_name: str) -> dict[str, Any]:
+    """Last run details + 24h run/failure counts for one scheduler job."""
     row = (
         db.query(SchedulerRunLog)
         .filter(SchedulerRunLog.job_name == job_name)
@@ -463,18 +467,52 @@ def _last_run_summary(db: Session, job_name: str) -> dict[str, Any] | None:
         .limit(1)
         .first()
     )
+    cutoff_24h = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=24)
+    run_count_24h = (
+        db.query(func.count(SchedulerRunLog.id))
+        .filter(
+            SchedulerRunLog.job_name == job_name,
+            SchedulerRunLog.started_at >= cutoff_24h,
+            SchedulerRunLog.status != "running",
+        )
+        .scalar()
+    ) or 0
+    failure_count_24h = (
+        db.query(func.count(SchedulerRunLog.id))
+        .filter(
+            SchedulerRunLog.job_name == job_name,
+            SchedulerRunLog.started_at >= cutoff_24h,
+            SchedulerRunLog.status.in_(["error", "failed"]),
+        )
+        .scalar()
+    ) or 0
+
     if row is None:
-        return {"status": "never_run"}
+        return {
+            "last_run_status": "never_run",
+            "last_run_started_at": None,
+            "last_run_finished_at": None,
+            "last_run_records_written": None,
+            "last_run_errors": None,
+            "last_run_duration_ms": None,
+            "last_run_meta_json": None,
+            "run_count_24h": run_count_24h,
+            "failure_count_24h": failure_count_24h,
+        }
+
     duration_ms: int | None = None
     if row.finished_at is not None and row.started_at is not None:
         duration_ms = int((row.finished_at - row.started_at).total_seconds() * 1000)
     return {
-        "started_at": row.started_at.isoformat() if row.started_at else None,
-        "finished_at": row.finished_at.isoformat() if row.finished_at else None,
-        "status": row.status,
-        "records_written": row.records_written,
-        "errors": row.errors,
-        "duration_ms": duration_ms,
+        "last_run_started_at": row.started_at.isoformat() if row.started_at else None,
+        "last_run_finished_at": row.finished_at.isoformat() if row.finished_at else None,
+        "last_run_status": row.status,
+        "last_run_records_written": row.records_written,
+        "last_run_errors": row.errors,
+        "last_run_duration_ms": duration_ms,
+        "last_run_meta_json": row.meta_json,
+        "run_count_24h": run_count_24h,
+        "failure_count_24h": failure_count_24h,
     }
 
 
@@ -518,14 +556,19 @@ def admin_stats(
     signal_total = sum(signal_counts.values())
     latest_signal_at_val = db.query(func.max(AssetSignal.computed_at)).scalar()
 
-    # Scheduler last runs (job names from scheduler_run_log_service constants)
+    # Scheduler last runs — keyed by job name for direct jq access
+    _tracked_jobs = [
+        JOB_INGESTION,
+        JOB_SIGNALS,
+        JOB_EBAY,
+        JOB_HEARTBEAT,
+        JOB_YGO,
+        JOB_DIGEST,
+        JOB_BULK_REFRESH,
+        JOB_EXPLANATION,
+    ]
     scheduler = {
-        "last_ingestion": _last_run_summary(db, JOB_INGESTION),
-        "last_retry": _last_run_summary(db, JOB_RETRY),
-        "last_signals": _last_run_summary(db, JOB_SIGNALS),
-        "last_ebay": _last_run_summary(db, JOB_EBAY),
-        "last_bulk_refresh": _last_run_summary(db, JOB_BULK_REFRESH),
-        "last_heartbeat": _last_run_summary(db, JOB_HEARTBEAT),
+        "jobs": {job: _job_stats(db, job) for job in _tracked_jobs},
     }
 
     return {
