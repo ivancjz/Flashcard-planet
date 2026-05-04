@@ -242,6 +242,31 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 
 ---
 
+### P1 — should do this month (continued)
+
+#### TASK-606 — bulk-set-price-refresh failure logging gap
+
+**Priority:** P1
+**Status:** ready
+**Owner:** Claude Code
+**Preconditions:** None
+
+**Symptom:** `bulk-set-price-refresh` runs at 16% error rate (4/25 runs in 24h as of 2026-05-04) with `status='error', errors=1, meta_json=null`. Root cause is unobservable because `meta_json` is never passed to `finish_run` — the field is entirely absent from the call in `_run_bulk_set_price_refresh()` (scheduler.py ~line 554), unlike every other scheduler job which passes `meta_json` on both success and failure paths.
+
+**Definition of Done:**
+1. Audit `_run_bulk_set_price_refresh()` — confirm `finish_run` call at line ~554 lacks `meta_json` on both success and failure paths
+2. On success path: pass `meta_json` with `sets_processed`, `cards_processed`, `prices_recorded`
+3. On exception path: pass `meta_json` with `error_type`, `error_message` (first 500 chars), `sets_completed_before_failure` counter
+4. Unit test: simulate exception mid-loop → verify `finish_run` called with non-null `meta_json` containing `error_type`
+5. Verify in production: next error run has non-null `meta_json` visible in `/admin/stats`
+6. Codex review
+
+**Estimated effort:** S (~2 hours)
+**Reference:** `/admin/stats` PR #45 diagnosis 2026-05-04. Violates CLAUDE.md §3 invariant #2 (all scheduler jobs write run_log with status + meta_json).
+**Notes:** Does not block Pro launch. Ship within 1 week — Pro launch user load will make silent bulk-refresh failures a data freshness risk.
+
+---
+
 ### P2 — important but not urgent
 
 #### TASK-205 — Dashboard structure audit vs. v3 spec
@@ -461,6 +486,30 @@ Plus AI Analysis is a convenience feature — it saves the user from pasting dat
 - Response time: 15–30s acceptable (stream to frontend)
 - Precondition: `llm_request_log` table must exist (TASK-604 or equivalent)
 
+#### TASK-202b — OP13 data source gap (One Piece)
+**Proposed:** 2026-05-04 (TASK-202 spike finding)
+**Status:** deferred — do not start without operator approval
+**Trigger:** optcgapi.com still has no OP13 coverage 30 days after `ONEPIECE_INGEST_ENABLED=true` **and** Plus/Pro users report missing OP13 cards.
+**Options (decide at trigger time, not now):**
+- Wait for optcgapi.com to add OP13 (passive)
+- Test tcgapi.dev free tier for OP13 coverage
+- Accelerate Phase 2: tcgapi.dev Pro ($49.99/mo) — standard Phase 2 trigger is ARR ≥ $5K
+**Context:** OP01–OP12 covered by optcgapi.com. OP13 returns `not_found_in_source` per run — expected, not an error. See `docs/strategy/05_onepiece_integration.md` §2 and `docs/superpowers/specs/2026-05-04-onepiece-integration-design.md`.
+
+---
+
+### Observations (not tasks — monitor only)
+
+#### OBS-2026-05-04 — ingestion 24h failure rate elevated
+
+`ingestion` job: `runs_24h=25, fails_24h=12` (~40% failure rate). Historical normal range 10–25%. 40% is yellow-zone top.
+
+**Candidate causes:** Pokemon TCG API 429 rate limit storm; scheduler load from TASK-301e deploy; API upstream change; rate limit config drift.
+
+**Action:** No task opened. Track daily via `/admin/stats` `ingestion.failure_count_24h` for 7 days.
+- If stays >35% → escalate to P1 task
+- If drops to <25% → transient, close observation
+
 ---
 
 ## 3. Completed (last 30 days)
@@ -469,6 +518,7 @@ When a task ships, move it here with PR number and merge date. Keep this section
 
 | TASK | Title | PR | Merged | Outcome |
 |---|---|---|---|---|
+| TASK-606 (PR) | bulk-set-price-refresh failure logging gap | PR #45 (admin stats) | 2026-05-04 | PR #45 exposed: meta_json never passed to finish_run. TASK-606 opened as P1 ready for fix. |
 | TASK-202 | One Piece TCG integration research spike | (research only) | 2026-05-04 | Design doc at docs/strategy/05_onepiece_integration.md. Recommended: optcgapi.com (free Phase 1) → tcgapi.dev Pro ($49.99/mo Phase 2). eBay Browse API via existing integration. First 5 sets: OP01, OP05, OP08, OP09, OP13. Operator go/no-go required. |
 | TASK-103a | Codex CLI CI feasibility research | (research only) | 2026-05-02 | Codex CLI is headless-capable; ChatGPT OAuth blocks GitHub Secret storage; Path C (Codex Cloud) chosen. Report at `docs/audits/2026-05-02-codex-ci-feasibility.md` |
 | TASK-104 | Archive Discord bot, simplify product boundary | commit e09c100 | 2026-05-02 | bot/ archived to archive/discord-bot-2026/. OAuth routes removed. 845 tests pass. |
