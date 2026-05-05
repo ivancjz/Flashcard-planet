@@ -1978,3 +1978,137 @@ def admin_trigger_ip_tagging_sample(
         ),
         "results": result.results,
     }
+
+
+@router.get("/diag/digest-status")
+def admin_diag_digest_status(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Diagnose why a digest may not have sent — shows recent run logs + user state."""
+    from backend.app.services.market_digest import DRY_RUN, DRY_RUN_EMAIL
+
+    run_rows = db.execute(text("""
+        SELECT job_name, started_at, finished_at, status, records_written, errors, meta_json
+        FROM scheduler_run_log
+        WHERE job_name = 'market-digest-send'
+        ORDER BY started_at DESC LIMIT 10
+    """)).fetchall()
+
+    send_rows = db.execute(text("""
+        SELECT user_id, subject, sent_at, delivery_status, error_message, trigger_type, dedupe_key
+        FROM digest_send_log
+        ORDER BY sent_at DESC LIMIT 5
+    """)).fetchall()
+
+    user = db.scalars(select(User).where(User.email == DRY_RUN_EMAIL)).first()
+    user_info = None
+    if user:
+        user_info = {
+            "email": user.email,
+            "subscription_tier": user.subscription_tier,
+            "digest_frequency": user.digest_frequency,
+            "last_digest_sent_at": user.last_digest_sent_at.isoformat() if user.last_digest_sent_at else None,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "trial_started_at": user.trial_started_at.isoformat() if user.trial_started_at else None,
+        }
+
+    return {
+        "dry_run": DRY_RUN,
+        "dry_run_email": DRY_RUN_EMAIL,
+        "dry_run_user_found": user is not None,
+        "dry_run_user": user_info,
+        "recent_scheduler_runs": [
+            {
+                "started_at": str(r.started_at),
+                "finished_at": str(r.finished_at),
+                "status": r.status,
+                "records_written": r.records_written,
+                "errors": r.errors,
+                "meta_json": r.meta_json,
+            }
+            for r in run_rows
+        ],
+        "recent_sends": [
+            {
+                "sent_at": str(r.sent_at),
+                "subject": r.subject,
+                "delivery_status": r.delivery_status,
+                "error_message": r.error_message,
+                "trigger_type": r.trigger_type,
+                "dedupe_key": r.dedupe_key,
+            }
+            for r in send_rows
+        ],
+    }
+
+
+_DIGEST_FORCE_CONFIRM = "send-digest-now"
+
+
+@router.post("/trigger/send-digest-now")
+def admin_trigger_send_digest_now(
+    confirm: str = Query(default=""),
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Force-send the digest immediately, bypassing the time-window and dedupe gates.
+
+    Requires ?confirm=send-digest-now.
+    Uses dry-run logic (sends to operator email only if DIGEST_DRY_RUN=true).
+    REMOVE AFTER: digest delivery confirmed working end-to-end.
+    """
+    if confirm != _DIGEST_FORCE_CONFIRM:
+        raise HTTPException(status_code=400, detail=f"Pass ?confirm={_DIGEST_FORCE_CONFIRM}")
+
+    from backend.app.services.market_digest import (
+        DRY_RUN,
+        DRY_RUN_EMAIL,
+        get_digest_candidates,
+        get_or_generate_explanation,
+        resolve_subscribers,
+        send_digest,
+        should_send_digest,
+    )
+
+    today_utc = datetime.now(timezone.utc).date()
+    candidates = get_digest_candidates(db, today_utc)
+    if not candidates:
+        return {"ok": False, "reason": "no_candidates"}
+
+    for card in candidates:
+        card.explanation = get_or_generate_explanation(
+            db, card.asset_id, card.signal_type, today_utc, card.name, card.price_delta_pct
+        )
+
+    subscribers = resolve_subscribers(db)
+    if subscribers is None:
+        return {"ok": False, "reason": "dry_run_user_not_found", "email": DRY_RUN_EMAIL}
+
+    sent = 0
+    skipped = 0
+    failed = 0
+    errors = []
+    has_signals = any(c.signal_type in ("BREAKOUT", "MOVE") for c in candidates)
+
+    for user in subscribers:
+        trigger_type = "event" if has_signals else "weekly_fallback"
+        if not should_send_digest(user, today_utc, has_signals=has_signals):
+            skipped += 1
+            continue
+        try:
+            send_digest(db, user, candidates, trigger_type, today_utc)
+            sent += 1
+        except Exception as e:
+            failed += 1
+            errors.append(str(e))
+
+    return {
+        "ok": True,
+        "dry_run": DRY_RUN,
+        "sent": sent,
+        "skipped": skipped,
+        "failed": failed,
+        "errors": errors,
+        "candidates": len(candidates),
+    }
