@@ -99,14 +99,14 @@ def get_digest_candidates(db: Session, today: date) -> list[DigestCard]:
                 explanation="",
             ))
 
-    # Step 1: BREAKOUTs ordered by signal_score DESC
+    # Step 1: BREAKOUTs ordered by confidence DESC
     breakout_rows = db.execute(text("""
         SELECT
             a.id        AS asset_id,
             a.name,
             a.game,
             s.label,
-            s.signal_score,
+            s.confidence,
             s.price_delta_pct,
             ph.price    AS current_price
         FROM assets a
@@ -120,7 +120,7 @@ def get_digest_candidates(db: Session, today: date) -> list[DigestCard]:
             ORDER BY captured_at DESC LIMIT 1
         ) ph ON TRUE
         WHERE s.label = 'BREAKOUT'
-        ORDER BY s.signal_score DESC NULLS LAST
+        ORDER BY s.confidence DESC NULLS LAST
         LIMIT 5
     """)).fetchall()
     _add(breakout_rows, "BREAKOUT")
@@ -133,7 +133,7 @@ def get_digest_candidates(db: Session, today: date) -> list[DigestCard]:
                 a.name,
                 a.game,
                 s.label,
-                s.signal_score,
+                s.confidence,
                 s.price_delta_pct,
                 ph.price    AS current_price
             FROM assets a
@@ -160,7 +160,7 @@ def get_digest_candidates(db: Session, today: date) -> list[DigestCard]:
                 a.name,
                 a.game,
                 s.label,
-                s.signal_score,
+                s.confidence,
                 s.price_delta_pct,
                 ph.price    AS current_price
             FROM assets a
