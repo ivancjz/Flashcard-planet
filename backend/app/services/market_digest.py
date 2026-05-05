@@ -254,7 +254,7 @@ def render_digest_html(
     from jinja2 import Environment, FileSystemLoader
     from pathlib import Path
 
-    template_dir = Path(__file__).resolve().parents[2] / "email" / "templates"
+    template_dir = Path(__file__).resolve().parents[1] / "email" / "templates"
     env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
     tmpl = env.get_template("market_digest.html")
 
