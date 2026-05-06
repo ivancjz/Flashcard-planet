@@ -464,6 +464,7 @@ Things that are true as of 2026-04-29 and unlikely to change soon:
   - All 6 scheduler jobs now write `scheduler_run_log` (resolved 2026-04-23).
   - No backup infrastructure (Hobby plan). Operator accepted this risk explicitly; P0 remains on backlog.
   - `start_run` outside `try` block for all scheduler jobs — if `start_run` itself raises (DB pool exhaustion, transient network issue), the job crashes without leaving a `scheduler_run_log` row AND without triggering a Discord alert. Accepted tradeoff on 2026-04-23; 25h heartbeat alert provides eventual detection. See PR #13 Codex Review Finding #3 for full rationale. Proper fix: wrap `start_run` in its own try/except with separate alerting path; treat as hardening work, not urgent. **Re-evaluate if**: (a) scheduler_run_log shows unexplained gaps >2h for any job, (b) production Postgres moves off Railway-internal (latency/reliability profile changes), or (c) a second scheduler job is added that cannot tolerate silent failure.
+  - 2026-05-04 throughput collapse from 429 storm in `_run_bulk_set_price_refresh` (PR #12 fix coverage gap): bulk-refresh path called `PokemonTCGImporter._sleep_for_retry` with no Retry-After cap. PR #12's 60s cap only covered `pokemon_tcg.py`. Resolution: Part 2 of the follow-up PR applies `cap_and_backoff` to the bulk-refresh path. **Mark resolved** once that PR ships and 48h post-merge SQL shows bulk-refresh failure count < 2/day.
 
 ---
 
@@ -531,6 +532,14 @@ Currently temporarily open for testing phase. To restore the Pro tier gate:
 5. Update the 3 TEMP test cases in `tests/test_web_routes.py::WebCardDetailTests` to assert tier-gated behaviour
 
 All supporting infrastructure (`Feature.SIGNAL_EXPLANATION`, `can()`, the pattern in `signals_feed_service.py:63`) is already in place.
+
+### Backlog: audit alert SQL for "3 days no data" wording (Issue B false label)
+
+The alert or monitoring query that produced the "3 days no Pokémon data" wording for the 2026-05-04 incident likely watches `last_priced_at` instead of `records_written`. Auditing this is a separate PR — do NOT conflate with the 429 fix.
+
+### Backlog: move PokemonTCGImporter out of scripts/
+
+`PokemonTCGImporter` lives in `scripts/import_pokemon_cards.py` but is called by the production scheduler. Move to `backend/app/ingestion/` when convenient (no urgency — separate PR).
 
 ---
 
