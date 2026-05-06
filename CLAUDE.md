@@ -54,6 +54,16 @@ This file is the project context for any Claude instance working on this codebas
 
 **Consequence:** Any gate, plan, or memory entry that references "eBay recovery" as a precondition must be re-evaluated. The eBay sold-price channel cannot resume without a new data source approval.
 
+### YGO data source semantics — critical, read before any YGO expansion work
+
+**YGOPRODeck returns static aggregated prices, not live market prices.** Verified 2026-05-07: 67 YGO assets polled daily for 14 days — every card shows `delta=0.00` because `baseline_price == current_price` exactly. Even cards with real market movement (e.g., Destiny HERO at $326.73) show no intraday or day-over-day change in YGOPRODeck's API response.
+
+**Implication:** Signal engine cannot produce BREAKOUT/MOVE/WATCH for YGO assets using YGOPRODeck data alone. All 67 assets are structurally IDLE. This is correct behavior — the engine is not broken, the data source is static. Any product claim that "Flashcard Planet provides YGO market intelligence" is false until a real-time YGO price source is wired.
+
+**YGO sold-price ingest is currently unsolved.** eBay Browse = ask prices only (must not enter `price_history`). Finding API = decommissioned. Marketplace Insights = business gate. PriceCharting = YGO coverage unknown.
+
+**Do not start TASK-201 (YGO set expansion)** until the price source problem is resolved. Expanding to 300+ assets with a static-price source only increases DB footprint and scheduler load with no signal value. The correct unblocking order: solve YGO price source → validate signal diversity on 67 existing assets → then expand.
+
 ### Scheduler jobs
 All 5 use `interval` trigger + startup resume via `prepare_scheduler_for_startup`. **No cron triggers** (removed 2026-04-22 after discovering cron × frequent deploys = perpetual miss).
 

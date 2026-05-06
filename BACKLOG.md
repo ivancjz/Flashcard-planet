@@ -71,7 +71,7 @@ Format:
 #### TASK-101 — YGO signal graduation verification
 
 **Priority:** P0
-**Status:** complete
+**Status:** blocked
 **Owner:** Claude Code
 **Preconditions:**
 - Today is 2026-05-07 or later (YGO needs 7-14 days baseline window after 2026-04-23 activation; PR #15 seeded 5 sets, PR #28 expanded to 13)
@@ -86,8 +86,10 @@ Format:
 **Estimated effort:** S
 **Reference:** CLAUDE.md §7 ("Non-INSUFFICIENT YGO signals expected to appear around 2026-05-07"), `/admin/diag/ygo-verify-26` endpoint
 **Notes:**
+- **BLOCKED 2026-05-07:** YGOPRODeck returns static aggregated prices. 67 assets verified — all show delta=0.00 because baseline_price == current_price exactly, even after 14 days of daily polling. Signal engine is correct; the data source is static. Criterion 2 (BREAKOUT/MOVE/WATCH) is structurally unreachable with YGOPRODeck as sole source. Unblocked only when a real-time YGO sold-price source is wired.
+- Criterion 1 (≥30% non-INSUFFICIENT_DATA) is met (100% IDLE) but "graduated" was incorrectly derived from `asset_signals` current state, not `asset_signal_history` transitions.
+- Criterion 3 (Card Detail renders) is met.
 - This is a verification task, not a code change. If <30% threshold not met by 2026-05-14, escalate to operator — likely indicates either data freshness or threshold calibration issue.
-- After verification passes, **propose** a CLAUDE.md §6 entry as "Lesson 6: First non-Pokemon signal validated end-to-end" — but this is documentation maintenance, not a verification gate.
 
 ---
 
@@ -131,10 +133,11 @@ Format:
 #### TASK-201 — YGO Tier 1 expansion to ~30 sets
 
 **Priority:** P1
-**Status:** ready
+**Status:** blocked
 **Owner:** Claude Code
 **Preconditions:**
-- TASK-101 completed (YGO signal graduation proven)
+- TASK-101 completed (YGO signal graduation proven) — **BLOCKED**: TASK-101 is blocked on YGO price source
+- YGO real-time sold-price source resolved (YGOPRODeck is static; expanding sets before this is solved only increases DB/scheduler load with no signal value)
 - Stable production state with no scheduler red flags
 
 **Definition of Done:**
@@ -148,7 +151,9 @@ Format:
 
 **Estimated effort:** M
 **Reference:** `backend/app/ingestion/ygo.py` `YGO_PHASE2_SETS`, doc `01_architecture_audit_tasks.md` TASK-010
-**Notes:** Use the existing PR #11 import guard pattern — bulk import only sets that exist in DB; never auto-import on schedule.
+**Notes:**
+- **BLOCKED 2026-05-07:** YGOPRODeck returns static prices (delta=0.00 on all 67 existing assets, verified). Expanding to 300+ assets with the same source compounds the problem rather than solving it. Do NOT start until YGO real-time price source is decided and wired.
+- Use the existing PR #11 import guard pattern — bulk import only sets that exist in DB; never auto-import on schedule.
 
 ---
 
@@ -518,7 +523,7 @@ When a task ships, move it here with PR number and merge date. Keep this section
 
 | TASK | Title | PR | Merged | Outcome |
 |---|---|---|---|---|
-| TASK-101 | YGO signal graduation verification | (verification only) | 2026-05-07 | 100% of 67 YGO assets graduated from INSUFFICIENT_DATA → IDLE. Card Detail renders for Starlight Rare ($326), Ultra Rare ($21), Common ($0.82) — signal, price_history, signal_history all present. BREAKOUT/MOVE/WATCH criterion unmet: POTE/TOCH (2020-22) are stable-price sets; pipeline is correct but no movement to detect. Escalation threshold (<30% by 2026-05-14) not triggered. TASK-201 (set expansion to newer sets) is the unlock for richer signal diversity. |
+| TASK-101 | YGO signal graduation verification | BLOCKED — see active backlog | 2026-05-07 | Attempted 2026-05-07. Criteria 1 (IDLE state) and 3 (Card Detail renders) met. Criterion 2 (BREAKOUT/MOVE/WATCH) structurally unreachable: YGOPRODeck returns static prices, delta=0 on all 67 assets across 14 days. TASK-201 also blocked. Root: no real-time YGO sold-price source exists. |
 | TASK-606 | bulk-set-price-refresh failure logging gap | commits (scheduler.py + test) | 2026-05-07 | Added meta_json to finish_run on both success path (sets_processed, cards_processed, prices_recorded) and exception path (error_type, error_message[:500], sets_completed_before_failure). 1 new test; 7/7 pass. |
 | TASK-606 (PR) | bulk-set-price-refresh failure logging gap | PR #45 (admin stats) | 2026-05-04 | PR #45 exposed: meta_json never passed to finish_run. TASK-606 opened as P1 ready for fix. |
 | TASK-202 | One Piece TCG integration research spike | (research only) | 2026-05-04 | Design doc at docs/strategy/05_onepiece_integration.md. Recommended: optcgapi.com (free Phase 1) → tcgapi.dev Pro ($49.99/mo Phase 2). eBay Browse API via existing integration. First 5 sets: OP01, OP05, OP08, OP09, OP13. Operator go/no-go required. |
