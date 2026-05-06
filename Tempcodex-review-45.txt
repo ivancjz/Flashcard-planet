@@ -1,0 +1,6 @@
+The new scheduler stats underreport known partial failure states, which can hide operational failures in the admin endpoint.
+
+Review comment:
+
+- [P1] Count partial scheduler runs as failures — C:\Flashcard-planet\backend\app\backstage\routes.py:485-485
+  When a job records `status='partial'` with nonzero `errors` (for example the digest job when some subscriber sends fail), this 24h failure counter still reports 0 because it only counts `error`/`failed`. That makes `/admin/stats` hide partial delivery failures after a later success; count `partial` rows or, more robustly, rows with `errors > 0` as failures.

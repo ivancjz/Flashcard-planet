@@ -541,6 +541,14 @@ The "3 days no Pokémon data" wording for the 2026-05-04 incident came from conv
 
 `PokemonTCGImporter` lives in `scripts/import_pokemon_cards.py` but is called directly by the production scheduler (`_run_bulk_set_price_refresh` in `scheduler.py`). `scripts/` is the conventional location for one-off CLI tools; placing production scheduler dependencies there breaks the expectation that everything under `backend/app/` is the production package boundary. Move to `backend/app/ingestion/` when convenient (no urgency — separate PR).
 
+### Backlog: revisit main-direct policy for retry/backoff/rate-limiting changes
+
+Current policy ("Operator trusts you to push to main directly") is correct for velocity and fits the solo-dev Railway auto-deploy setup. But there is a category of change where main-direct is higher risk: **production retry/backoff/rate-limiting logic**. This category has a history of "designed but never ran" / "fixed but not on all paths" failure modes — eBay ingest, signal sweep, PR #12 coverage gap (bulk-refresh), and the 2026-05-04 incident. The gap between push and first visible alert can be minutes to hours.
+
+Consider requiring feature-branch + Codex-review-before-merge specifically for changes to: retry budgets, backoff delays, rate-limit guards, and circuit-breaker logic. Not blocking velocity for other change types.
+
+This backlog item is a "someday / Sunday decision" — do not implement without explicit operator decision. It is recorded here so the next session has the context.
+
 ---
 
 *This file is living documentation. When you learn something about the project that another Claude instance would benefit from, propose an update to this file in a dedicated commit.*
