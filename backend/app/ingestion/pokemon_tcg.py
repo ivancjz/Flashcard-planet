@@ -308,6 +308,24 @@ def _record_observation_result(
     )
 
 
+def cap_and_backoff(retry_after_secs: float | None, attempt: int) -> float:
+    """Return the delay in seconds before the next retry of a Pokemon TCG API call.
+
+    Caps Retry-After at 60 s to prevent a single bad header stalling a run for
+    hours. The 60 s cap and [2.0, 5.0, 15.0] fallbacks were tuned in PR #12
+    against observed Pokemon TCG API behaviour. Do not import this for other
+    APIs without verifying their rate-limit semantics match.
+
+    Args:
+        retry_after_secs: Parsed value of the Retry-After header, or None.
+        attempt: 1-based retry attempt number. Out-of-range values are clamped.
+    """
+    if retry_after_secs is not None:
+        return min(retry_after_secs, 60.0)
+    idx = min(max(attempt - 1, 0), 2)
+    return [2.0, 5.0, 15.0][idx]
+
+
 def _parse_retry_after(response: httpx.Response) -> float | None:
     """Parse Retry-After header. Returns seconds as float, or None if absent/invalid.
 
@@ -330,12 +348,10 @@ def _parse_retry_after(response: httpx.Response) -> float | None:
 
 def _compute_retry_delay(response: httpx.Response | None, attempt: int) -> float:
     """Prefer Retry-After header if present, otherwise exponential backoff."""
+    retry_after_secs: float | None = None
     if response is not None:
-        retry_after = _parse_retry_after(response)
-        if retry_after is not None:
-            return min(retry_after, 60.0)
-    fallback = [2.0, 5.0, 15.0]
-    return fallback[min(attempt - 1, len(fallback) - 1)]
+        retry_after_secs = _parse_retry_after(response)
+    return cap_and_backoff(retry_after_secs, attempt)
 
 
 def fetch_card(client: httpx.Client, card_id: str) -> dict[str, Any]:
