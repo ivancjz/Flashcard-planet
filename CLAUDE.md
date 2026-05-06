@@ -533,13 +533,13 @@ Currently temporarily open for testing phase. To restore the Pro tier gate:
 
 All supporting infrastructure (`Feature.SIGNAL_EXPLANATION`, `can()`, the pattern in `signals_feed_service.py:63`) is already in place.
 
-### Backlog: audit alert SQL for "3 days no data" wording (Issue B false label)
+### Backlog: find and fix the source of the "3 days no data" label
 
-The alert or monitoring query that produced the "3 days no Pokémon data" wording for the 2026-05-04 incident likely watches `last_priced_at` instead of `records_written`. Auditing this is a separate PR — do NOT conflate with the 429 fix.
+The "3 days no Pokémon data" wording for the 2026-05-04 incident came from conversation/session handoff — source not confirmed to be an automated alert. Two places to check: (1) `_send_heartbeat` in `backend/app/backstage/scheduler.py` around the zero-output and 25h-absence checks; (2) session-handoff-*.md files in `.claude/`. `last_priced_at` does **not** exist in the codebase — any alert watching it is hypothetical until confirmed. Do NOT conflate this audit with the 429 fix (separate PR).
 
 ### Backlog: move PokemonTCGImporter out of scripts/
 
-`PokemonTCGImporter` lives in `scripts/import_pokemon_cards.py` but is called by the production scheduler. Move to `backend/app/ingestion/` when convenient (no urgency — separate PR).
+`PokemonTCGImporter` lives in `scripts/import_pokemon_cards.py` but is called directly by the production scheduler (`_run_bulk_set_price_refresh` in `scheduler.py`). `scripts/` is the conventional location for one-off CLI tools; placing production scheduler dependencies there breaks the expectation that everything under `backend/app/` is the production package boundary. Move to `backend/app/ingestion/` when convenient (no urgency — separate PR).
 
 ---
 
