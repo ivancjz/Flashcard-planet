@@ -1980,6 +1980,55 @@ def admin_trigger_ip_tagging_sample(
     }
 
 
+@router.get("/diag/scheduler-history")
+def admin_diag_scheduler_history(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+    days: int = Query(default=7, ge=1, le=30),
+):
+    """7-day (configurable) per-day breakdown of scheduler run counts and write volumes.
+
+    Mirrors the SQL the operator runs manually — returns same shape as the query.
+    REMOVE AFTER: used for ad-hoc investigation.
+    """
+    rows = db.execute(text("""
+        SELECT
+            job_name,
+            DATE(started_at AT TIME ZONE 'UTC') AS day,
+            COUNT(*) FILTER (WHERE status = 'success')                  AS success_runs,
+            COUNT(*) FILTER (WHERE status IN ('error','failed'))        AS failed_runs,
+            COUNT(*) FILTER (WHERE status = 'no_op')                   AS noop_runs,
+            COALESCE(SUM(records_written), 0)                          AS total_writes,
+            MIN(records_written)                                        AS min_writes,
+            MAX(records_written)                                        AS max_writes,
+            ROUND(AVG(
+                EXTRACT(EPOCH FROM (finished_at - started_at)) * 1000
+            )::NUMERIC, 0)                                             AS avg_duration_ms
+        FROM scheduler_run_log
+        WHERE started_at > NOW() - (:days || ' days')::INTERVAL
+        GROUP BY 1, 2
+        ORDER BY 2 DESC, 1
+    """), {"days": days}).fetchall()
+
+    return {
+        "days": days,
+        "rows": [
+            {
+                "job_name": r.job_name,
+                "day": str(r.day),
+                "success_runs": r.success_runs,
+                "failed_runs": r.failed_runs,
+                "noop_runs": r.noop_runs,
+                "total_writes": int(r.total_writes or 0),
+                "min_writes": r.min_writes,
+                "max_writes": r.max_writes,
+                "avg_duration_ms": r.avg_duration_ms,
+            }
+            for r in rows
+        ],
+    }
+
+
 @router.get("/diag/digest-status")
 def admin_diag_digest_status(
     _: None = Depends(require_admin_key),
