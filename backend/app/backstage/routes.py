@@ -2021,7 +2021,7 @@ def admin_diag_db_size(
     }
 
 
-@router.get("/diag/current-n-distribution")
+@router.post("/diag/current-n-distribution")
 def admin_diag_current_n_distribution(
     _: None = Depends(require_admin_key),
     db: Session = Depends(get_database),
