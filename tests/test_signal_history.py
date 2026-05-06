@@ -31,12 +31,6 @@ def test_append_history_is_callable():
     assert callable(_append_history)
 
 
-def test_get_daily_snapshot_signals_is_callable():
-    from backend.app.services.signal_service import get_daily_snapshot_signals
-
-    assert callable(get_daily_snapshot_signals)
-
-
 def load_tests(loader: unittest.TestLoader, tests: unittest.TestSuite, pattern: str | None) -> unittest.TestSuite:
     suite = unittest.TestSuite()
     for name, value in sorted(globals().items()):

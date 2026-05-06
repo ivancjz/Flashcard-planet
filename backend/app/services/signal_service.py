@@ -750,24 +750,3 @@ def get_all_signals(db: Session, *, limit: int = 200) -> list[AssetSignal]:
     ).all()
 
 
-def get_daily_snapshot_signals(
-    db: Session,
-    *,
-    label: str | None = None,
-) -> list[AssetSignalHistory]:
-    from datetime import timezone
-
-    today_midnight = datetime.combine(
-        date.today(), datetime.min.time(), tzinfo=timezone.utc
-    )
-
-    q = (
-        select(AssetSignalHistory)
-        .where(AssetSignalHistory.computed_at < today_midnight)
-        .order_by(AssetSignalHistory.asset_id, AssetSignalHistory.computed_at.desc())
-        .distinct(AssetSignalHistory.asset_id)
-    )
-    if label is not None:
-        q = q.where(AssetSignalHistory.label == label)
-
-    return list(db.scalars(q).all())
