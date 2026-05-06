@@ -2021,6 +2021,53 @@ def admin_diag_db_size(
     }
 
 
+@router.get("/diag/signal-history-stats")
+def admin_diag_signal_history_stats(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+    days: int = Query(default=7, ge=1, le=30),
+):
+    """Daily breakdown of asset_signal_history writes: total rows, transitions, repeats.
+
+    Used to verify Issue D fix (transition guard in _append_history).
+    After guard deploy, transitions/day should approach total rows/day (ratio ~1:1).
+    Before fix: ~387k rows/day, nearly all repeats.
+    After fix: rows/day drops toward actual transition rate.
+    REMOVE AFTER: 48h verification gates confirmed satisfied.
+    """
+    rows = db.execute(text("""
+        SELECT
+            DATE(computed_at AT TIME ZONE 'UTC')                                        AS day,
+            COUNT(*)                                                                    AS rows_written,
+            COUNT(*) FILTER (
+                WHERE previous_label IS NULL
+                   OR previous_label != label
+            )                                                                           AS transitions,
+            COUNT(*) FILTER (
+                WHERE previous_label IS NOT NULL
+                  AND previous_label = label
+            )                                                                           AS repeats
+        FROM asset_signal_history
+        WHERE computed_at > NOW() - (:days || ' days')::INTERVAL
+        GROUP BY 1
+        ORDER BY 1 DESC
+    """), {"days": days}).fetchall()
+
+    return {
+        "days": days,
+        "rows": [
+            {
+                "day": str(r.day),
+                "rows_written": r.rows_written,
+                "transitions": r.transitions,
+                "repeats": r.repeats,
+                "repeat_pct": round(100.0 * r.repeats / r.rows_written, 1) if r.rows_written else 0,
+            }
+            for r in rows
+        ],
+    }
+
+
 @router.get("/diag/scheduler-history")
 def admin_diag_scheduler_history(
     _: None = Depends(require_admin_key),
