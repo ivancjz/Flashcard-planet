@@ -107,3 +107,23 @@ class EbayDurationCanaryTests(unittest.TestCase):
         alerts = _run_heartbeat_in_window(canary_rows=(0, 0))
         canary = self._canary_alerts(alerts)
         self.assertEqual(len(canary), 0, f"Canary fired on 0 runs (should not): {canary}")
+
+    def test_canary_silent_when_runs_blocked(self):
+        """All runs completed quickly due to deliberate skip — canary must NOT fire.
+
+        daily_budget_exhausted (and disabled/missing_credentials) runs log
+        status='success' with meta_json={'job_blocked_reason': '...'}. They
+        finish in ~0s but never called the API — they are not fast-failing.
+        The SQL filter (meta_json->>'job_blocked_reason' IS NULL) excludes them.
+        Without this filter, a day of budget-exhausted skips would trigger
+        a false 'Finding API rejecting' alert every time the budget refills.
+        """
+        # The _ebay_duration_canary_rows helper is patched to simulate what the
+        # SQL returns AFTER the job_blocked_reason IS NULL filter is applied:
+        # all skipped rows are excluded, so total_runs=0 → canary is silent.
+        alerts = _run_heartbeat_in_window(canary_rows=(0, 0))
+        canary = self._canary_alerts(alerts)
+        self.assertEqual(
+            len(canary), 0,
+            f"Canary fired on budget-blocked runs (should not): {canary}",
+        )

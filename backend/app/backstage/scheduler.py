@@ -276,6 +276,9 @@ def _ebay_duration_canary_rows(
     """Return (total_completed_runs, fast_runs) for ebay-ingestion in window.
 
     A run is "fast" if it completed in < threshold_secs seconds.
+    Explicitly-skipped runs (disabled, budget_exhausted, missing_credentials)
+    are excluded via job_blocked_reason IS NULL — they have short duration by
+    design (they did no API work), not because of fast-failing.
     Used by _send_heartbeat to detect the fast-failing pattern
     (Finding API rejecting before Browse fallback).
     """
@@ -289,6 +292,7 @@ def _ebay_duration_canary_rows(
         FROM scheduler_run_log
         WHERE job_name = 'ebay-ingestion'
           AND status IN ('success', 'partial', 'warning', 'error', 'failed')
+          AND (meta_json->>'job_blocked_reason') IS NULL
           AND started_at > NOW() - (:window_hours || ' hours')::INTERVAL
     """), {"threshold": threshold_secs, "window_hours": window_hours}).fetchone()
     return (int(row.total_runs or 0), int(row.fast_runs or 0))
