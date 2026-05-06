@@ -482,6 +482,12 @@ def _upsert_signal(db: Session, *, signal: SignalRow) -> None:
 
 
 def _append_history(db: Session, *, signal: SignalRow, previous_label: str | None = None) -> None:
+    # Transition guard: only write when label changes or this is the first write.
+    # Without this guard, every sweep wrote one row per asset regardless of change,
+    # growing asset_signal_history by ~387k rows/day (Issue D, 2026-05-07).
+    # previous_label=None means the asset has no prior signal — first write always proceeds.
+    if previous_label is not None and previous_label == signal.label.value:
+        return
     db.add(
         AssetSignalHistory(
             asset_id=signal.asset_id,
