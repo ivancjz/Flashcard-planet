@@ -91,13 +91,16 @@ def _parse_insights_items(data: dict) -> list[dict[str, str]]:
 
 def _parse_browse_items(data: dict) -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
+    now_iso = datetime.now(UTC).isoformat()
     for item in data.get("itemSummaries", []):
         title = item.get("title", "")
         item_id = item.get("itemId", "")
-        date = item.get("itemEndDate") or item.get("lastSoldDate", "")
+        # Fixed-price active listings rarely have itemEndDate/lastSoldDate;
+        # fall back to capture time so the price observation is not silently dropped.
+        date = item.get("itemEndDate") or item.get("lastSoldDate") or now_iso
         price_info = item.get("price", {})
         price = price_info.get("value", "") if isinstance(price_info, dict) else ""
-        if not title or not date or not price:
+        if not title or not price:
             continue
         items.append({"item_id": item_id, "title": title, "captured_at": date, "price": price})
     return items
