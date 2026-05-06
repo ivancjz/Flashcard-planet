@@ -24,7 +24,10 @@ class DigestSendLog(Base):
         nullable=False,
     )
     subject: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
-    cards_included: Mapped[Optional[list[str]]] = mapped_column(ARRAY(sa.Text), nullable=True)
+    cards_included: Mapped[Optional[list[str]]] = mapped_column(
+        sa.JSON().with_variant(ARRAY(sa.Text), "postgresql"),
+        nullable=True,
+    )
     trigger_type: Mapped[str] = mapped_column(sa.String(32), nullable=False)
     delivery_status: Mapped[str] = mapped_column(sa.String(16), nullable=False)
     error_message: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)

@@ -2021,6 +2021,83 @@ def admin_diag_db_size(
     }
 
 
+@router.post("/diag/issue-e-baseline")
+def admin_diag_issue_e_baseline(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Issue E follow-up: baseline_n distribution, downgrade_reason breakdown,
+    asset age vs classification. REMOVE AFTER: Issue E root cause confirmed.
+    """
+    # 1. baseline_n distribution (from signal_context JSONB)
+    baseline_dist = db.execute(text("""
+        SELECT
+            CASE
+                WHEN (s.signal_context->>'baseline_n')::int = 0         THEN '0'
+                WHEN (s.signal_context->>'baseline_n')::int BETWEEN 1 AND 2  THEN '1-2'
+                WHEN (s.signal_context->>'baseline_n')::int BETWEEN 3 AND 4  THEN '3-4'
+                WHEN (s.signal_context->>'baseline_n')::int BETWEEN 5 AND 6  THEN '5-6'
+                WHEN (s.signal_context->>'baseline_n')::int BETWEEN 7 AND 9  THEN '7-9'
+                ELSE '10+'
+            END AS bucket,
+            COUNT(*) AS asset_count,
+            COUNT(*) FILTER (WHERE s.label = 'INSUFFICIENT_DATA') AS insufficient,
+            COUNT(*) FILTER (WHERE s.label != 'INSUFFICIENT_DATA') AS classified
+        FROM asset_signals s
+        JOIN assets a ON a.id = s.asset_id
+        WHERE a.game = 'pokemon'
+          AND s.signal_context IS NOT NULL
+        GROUP BY 1
+        ORDER BY 1
+    """)).fetchall()
+
+    # 2. downgrade_reason actual distribution
+    downgrade_dist = db.execute(text("""
+        SELECT
+            s.signal_context->>'downgrade_reason' AS reason,
+            COUNT(*) AS n
+        FROM asset_signals s
+        JOIN assets a ON a.id = s.asset_id
+        WHERE a.game = 'pokemon'
+          AND s.label = 'INSUFFICIENT_DATA'
+          AND s.signal_context IS NOT NULL
+        GROUP BY 1
+        ORDER BY 2 DESC
+    """)).fetchall()
+
+    # 3. asset age vs classification
+    age_dist = db.execute(text("""
+        SELECT
+            CASE
+                WHEN a.created_at > NOW() - INTERVAL '7 days'  THEN 'new (<7d)'
+                WHEN a.created_at > NOW() - INTERVAL '14 days' THEN 'mid (7-14d)'
+                ELSE 'old (>14d)'
+            END AS age_bucket,
+            s.label,
+            COUNT(*) AS n
+        FROM assets a
+        JOIN asset_signals s ON s.asset_id = a.id
+        WHERE a.game = 'pokemon'
+        GROUP BY 1, 2
+        ORDER BY 1, 2
+    """)).fetchall()
+
+    return {
+        "baseline_n_distribution": [
+            {"bucket": r.bucket, "asset_count": r.asset_count,
+             "insufficient": r.insufficient, "classified": r.classified}
+            for r in baseline_dist
+        ],
+        "downgrade_reason_distribution": [
+            {"reason": r.reason, "n": r.n} for r in downgrade_dist
+        ],
+        "age_vs_classification": [
+            {"age_bucket": r.age_bucket, "label": r.label, "n": r.n}
+            for r in age_dist
+        ],
+    }
+
+
 @router.post("/diag/current-n-distribution")
 def admin_diag_current_n_distribution(
     _: None = Depends(require_admin_key),

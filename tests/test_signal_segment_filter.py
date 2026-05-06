@@ -73,7 +73,7 @@ def _ph(asset_id, *, price: str, days_ago: int, source: str = "ebay_sold",
         price=Decimal(price),
         currency="USD",
         source=source,
-        captured_at=datetime.now(UTC) - timedelta(days=days_ago),
+        captured_at=datetime.now(UTC) - timedelta(days=days_ago, seconds=1),
         market_segment=segment,
     )
 

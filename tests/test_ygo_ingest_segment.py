@@ -164,7 +164,7 @@ class TestYgoSignalPassesSegmentFilter:
             price=Decimal(price),
             currency="USD",
             source="ygoprodeck_api",
-            captured_at=datetime.now(UTC) - timedelta(days=days_ago),
+            captured_at=datetime.now(UTC) - timedelta(days=days_ago, seconds=1),
             market_segment='raw',
         )
 

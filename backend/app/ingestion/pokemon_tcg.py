@@ -585,15 +585,16 @@ def _query_missing_price(session: Session, *, limit: int, primary_source: str) -
     from backend.app.models.asset import Asset
     from backend.app.models.game import Game
 
+    provider_card_id = Asset.metadata_json["provider_card_id"].as_string()
     subq = (
         select(
             Asset.id,
-            Asset.metadata_json["provider_card_id"].astext.label("provider_card_id"),
+            provider_card_id.label("provider_card_id"),
         )
         .where(
             Asset.metadata_json.isnot(None),
-            Asset.metadata_json["provider_card_id"].astext.isnot(None),
-            Asset.metadata_json["provider_card_id"].astext != "",
+            provider_card_id.isnot(None),
+            provider_card_id != "",
             Asset.game == Game.POKEMON.value,
         )
         .subquery()
@@ -619,20 +620,18 @@ def _query_missing_image(session: Session, *, limit: int) -> list[str]:
     from backend.app.models.asset import Asset
     from backend.app.models.game import Game
 
+    provider_card_id = Asset.metadata_json["provider_card_id"].as_string()
+    small_image_url = Asset.metadata_json["images"]["small"].as_string()
     rows = session.execute(
         select(
-            Asset.metadata_json["provider_card_id"].astext.label("provider_card_id"),
+            provider_card_id.label("provider_card_id"),
         )
         .where(
             Asset.metadata_json.isnot(None),
-            Asset.metadata_json["provider_card_id"].astext.isnot(None),
-            Asset.metadata_json["provider_card_id"].astext != "",
+            provider_card_id.isnot(None),
+            provider_card_id != "",
             Asset.game == Game.POKEMON.value,
-            ~(
-                Asset.metadata_json.has_key("images")
-                & Asset.metadata_json["images"].has_key("small")
-                & (Asset.metadata_json["images"]["small"].astext != "")
-            ),
+            ~((small_image_url.isnot(None)) & (small_image_url != "")),
         )
         .limit(limit)
     ).all()
@@ -747,7 +746,7 @@ def run_backfill_pass(session: Session) -> BackfillResult:
 
     assets = session.scalars(
         select(Asset).where(
-            Asset.metadata_json["provider_card_id"].astext.in_(to_backfill)
+            Asset.metadata_json["provider_card_id"].as_string().in_(to_backfill)
         )
     ).all()
     asset_by_card_id = {
