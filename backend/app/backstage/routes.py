@@ -2021,6 +2021,93 @@ def admin_diag_db_size(
     }
 
 
+@router.get("/diag/current-n-distribution")
+def admin_diag_current_n_distribution(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Distribution of current_n from signal_context + threshold sensitivity.
+    Used for Issue E diagnosis: MIN_CURRENT_N_FOR_SIGNAL vs API update frequency.
+    REMOVE AFTER: threshold decision made.
+    """
+    # Distribution of current_n values across Pokemon assets
+    dist_rows = db.execute(text("""
+        SELECT
+            (s.signal_context->>'current_n')::int   AS current_n,
+            s.label,
+            COUNT(*)                                 AS asset_count
+        FROM asset_signals s
+        JOIN assets a ON a.id = s.asset_id
+        WHERE a.game = 'pokemon'
+          AND s.signal_context IS NOT NULL
+        GROUP BY 1, 2
+        ORDER BY 1 NULLS FIRST, 2
+    """)).fetchall()
+
+    # Threshold sensitivity: how many assets exit INSUFFICIENT_DATA at each threshold
+    sensitivity = db.execute(text("""
+        WITH current_ns AS (
+            SELECT
+                a.id,
+                (s.signal_context->>'current_n')::int AS current_n,
+                s.label
+            FROM asset_signals s
+            JOIN assets a ON a.id = s.asset_id
+            WHERE a.game = 'pokemon'
+              AND s.label = 'INSUFFICIENT_DATA'
+              AND s.signal_context IS NOT NULL
+              AND s.signal_context->>'downgrade_reason' IS NULL
+        )
+        SELECT
+            threshold,
+            COUNT(*) FILTER (WHERE current_n >= threshold) AS would_exit_insufficient
+        FROM current_ns
+        CROSS JOIN (VALUES (1),(2),(3),(4),(5),(7),(10)) AS thresholds(threshold)
+        GROUP BY threshold
+        ORDER BY threshold
+    """)).fetchall()
+
+    # Among assets that would newly qualify at threshold=2, what is their distinct_prices?
+    newly_at_2 = db.execute(text("""
+        WITH candidates AS (
+            SELECT a.id AS asset_id
+            FROM asset_signals s
+            JOIN assets a ON a.id = s.asset_id
+            WHERE a.game = 'pokemon'
+              AND s.label = 'INSUFFICIENT_DATA'
+              AND s.signal_context IS NOT NULL
+              AND s.signal_context->>'downgrade_reason' IS NULL
+              AND (s.signal_context->>'current_n')::int >= 2
+        )
+        SELECT
+            COUNT(DISTINCT ph.price)                 AS distinct_prices,
+            COUNT(*)                                 AS obs_count
+        FROM candidates c
+        JOIN price_history ph ON ph.asset_id = c.asset_id
+        WHERE ph.source = 'pokemon_tcg_api'
+          AND ph.market_segment = 'raw'
+          AND ph.captured_at > NOW() - INTERVAL '14 days'
+        GROUP BY c.asset_id
+        ORDER BY distinct_prices DESC
+        LIMIT 20
+    """)).fetchall()
+
+    return {
+        "current_n_distribution": [
+            {"current_n": r.current_n, "label": r.label, "asset_count": r.asset_count}
+            for r in dist_rows
+        ],
+        "threshold_sensitivity_insufficient_data_only": [
+            {"threshold": r.threshold, "assets_that_would_exit_insufficient": r.would_exit_insufficient}
+            for r in sensitivity
+        ],
+        "sanity_check_newly_qualifying_at_threshold_2": [
+            {"distinct_prices": r.distinct_prices, "obs_count": r.obs_count}
+            for r in newly_at_2
+        ],
+    }
+
+
 @router.post("/diag/price-variance")
 def admin_diag_price_variance(
     _: None = Depends(require_admin_key),
