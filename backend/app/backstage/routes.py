@@ -2021,7 +2021,7 @@ def admin_diag_db_size(
     }
 
 
-@router.get("/diag/price-variance")
+@router.post("/diag/price-variance")
 def admin_diag_price_variance(
     _: None = Depends(require_admin_key),
     db: Session = Depends(get_database),
