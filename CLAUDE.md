@@ -28,7 +28,7 @@ This file is the project context for any Claude instance working on this codebas
 - `backend/app/api/` — REST API routers.
 - `backend/app/backstage/` — Scheduler + admin routes. `routes.py` has `APIRouter(prefix="/admin")` with `require_admin_key` dependency.
 - `backend/app/backstage/scheduler.py` — APScheduler job definitions. `_STARTUP_DELAY` dict controls first-run offsets.
-- `backend/app/ingestion/` — `pokemon_tcg.py` (Pokemon TCG API), `ebay_sold.py` (eBay sold listings), `ygo.py` (Yu-Gi-Oh scaffold).
+- `backend/app/ingestion/` — `pokemon_tcg.py` (Pokemon TCG API), `ebay_sold.py` (eBay — see critical note below), `ygo.py` (Yu-Gi-Oh scaffold).
 - `backend/app/services/signal_service.py` — Signal computation. Dual-window algorithm (baseline ≥7d + current ≤24h). See `SWEEP_BATCH_SIZE` at file top.
 - `backend/app/models/` — SQLAlchemy models.
 - `backend/app/alerting/discord.py` — Discord alert delivery via REST API webhook. This is the only Discord integration point. No bot process; no Gateway connection.
@@ -38,8 +38,21 @@ This file is the project context for any Claude instance working on this codebas
 - `Asset` — card identity. Columns: `asset_class, game, name, set_name, card_number, year, language, variant, grade_company, grade_score`. UniqueConstraint on all 10.
 - `PriceHistory` — price observations. Columns: `id, asset_id (FK), source, currency, price (Numeric 12,2), captured_at`. Indices on `captured_at` and `asset_id`. **No index on `source`.**
   - `source` values: `'pokemon_tcg_api'` or `'ebay_sold'` (lowercase, underscore). **Don't write `'ebay'` or `'pokemon'`.**
+  - **`price_history` must contain only market/sold price observations — not ask/listing prices.** eBay Browse API data (ask prices) must NOT be written here. See eBay critical note below.
 - `SchedulerRunLog` — job audit log. Columns: `id, job_name, started_at, finished_at, status, records_written, errors, error_message, meta_json`. Status values: `'running'` (default), `'success'`, `'partial'`, `'warning'`, `'error'`, `'failed'`.
 - `AssetSignal` / `AssetSignalHistory` — signal outputs. Label values: `BREAKOUT, MOVE, WATCH, IDLE, INSUFFICIENT_DATA`.
+
+### eBay API status — critical, read before touching ebay_sold.py
+
+**eBay Finding API is decommissioned (2025-02-05).** Endpoint: `https://svcs.ebay.com/services/search/FindingService/v1`. Returns HTTP 500 + `errorId=10001, domain=Security` on every call, including the first call of a fresh run. This is not quota exhaustion — it is a permanently rejected legacy endpoint. The Finding API used a legacy auth method (`SECURITY-APPNAME` query param, not Bearer token) on the legacy `svcs.ebay.com` domain. It is gone.
+
+**eBay Browse API (`api.ebay.com/buy/browse/v1`) returns active listings, not sold prices.** Browse API data is ask/listing price. It must NOT be written to `price_history`. If Browse API data is ever ingested, it goes to a separate `listing_snapshot` table (not yet built) with explicit labelling as ask price.
+
+**`_parse_insights_items` in `ebay_sold.py` is dead code** — never called from the ingestion flow. Do not wire it up without architecture approval.
+
+**eBay sold-price channel does not exist** with current API access. Restoring it requires either: (a) eBay Marketplace Insights API approval (business gate, separate OAuth scope `api_scope/buy.marketplace.insights`), or (b) a third-party source (PriceCharting, TCGPlayer Partner). Both require architecture review — not solo agent decisions.
+
+**Consequence:** Any gate, plan, or memory entry that references "eBay recovery" as a precondition must be re-evaluated. The eBay sold-price channel cannot resume without a new data source approval.
 
 ### Scheduler jobs
 All 5 use `interval` trigger + startup resume via `prepare_scheduler_for_startup`. **No cron triggers** (removed 2026-04-22 after discovering cron × frequent deploys = perpetual miss).
