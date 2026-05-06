@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 from backend.app.backstage.scheduler import (
     EBAY_DURATION_CANARY_THRESHOLD_SECS,
     EBAY_DURATION_CANARY_WINDOW_HOURS,
+    _ebay_duration_canary_rows,
 )
 
 
@@ -126,4 +127,31 @@ class EbayDurationCanaryTests(unittest.TestCase):
         self.assertEqual(
             len(canary), 0,
             f"Canary fired on budget-blocked runs (should not): {canary}",
+        )
+
+
+class EbayDurationCanarySQLTests(unittest.TestCase):
+    """Direct unit tests for _ebay_duration_canary_rows — verify the SQL filter."""
+
+    def _call_helper(self) -> str:
+        """Call _ebay_duration_canary_rows and return the SQL text that was executed."""
+        mock_session = MagicMock()
+        mock_session.execute.return_value.fetchone.return_value = MagicMock(
+            total_runs=0, fast_runs=0
+        )
+        _ebay_duration_canary_rows(mock_session, threshold_secs=60, window_hours=24)
+        return str(mock_session.execute.call_args[0][0])
+
+    def test_sql_excludes_blocked_rows(self):
+        """SQL must contain job_blocked_reason IS NULL to exclude deliberate skips.
+
+        If this filter is removed, budget-exhausted/disabled skips (status='success',
+        meta_json={'job_blocked_reason': '...'}) will be counted as fast runs,
+        producing false 'Finding API rejecting' alerts whenever budget refills.
+        """
+        sql = self._call_helper()
+        self.assertIn(
+            "job_blocked_reason",
+            sql,
+            "SQL must filter out skipped runs via job_blocked_reason IS NULL",
         )
