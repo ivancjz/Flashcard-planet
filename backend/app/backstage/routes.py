@@ -2021,6 +2021,58 @@ def admin_diag_db_size(
     }
 
 
+@router.get("/diag/price-variance")
+def admin_diag_price_variance(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+    source: str = Query(default="pokemon_tcg_api"),
+    days: int = Query(default=14, ge=1, le=30),
+    min_obs: int = Query(default=5, ge=1),
+    limit: int = Query(default=30, ge=1, le=200),
+):
+    """Distinct price count per asset over N days — diagnose whether a source has real variance.
+    REMOVE AFTER: YGO vs Pokemon price source comparison confirmed.
+    """
+    rows = db.execute(text("""
+        SELECT
+            asset_id::text,
+            COUNT(DISTINCT price)   AS distinct_prices,
+            COUNT(*)                AS total_observations,
+            MIN(price)::text        AS min_price,
+            MAX(price)::text        AS max_price,
+            (MAX(price) - MIN(price))::text AS price_range
+        FROM price_history
+        WHERE source = :source
+          AND captured_at > NOW() - (:days || ' days')::INTERVAL
+          AND market_segment = 'raw'
+        GROUP BY asset_id
+        HAVING COUNT(*) >= :min_obs
+        ORDER BY distinct_prices ASC
+        LIMIT :limit
+    """), {"source": source, "days": days, "min_obs": min_obs, "limit": limit}).fetchall()
+
+    distinct_counts = [r.distinct_prices for r in rows]
+    all_one = sum(1 for d in distinct_counts if d == 1)
+    return {
+        "source": source,
+        "days": days,
+        "assets_with_min_obs": len(rows),
+        "assets_with_single_price": all_one,
+        "assets_with_variance": len(rows) - all_one,
+        "rows": [
+            {
+                "asset_id": r.asset_id,
+                "distinct_prices": r.distinct_prices,
+                "total_observations": r.total_observations,
+                "min_price": r.min_price,
+                "max_price": r.max_price,
+                "price_range": r.price_range,
+            }
+            for r in rows
+        ],
+    }
+
+
 @router.get("/diag/ygo-signal-context")
 def admin_diag_ygo_signal_context(
     _: None = Depends(require_admin_key),
