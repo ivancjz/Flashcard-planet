@@ -48,6 +48,8 @@ logger = logging.getLogger(__name__)
 ebay_logger = logging.getLogger("backend.app.ingestion.ebay_scheduled")
 
 JOB_WALL_CLOCK_LIMIT = timedelta(minutes=30)
+EBAY_DURATION_CANARY_THRESHOLD_SECS: int = 60
+EBAY_DURATION_CANARY_WINDOW_HOURS: int = 24
 
 _COMPLETED_STATUSES = {"success", "partial", "warning"}
 
@@ -266,6 +268,32 @@ def _run_retry_pass() -> None:
             finish_run(_log_session, _run_id, status="error")
 
 
+def _ebay_duration_canary_rows(
+    session: "Session",
+    threshold_secs: int,
+    window_hours: int,
+) -> tuple[int, int]:
+    """Return (total_completed_runs, fast_runs) for ebay-ingestion in window.
+
+    A run is "fast" if it completed in < threshold_secs seconds.
+    Used by _send_heartbeat to detect the fast-failing pattern
+    (Finding API rejecting before Browse fallback).
+    """
+    row = session.execute(sa_text("""
+        SELECT
+            COUNT(*) AS total_runs,
+            COUNT(*) FILTER (
+                WHERE finished_at IS NOT NULL
+                  AND EXTRACT(EPOCH FROM (finished_at - started_at)) < :threshold
+            ) AS fast_runs
+        FROM scheduler_run_log
+        WHERE job_name = 'ebay-ingestion'
+          AND status IN ('success', 'partial', 'warning', 'error', 'failed')
+          AND started_at > NOW() - (:window_hours || ' hours')::INTERVAL
+    """), {"threshold": threshold_secs, "window_hours": window_hours}).fetchone()
+    return (int(row.total_runs or 0), int(row.fast_runs or 0))
+
+
 def _send_heartbeat() -> None:
     """Send a periodic health pulse to Discord.
 
@@ -369,6 +397,31 @@ def _send_heartbeat() -> None:
                 + "\n".join(f"  • {j}" for j in zero_output)
                 + f"\n\n检查 scheduler_run_log (last {window_h}h) 和对应的外部 API 状态。",
             )
+
+        # eBay duration canary: warn when ALL completed runs in the window finished
+        # in under EBAY_DURATION_CANARY_THRESHOLD_SECS seconds.
+        #
+        # Rationale: a healthy Browse API run should take at least minutes once
+        # listing_snapshot is wired. Sub-threshold duration = fast-failing:
+        # the Finding API (svcs.ebay.com, decommissioned 2025-02-05) rejects on
+        # the first call before Browse fallback is attempted.
+        # This is a forward-looking WARNING — Browse fallback / listing_snapshot
+        # integration does not exist yet. Alert is informational, not actionable today.
+        if settings.ebay_scheduled_ingest_enabled and settings.ebay_app_id and settings.ebay_cert_id:
+            with SessionLocal() as _dur_session:
+                _ebay_total, _ebay_fast = _ebay_duration_canary_rows(
+                    _dur_session,
+                    threshold_secs=EBAY_DURATION_CANARY_THRESHOLD_SECS,
+                    window_hours=EBAY_DURATION_CANARY_WINDOW_HOURS,
+                )
+            if _ebay_total > 0 and _ebay_total == _ebay_fast:
+                send_discord_alert(
+                    "warning",
+                    f"eBay ingestion 快速失败警告: 过去 {EBAY_DURATION_CANARY_WINDOW_HOURS}h 全部 {_ebay_total} 次运行 < {EBAY_DURATION_CANARY_THRESHOLD_SECS}s",
+                    f"Finding API (svcs.ebay.com) 已于 2025-02-05 下线，首次调用即返回拒绝 (10001)。\n"
+                    f"Browse API fallback / listing_snapshot 尚未建立。\n"
+                    f"此为前瞻性 WARNING，当前无可操作修复。参见 CLAUDE.md eBay API status 节。",
+                )
 
         # Defensive: alert if any ingest path wrote market_segment=NULL in the last 24h.
         # Pre-backfill NULLs from old rows are excluded by the captured_at filter,
