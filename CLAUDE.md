@@ -56,13 +56,13 @@ This file is the project context for any Claude instance working on this codebas
 
 ### YGO data source semantics — critical, read before any YGO expansion work
 
-**YGOPRODeck returns static aggregated prices, not live market prices.** Verified 2026-05-07: 67 YGO assets polled daily for 14 days — every card shows `delta=0.00` because `baseline_price == current_price` exactly. Even cards with real market movement (e.g., Destiny HERO at $326.73) show no intraday or day-over-day change in YGOPRODeck's API response.
+**Verified 2026-05-07:** YGOPRODeck returned byte-identical prices on all 67 seeded YGO assets (POTE + TOCH, both 2020–22 sets) across 14 days of daily polling. `baseline_price == current_price` on every card, including Destiny HERO at $326.73. Signal engine correctly classifies all 67 as IDLE (`delta=0`). This is not an engine bug.
 
-**Implication:** Signal engine cannot produce BREAKOUT/MOVE/WATCH for YGO assets using YGOPRODeck data alone. All 67 assets are structurally IDLE. This is correct behavior — the engine is not broken, the data source is static. Any product claim that "Flashcard Planet provides YGO market intelligence" is false until a real-time YGO price source is wired.
+**What is NOT confirmed:** Whether YGOPRODeck updates prices for newer/higher-velocity sets (post-2023) at a useful frequency. The zero-update pattern may be set-specific (POTE/TOCH genuinely flat) or source-specific (YGOPRODeck's refresh cadence for older sets is too low). Unknown without testing newer sets.
 
-**YGO sold-price ingest is currently unsolved.** eBay Browse = ask prices only (must not enter `price_history`). Finding API = decommissioned. Marketplace Insights = business gate. PriceCharting = YGO coverage unknown.
+**Implication for TASK-101:** Criterion 2 (BREAKOUT/MOVE/WATCH for at least one YGO asset) is unreachable on currently-seeded sets. Unblocked only if discovery test below passes.
 
-**Do not start TASK-201 (YGO set expansion)** until the price source problem is resolved. Expanding to 300+ assets with a static-price source only increases DB footprint and scheduler load with no signal value. The correct unblocking order: solve YGO price source → validate signal diversity on 67 existing assets → then expand.
+**TASK-201 (YGO set expansion) is NOT a known unlock.** Do not add sets before the discovery test. Expanding to 300+ assets that also return static prices wastes ingest budget and DB space. **Required first:** poll 10 high-velocity 2024–2025 YGO sets (e.g., LEDE, PHNI, AGOV, DUNE, INFO) for 7 days, query `/admin/diag/price-variance?source=ygoprodeck_api`. Decision rule: if ≥30% of sampled assets show ≥2 distinct prices in 7 days → TASK-201 viable. Otherwise → YGO is blocked on an alternative price source (PriceCharting, Marketplace Insights, or other).
 
 ### Scheduler jobs
 All 5 use `interval` trigger + startup resume via `prepare_scheduler_for_startup`. **No cron triggers** (removed 2026-04-22 after discovering cron × frequent deploys = perpetual miss).

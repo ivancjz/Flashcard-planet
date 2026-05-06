@@ -86,7 +86,7 @@ Format:
 **Estimated effort:** S
 **Reference:** CLAUDE.md §7 ("Non-INSUFFICIENT YGO signals expected to appear around 2026-05-07"), `/admin/diag/ygo-verify-26` endpoint
 **Notes:**
-- **BLOCKED 2026-05-07:** YGOPRODeck returns static aggregated prices. 67 assets verified — all show delta=0.00 because baseline_price == current_price exactly, even after 14 days of daily polling. Signal engine is correct; the data source is static. Criterion 2 (BREAKOUT/MOVE/WATCH) is structurally unreachable with YGOPRODeck as sole source. Unblocked only when a real-time YGO sold-price source is wired.
+- **BLOCKED 2026-05-07 pending discovery test.** POTE/TOCH (2020–22 sets) returned byte-identical prices across 14 days. Unknown whether this is set-specific (those sets genuinely flat) or source-specific (YGOPRODeck update cadence too low). Criterion 2 (BREAKOUT/MOVE/WATCH) unreachable on currently-seeded sets. Unblocked by: (a) discovery test confirms ≥30% of 2024–25 sets show ≥2 distinct prices in 7 days, OR (b) alternative real-time YGO price source wired.
 - Criterion 1 (≥30% non-INSUFFICIENT_DATA) is met (100% IDLE) but "graduated" was incorrectly derived from `asset_signals` current state, not `asset_signal_history` transitions.
 - Criterion 3 (Card Detail renders) is met.
 - This is a verification task, not a code change. If <30% threshold not met by 2026-05-14, escalate to operator — likely indicates either data freshness or threshold calibration issue.
@@ -152,7 +152,8 @@ Format:
 **Estimated effort:** M
 **Reference:** `backend/app/ingestion/ygo.py` `YGO_PHASE2_SETS`, doc `01_architecture_audit_tasks.md` TASK-010
 **Notes:**
-- **BLOCKED 2026-05-07:** YGOPRODeck returns static prices (delta=0.00 on all 67 existing assets, verified). Expanding to 300+ assets with the same source compounds the problem rather than solving it. Do NOT start until YGO real-time price source is decided and wired.
+- **BLOCKED 2026-05-07 pending discovery test.** POTE/TOCH returned byte-identical prices across 14 days — but this may be set-specific (older low-velocity sets) or source-specific (YGOPRODeck doesn't refresh old sets). TASK-201 is NOT a known unlock — it might confirm the problem rather than solve it.
+- **Required before TASK-201:** 7-day discovery test — poll 10 high-velocity 2024–2025 sets (LEDE, PHNI, AGOV, DUNE, INFO candidates) via `/admin/diag/price-variance`. Decision rule: ≥30% of assets show ≥2 distinct prices → proceed; otherwise → YGO is blocked on alternative price source.
 - Use the existing PR #11 import guard pattern — bulk import only sets that exist in DB; never auto-import on schedule.
 
 ---
