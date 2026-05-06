@@ -2021,6 +2021,68 @@ def admin_diag_db_size(
     }
 
 
+@router.get("/diag/ygo-signal-context")
+def admin_diag_ygo_signal_context(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """YGO asset_signals with signal_context breakdown — diagnose IDLE vs genuine stability.
+    REMOVE AFTER: TASK-101 signal quality confirmed.
+    """
+    rows = db.execute(text("""
+        SELECT
+            a.name                                       AS card_name,
+            a.card_number,
+            s.label,
+            s.price_delta_pct                           AS delta,
+            s.confidence,
+            s.signal_context->>'baseline_n'             AS baseline_n,
+            s.signal_context->>'current_n'              AS current_n,
+            s.signal_context->>'reason'                 AS reason,
+            s.signal_context->>'downgrade_reason'       AS downgrade_reason,
+            s.signal_context->>'baseline_price'         AS baseline_price,
+            s.signal_context->>'current_price'          AS current_price
+        FROM assets a
+        JOIN asset_signals s ON s.asset_id = a.id
+        WHERE a.game = 'yugioh'
+        ORDER BY s.price_delta_pct DESC NULLS LAST
+    """)).fetchall()
+
+    # Summarise: how many have null delta, zero delta, or real delta
+    null_delta  = sum(1 for r in rows if r.delta is None)
+    zero_delta  = sum(1 for r in rows if r.delta is not None and float(r.delta) == 0.0)
+    real_delta  = sum(1 for r in rows if r.delta is not None and float(r.delta) != 0.0)
+    null_baseline = sum(1 for r in rows if not r.baseline_n)
+    null_current  = sum(1 for r in rows if not r.current_n)
+
+    return {
+        "total_ygo_assets": len(rows),
+        "summary": {
+            "delta_null": null_delta,
+            "delta_zero": zero_delta,
+            "delta_nonzero": real_delta,
+            "baseline_n_missing": null_baseline,
+            "current_n_missing": null_current,
+        },
+        "top_20_by_delta": [
+            {
+                "card_name": r.card_name,
+                "card_number": r.card_number,
+                "label": r.label,
+                "delta": str(r.delta) if r.delta is not None else None,
+                "confidence": r.confidence,
+                "baseline_n": r.baseline_n,
+                "current_n": r.current_n,
+                "reason": r.reason,
+                "downgrade_reason": r.downgrade_reason,
+                "baseline_price": r.baseline_price,
+                "current_price": r.current_price,
+            }
+            for r in rows[:20]
+        ],
+    }
+
+
 @router.get("/diag/signal-history-stats")
 def admin_diag_signal_history_stats(
     _: None = Depends(require_admin_key),
