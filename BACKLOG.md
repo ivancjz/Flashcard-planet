@@ -71,7 +71,7 @@ Format:
 #### TASK-101 — YGO signal graduation verification
 
 **Priority:** P0
-**Status:** ready
+**Status:** complete
 **Owner:** Claude Code
 **Preconditions:**
 - Today is 2026-05-07 or later (YGO needs 7-14 days baseline window after 2026-04-23 activation; PR #15 seeded 5 sets, PR #28 expanded to 13)
@@ -247,7 +247,7 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 #### TASK-606 — bulk-set-price-refresh failure logging gap
 
 **Priority:** P1
-**Status:** ready
+**Status:** complete
 **Owner:** Claude Code
 **Preconditions:** None
 
@@ -518,6 +518,8 @@ When a task ships, move it here with PR number and merge date. Keep this section
 
 | TASK | Title | PR | Merged | Outcome |
 |---|---|---|---|---|
+| TASK-101 | YGO signal graduation verification | (verification only) | 2026-05-07 | 100% of 67 YGO assets graduated from INSUFFICIENT_DATA → IDLE. Card Detail renders for Starlight Rare ($326), Ultra Rare ($21), Common ($0.82) — signal, price_history, signal_history all present. BREAKOUT/MOVE/WATCH criterion unmet: POTE/TOCH (2020-22) are stable-price sets; pipeline is correct but no movement to detect. Escalation threshold (<30% by 2026-05-14) not triggered. TASK-201 (set expansion to newer sets) is the unlock for richer signal diversity. |
+| TASK-606 | bulk-set-price-refresh failure logging gap | commits (scheduler.py + test) | 2026-05-07 | Added meta_json to finish_run on both success path (sets_processed, cards_processed, prices_recorded) and exception path (error_type, error_message[:500], sets_completed_before_failure). 1 new test; 7/7 pass. |
 | TASK-606 (PR) | bulk-set-price-refresh failure logging gap | PR #45 (admin stats) | 2026-05-04 | PR #45 exposed: meta_json never passed to finish_run. TASK-606 opened as P1 ready for fix. |
 | TASK-202 | One Piece TCG integration research spike | (research only) | 2026-05-04 | Design doc at docs/strategy/05_onepiece_integration.md. Recommended: optcgapi.com (free Phase 1) → tcgapi.dev Pro ($49.99/mo Phase 2). eBay Browse API via existing integration. First 5 sets: OP01, OP05, OP08, OP09, OP13. Operator go/no-go required. |
 | TASK-103a | Codex CLI CI feasibility research | (research only) | 2026-05-02 | Codex CLI is headless-capable; ChatGPT OAuth blocks GitHub Secret storage; Path C (Codex Cloud) chosen. Report at `docs/audits/2026-05-02-codex-ci-feasibility.md` |

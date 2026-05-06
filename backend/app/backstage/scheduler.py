@@ -514,6 +514,8 @@ def _run_bulk_set_price_refresh() -> None:
     _records_written = 0
     _errors = 0
     _error_message: str | None = None
+    _meta_json: dict | None = None
+    importer = None
 
     try:
         settings = get_settings()
@@ -598,12 +600,22 @@ def _run_bulk_set_price_refresh() -> None:
                         importer.summary.cards_seen,
                     )
             _records_written = importer.summary.prices_recorded
+            _meta_json = {
+                "sets_processed": importer.summary.sets_processed,
+                "cards_processed": importer.summary.cards_processed,
+                "prices_recorded": importer.summary.prices_recorded,
+            }
         finally:
             importer.close()
 
     except Exception as exc:
         _errors = 1
         _error_message = str(exc)
+        _meta_json = {
+            "error_type": type(exc).__name__,
+            "error_message": str(exc)[:500],
+            "sets_completed_before_failure": importer.summary.sets_processed if importer is not None else 0,
+        }
         logger.exception("Bulk set price refresh job failed.")
 
     finally:
@@ -614,6 +626,7 @@ def _run_bulk_set_price_refresh() -> None:
                 records_written=_records_written,
                 errors=_errors,
                 error_message=_error_message,
+                meta_json=_meta_json,
             )
             prune_old_runs(_log_session, JOB_BULK_REFRESH)
 
