@@ -1980,6 +1980,47 @@ def admin_trigger_ip_tagging_sample(
     }
 
 
+@router.get("/diag/db-size")
+def admin_diag_db_size(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Database and top-10 table sizes. Remove after volume capacity confirmed."""
+    db_row = db.execute(text(
+        "SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size,"
+        "       pg_database_size(current_database()) AS db_bytes"
+    )).fetchone()
+
+    table_rows = db.execute(text("""
+        SELECT
+            schemaname,
+            relname,
+            pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
+            pg_size_pretty(pg_relation_size(relid))       AS table_size,
+            pg_total_relation_size(relid)                 AS total_bytes,
+            n_live_tup
+        FROM pg_stat_user_tables
+        ORDER BY pg_total_relation_size(relid) DESC
+        LIMIT 10
+    """)).fetchall()
+
+    return {
+        "db_size": db_row.db_size,
+        "db_bytes": db_row.db_bytes,
+        "top_tables": [
+            {
+                "schema": r.schemaname,
+                "table": r.relname,
+                "total_size": r.total_size,
+                "table_size": r.table_size,
+                "total_bytes": r.total_bytes,
+                "live_rows": r.n_live_tup,
+            }
+            for r in table_rows
+        ],
+    }
+
+
 @router.get("/diag/scheduler-history")
 def admin_diag_scheduler_history(
     _: None = Depends(require_admin_key),
