@@ -2043,6 +2043,102 @@ def admin_diag_digest_status(
     }
 
 
+@router.get("/diag/ebay-probe")
+def admin_diag_ebay_probe(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Live eBay API health check + last-row timestamp.
+
+    Makes one Finding API call and one Browse API call with a known query,
+    returns raw status codes and item counts so we can distinguish outage vs. code bug.
+    REMOVE AFTER: eBay ingestion confirmed writing rows again.
+    """
+    import httpx
+    from backend.app.ingestion.ebay_sold import (
+        EBAY_FINDING_API_URL,
+        EBAY_BROWSE_API_URL,
+        _get_app_token,
+        _parse_finding_items,
+        _parse_browse_items,
+    )
+    from backend.app.core.config import get_settings as _get_settings
+
+    _s = _get_settings()
+    TEST_QUERY = "Pokemon Charizard Base Set -PSA -BGS -CGC -SGC -GMA -graded -slab"
+
+    last_ebay_row = db.execute(text(
+        "SELECT MAX(captured_at) AS last_captured FROM price_history WHERE source = 'ebay_sold'"
+    )).fetchone()
+
+    result: dict = {
+        "last_ebay_sold_captured_at": str(last_ebay_row.last_captured) if last_ebay_row else None,
+        "test_query": TEST_QUERY,
+        "finding_api": {},
+        "browse_api": {},
+    }
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            token = _get_app_token(client)
+
+            # Finding API probe
+            try:
+                finding_resp = client.get(
+                    EBAY_FINDING_API_URL,
+                    params={
+                        "OPERATION-NAME": "findCompletedItems",
+                        "SERVICE-VERSION": "1.0.0",
+                        "SECURITY-APPNAME": _s.ebay_app_id,
+                        "RESPONSE-DATA-FORMAT": "XML",
+                        "keywords": TEST_QUERY,
+                        "itemFilter(0).name": "SoldItemsOnly",
+                        "itemFilter(0).value": "true",
+                        "paginationInput.entriesPerPage": "5",
+                    },
+                    timeout=15.0,
+                )
+                has_10001 = "10001" in finding_resp.text
+                parsed = _parse_finding_items(finding_resp.text) if not has_10001 and finding_resp.status_code == 200 else []
+                result["finding_api"] = {
+                    "status_code": finding_resp.status_code,
+                    "has_10001_error": has_10001,
+                    "items_returned": len(parsed),
+                    "response_length": len(finding_resp.text),
+                    "response_preview": finding_resp.text[:300],
+                }
+            except Exception as e:
+                result["finding_api"] = {"error": str(e)}
+
+            # Browse API probe
+            try:
+                browse_resp = client.get(
+                    EBAY_BROWSE_API_URL,
+                    headers={"Authorization": f"Bearer {token}", "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"},
+                    params={
+                        "q": TEST_QUERY,
+                        "filter": "buyingOptions:{FIXED_PRICE}",
+                        "limit": "5",
+                    },
+                    timeout=15.0,
+                )
+                browse_data = browse_resp.json() if browse_resp.status_code == 200 else {}
+                parsed_browse = _parse_browse_items(browse_data)
+                result["browse_api"] = {
+                    "status_code": browse_resp.status_code,
+                    "total_items_in_response": len(browse_data.get("itemSummaries", [])),
+                    "items_parsed": len(parsed_browse),
+                    "sample_item": browse_data.get("itemSummaries", [{}])[0] if browse_data.get("itemSummaries") else None,
+                }
+            except Exception as e:
+                result["browse_api"] = {"error": str(e)}
+
+    except Exception as e:
+        result["oauth_error"] = str(e)
+
+    return result
+
+
 _DIGEST_FORCE_CONFIRM = "send-digest-now"
 
 
