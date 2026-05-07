@@ -5,6 +5,20 @@ import { fetchAlerts } from '../api/api'
 import { useWatchlist } from '../hooks/useWatchlist'
 import { useUser } from '../hooks/useUser'
 
+// Makes a non-button element behave like a button for keyboard users.
+// WCAG 2.1.1 — Enter and Space activate the same handler as onClick.
+const activate = (handler: () => void) => ({
+  role: 'button' as const,
+  tabIndex: 0,
+  onClick: handler,
+  onKeyDown: (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      handler()
+    }
+  },
+})
+
 export default function NavBar() {
   const nav = useNavigate()
   const { pathname } = useLocation()
@@ -22,7 +36,7 @@ export default function NavBar() {
   const link = (path: string, label: string, extra?: React.ReactNode) => (
     <span
       className={`nav-link${pathname === path || pathname.startsWith(path + '/') ? ' active' : ''}`}
-      onClick={() => nav(path)}
+      {...activate(() => nav(path))}
       style={{ position: 'relative' }}
     >
       {label}
@@ -32,7 +46,7 @@ export default function NavBar() {
 
   return (
     <nav className="nav">
-      <div className="nav-logo" onClick={() => nav('/')}>
+      <div className="nav-logo" {...activate(() => nav('/'))}>
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
           <polygon points="10,1 12.9,7 19.5,7.6 14.8,11.8 16.2,18.2 10,15 3.8,18.2 5.2,11.8 0.5,7.6 7.1,7" fill="#f0b429" />
         </svg>
@@ -56,7 +70,7 @@ export default function NavBar() {
               )}
               <span
                 className="nav-link"
-                onClick={() => { window.location.href = '/auth/logout' }}
+                {...activate(() => { window.location.href = '/auth/logout' })}
                 style={{ fontSize: 12, color: 'var(--text-muted)' }}
               >
                 Sign out
@@ -65,7 +79,7 @@ export default function NavBar() {
           ) : (
             <span
               className="nav-link"
-              onClick={() => { window.location.href = '/login' }}
+              {...activate(() => { window.location.href = '/login' })}
               style={{ fontSize: 13 }}
             >
               Sign in
