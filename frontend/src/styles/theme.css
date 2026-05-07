@@ -121,6 +121,25 @@ a { color: inherit; text-decoration: none; }
   font-size: 12px;
 }
 
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn:disabled:hover,
+.btn[aria-disabled="true"]:hover {
+  /* lock the disabled visual against the .btn-primary / .btn-ghost hover rules above */
+  opacity: 0.5;
+}
+
+/* ── Keyboard focus indicators ── */
+button:focus-visible,
+.btn:focus-visible,
+.nav-link:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
 /* ── Navigation ── */
 .nav {
   position: sticky;
