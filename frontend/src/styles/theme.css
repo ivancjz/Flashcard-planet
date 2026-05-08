@@ -70,6 +70,10 @@ a { color: inherit; text-decoration: none; }
   --tint-move:     rgba(245,158,11,0.08);
   --tint-watch:    rgba(251,146,60,0.08);
 
+  /* Severity tints (high reuses --tint-danger; med/low are dedicated) */
+  --tint-severity-med: rgba(245,158,11,0.08);    /* alpha-08 of --severity-med */
+  --tint-severity-low: rgba(107,114,128,0.08);   /* alpha-08 of --severity-low */
+
   /* Scrims (modal/overlay backdrops) */
   --scrim-light:  rgba(12,12,16,0.55);
   --scrim-medium: rgba(12,12,16,0.75);
