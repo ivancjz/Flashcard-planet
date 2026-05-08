@@ -2,14 +2,18 @@ import { useEffect, useRef } from 'react'
 
 /**
  * Trap keyboard focus inside a container while it's open.
- * - Tab cycles between focusable descendants.
+ * - Tab cycles between focusable descendants. Recomputed on each Tab
+ *   keypress so dynamically-rendered content (e.g. async search results
+ *   in CardPickerModal) remains reachable.
  * - Esc calls onClose.
  * - On unmount/close, focus returns to the previously-focused element.
  *
  * Limitations (acceptable for current modal/drawer scope):
- * - Focusables are captured at open-time; descendants added later are not picked up.
  * - Single-trap only; nested modals would need a stack — not used today.
  */
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
 export function useFocusTrap<T extends HTMLElement>(
   open: boolean,
   onClose: () => void,
@@ -21,13 +25,10 @@ export function useFocusTrap<T extends HTMLElement>(
     const root = ref.current
     const previouslyFocused = document.activeElement as HTMLElement | null
 
-    const focusables = Array.from(
-      root.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      )
-    )
+    const getFocusables = () =>
+      Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
 
-    focusables[0]?.focus()
+    getFocusables()[0]?.focus()
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -35,7 +36,13 @@ export function useFocusTrap<T extends HTMLElement>(
         onClose()
         return
       }
-      if (e.key !== 'Tab' || focusables.length === 0) return
+      if (e.key !== 'Tab') return
+
+      // Recompute every Tab — async-rendered content (search results,
+      // lazy-loaded sections) gets folded into the cycle on next press.
+      const focusables = getFocusables()
+      if (focusables.length === 0) return
+
       const first = focusables[0]
       const last = focusables[focusables.length - 1]
       if (e.shiftKey && document.activeElement === first) {
