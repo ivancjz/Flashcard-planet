@@ -61,16 +61,14 @@ export default function CardPickerModal({ open, onClose, onSelect, excludeIds, g
         }}
       />
 
-      {/* Modal */}
-      <div style={{
-        position: 'fixed', top: '15%', left: '50%', transform: 'translateX(-50%)',
-        zIndex: 101, width: 'min(480px, 94vw)',
-        background: 'var(--bg-elevated)',
-        border: '1px solid var(--border-default)',
-        borderRadius: 'var(--radius-md)',
-        boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
-        overflow: 'hidden',
-      }}>
+      {/* Modal — bg/border/radius/shadow/overflow from .modal; position+z-index stay inline */}
+      <div
+        className="modal"
+        style={{
+          position: 'fixed', top: '15%', left: '50%', transform: 'translateX(-50%)',
+          zIndex: 101, width: 'min(480px, 94vw)',
+        }}
+      >
         {/* Header */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
