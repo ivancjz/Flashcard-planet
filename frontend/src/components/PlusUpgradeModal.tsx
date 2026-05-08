@@ -1,8 +1,12 @@
+import { useFocusTrap } from '../hooks/useFocusTrap'
+
 interface Props {
   onClose: () => void
 }
 
 export default function PlusUpgradeModal({ onClose }: Props) {
+  // Component only renders when shown — open is always true at mount
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose)
   return (
     <div
       className="modal-backdrop"
@@ -15,7 +19,11 @@ export default function PlusUpgradeModal({ onClose }: Props) {
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div
+        ref={trapRef}
         className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="plus-upgrade-title"
         style={{
           maxWidth: 420,
           borderRadius: 'var(--radius-lg)',     // class default --radius-md (8px); preserve 12px
@@ -26,10 +34,13 @@ export default function PlusUpgradeModal({ onClose }: Props) {
         }}
       >
         <div style={{ fontSize: 28, marginBottom: 12 }}>⭐</div>
-        <h2 style={{
-          fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700,
-          marginBottom: 8, color: 'var(--text-primary)',
-        }}>
+        <h2
+          id="plus-upgrade-title"
+          style={{
+            fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700,
+            marginBottom: 8, color: 'var(--text-primary)', margin: '0 0 8px',
+          }}
+        >
           Upgrade to Plus for unlimited watchlist
         </h2>
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 24, lineHeight: 1.6 }}>
