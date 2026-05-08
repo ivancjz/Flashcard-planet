@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { fetchCards } from '../api/api'
 import SignalBadge from './SignalBadge'
 import { signalToMeta } from '../lib/utils'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 import type { CardSummary } from '../types/api'
 
 interface Props {
@@ -18,6 +19,7 @@ export default function CardPickerModal({ open, onClose, onSelect, excludeIds, g
   const [results, setResults] = useState<CardSummary[]>([])
   const [loading, setLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const trapRef = useFocusTrap<HTMLDivElement>(open, onClose)
 
   // Focus input when modal opens; reset on close
   useEffect(() => {
@@ -60,7 +62,11 @@ export default function CardPickerModal({ open, onClose, onSelect, excludeIds, g
 
       {/* Modal — bg/border/radius/shadow/overflow from .modal; position+z-index stay inline */}
       <div
+        ref={trapRef}
         className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="card-picker-title"
         style={{
           position: 'fixed', top: '15%', left: '50%', transform: 'translateX(-50%)',
           zIndex: 101, width: 'min(480px, 94vw)',
@@ -72,9 +78,12 @@ export default function CardPickerModal({ open, onClose, onSelect, excludeIds, g
           padding: '14px 16px',
           borderBottom: '1px solid var(--border-subtle)',
         }}>
-          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14 }}>
+          <h2
+            id="card-picker-title"
+            style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14, margin: 0 }}
+          >
             Add a card to compare
-          </span>
+          </h2>
           <button
             onClick={onClose}
             aria-label="Close"
@@ -134,6 +143,7 @@ export default function CardPickerModal({ open, onClose, onSelect, excludeIds, g
             return (
               <button
                 key={card.asset_id}
+                className="option-row"
                 onClick={() => { if (!already) { onSelect(card); onClose() } }}
                 disabled={already}
                 style={{
@@ -142,12 +152,8 @@ export default function CardPickerModal({ open, onClose, onSelect, excludeIds, g
                   padding: '10px 16px',
                   background: 'none', border: 'none',
                   borderBottom: '1px solid var(--border-subtle)',
-                  cursor: already ? 'default' : 'pointer',
                   opacity: already ? 0.4 : 1,
-                  transition: 'background 0.1s',
                 }}
-                onMouseEnter={e => { if (!already) (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-surface)' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none' }}
               >
                 {/* Color dot matching signal */}
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color, flexShrink: 0 }} />

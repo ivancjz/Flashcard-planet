@@ -37,25 +37,18 @@ function CardItem({ card, watched, onClick, onToggleWatch }: {
 
   return (
     <div
-      className="surface"
+      className="surface card-row"
       onClick={onClick}
       style={{
         padding: 16, cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'flex-start',
         background: `linear-gradient(135deg, ${meta.rowGlow} 0%, var(--bg-surface) 60%)`,
         borderLeft: `3px solid ${meta.color}`,
         position: 'relative',
-        transition: 'transform 0.15s, box-shadow 0.15s',
-      }}
-      onMouseEnter={e => {
-        ;(e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
-        ;(e.currentTarget as HTMLDivElement).style.boxShadow = `0 8px 32px ${meta.color}20`
-      }}
-      onMouseLeave={e => {
-        ;(e.currentTarget as HTMLDivElement).style.transform = ''
-        ;(e.currentTarget as HTMLDivElement).style.boxShadow = ''
-      }}
+        '--card-glow-color': `${meta.color}20`,
+      } as React.CSSProperties}
     >
       <button
+        className="icon-button"
         onClick={e => { e.stopPropagation(); onToggleWatch() }}
         style={{
           position: 'absolute', top: 8, right: 8, zIndex: 2,
@@ -63,10 +56,7 @@ function CardItem({ card, watched, onClick, onToggleWatch }: {
           width: 28, height: 28, cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 16, color: watched ? 'var(--gold)' : 'var(--text-muted)',
-          transition: 'color 0.15s, transform 0.1s',
         }}
-        onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.15)')}
-        onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
         aria-label={watched ? 'Remove from watchlist' : 'Add to watchlist'}
         title={watched ? 'Remove from watchlist' : 'Add to watchlist'}
       >

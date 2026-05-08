@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchSetOptions, fetchRarityOptions } from '../api/api'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 import type { SetOption, RarityOption } from '../types/api'
 
 export interface FilterState {
@@ -43,6 +44,7 @@ export default function FilterDrawer({ open, game, onClose, onChange, selectedSe
   const [sets, setSets] = useState<SetOption[]>([])
   const [rarities, setRarities] = useState<RarityOption[]>([])
   const [loadingOpts, setLoadingOpts] = useState(false)
+  const trapRef = useFocusTrap<HTMLDivElement>(open, onClose)
 
   useEffect(() => {
     if (!open) return
@@ -83,10 +85,21 @@ export default function FilterDrawer({ open, game, onClose, onChange, selectedSe
       <div className="drawer-backdrop" onClick={onClose} />
 
       {/* Drawer panel */}
-      <div className="drawer">
+      <div
+        ref={trapRef}
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="filter-drawer-title"
+      >
         {/* Header — class default bottom-pad 12px vs prior 14px; 2px delta accepted */}
         <div className="drawer-header">
-          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16 }}>Filters</span>
+          <h2
+            id="filter-drawer-title"
+            style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, margin: 0 }}
+          >
+            Filters
+          </h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 22, lineHeight: 1 }}>×</button>
         </div>
 
@@ -104,9 +117,7 @@ export default function FilterDrawer({ open, game, onClose, onChange, selectedSe
                 ) : (
                   <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
                     {sets.map(set => (
-                      <label key={set.id} style={{ display: 'flex', alignItems: 'center', padding: '6px 4px', cursor: 'pointer', borderRadius: 4, gap: 8 }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-base)')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <label key={set.id} className="option-row" style={{ display: 'flex', alignItems: 'center', padding: '6px 4px', borderRadius: 4, gap: 8 }}>
                         <input
                           type="checkbox"
                           checked={selectedSets.includes(set.id)}
@@ -129,9 +140,7 @@ export default function FilterDrawer({ open, game, onClose, onChange, selectedSe
                 ) : (
                   <div style={{ maxHeight: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
                     {rarities.map(r => (
-                      <label key={r.value} style={{ display: 'flex', alignItems: 'center', padding: '6px 4px', cursor: 'pointer', borderRadius: 4, gap: 8 }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-base)')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <label key={r.value} className="option-row" style={{ display: 'flex', alignItems: 'center', padding: '6px 4px', borderRadius: 4, gap: 8 }}>
                         <input
                           type="checkbox"
                           checked={selectedRarities.includes(r.value)}

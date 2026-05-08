@@ -56,8 +56,9 @@ a { color: inherit; text-decoration: none; }
   --tint-danger: rgba(239,68,68,0.08);   /* low-α row wash; background-color only */
 
   /* Tier accent */
-  --plus:      #a78bfa;                  /* violet — distinct from gold/pro */
-  --plus-glow: rgba(167,139,250,0.12);
+  --plus:             #a78bfa;                   /* violet — distinct from gold/pro */
+  --plus-glow:        rgba(167,139,250,0.12);
+  --border-plus-soft: rgba(167,139,250,0.30);    /* mirrors --border-gold-soft pattern */
 
   /* Alert severity (distinct from signal palette — see upgrade plan §decisions #3) */
   --severity-high: #ef4444;             /* red — never reuse --breakout for alerts */
@@ -155,9 +156,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 /* ── Keyboard focus indicators ── */
-button:focus-visible,
-.btn:focus-visible,
-.nav-link:focus-visible {
+:where(button, .btn, .nav-link, a, input, select, textarea, [role="button"], [tabindex="0"]):focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
 }
@@ -255,6 +254,38 @@ button:focus-visible,
   border: 1px solid var(--border-gold-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-glow-gold);
+}
+
+/* ── Hover affordances (replace JS-driven onMouseEnter/Leave handlers) ── */
+.card-row {
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.card-row:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px var(--card-glow-color, rgba(0,0,0,0.3));
+}
+
+.icon-button {
+  transition: transform 0.1s, color 0.15s;
+}
+.icon-button:hover {
+  transform: scale(1.15);
+}
+
+.option-row {
+  transition: background 0.15s;
+  cursor: pointer;
+}
+.option-row:hover {
+  background: var(--bg-base);
+}
+.option-row:disabled,
+.option-row[aria-disabled="true"] {
+  cursor: default;
+}
+.option-row:disabled:hover,
+.option-row[aria-disabled="true"]:hover {
+  background: transparent;
 }
 
 /* ── Modal scaffold (chrome only — caller owns centering, blur, padding) ── */
