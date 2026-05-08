@@ -134,6 +134,7 @@ export default function CardPickerModal({ open, onClose, onSelect, excludeIds, g
             return (
               <button
                 key={card.asset_id}
+                className="option-row"
                 onClick={() => { if (!already) { onSelect(card); onClose() } }}
                 disabled={already}
                 style={{
@@ -142,12 +143,8 @@ export default function CardPickerModal({ open, onClose, onSelect, excludeIds, g
                   padding: '10px 16px',
                   background: 'none', border: 'none',
                   borderBottom: '1px solid var(--border-subtle)',
-                  cursor: already ? 'default' : 'pointer',
                   opacity: already ? 0.4 : 1,
-                  transition: 'background 0.1s',
                 }}
-                onMouseEnter={e => { if (!already) (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-surface)' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none' }}
               >
                 {/* Color dot matching signal */}
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color, flexShrink: 0 }} />

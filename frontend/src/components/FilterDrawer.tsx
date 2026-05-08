@@ -104,9 +104,7 @@ export default function FilterDrawer({ open, game, onClose, onChange, selectedSe
                 ) : (
                   <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
                     {sets.map(set => (
-                      <label key={set.id} style={{ display: 'flex', alignItems: 'center', padding: '6px 4px', cursor: 'pointer', borderRadius: 4, gap: 8 }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-base)')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <label key={set.id} className="option-row" style={{ display: 'flex', alignItems: 'center', padding: '6px 4px', borderRadius: 4, gap: 8 }}>
                         <input
                           type="checkbox"
                           checked={selectedSets.includes(set.id)}
@@ -129,9 +127,7 @@ export default function FilterDrawer({ open, game, onClose, onChange, selectedSe
                 ) : (
                   <div style={{ maxHeight: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
                     {rarities.map(r => (
-                      <label key={r.value} style={{ display: 'flex', alignItems: 'center', padding: '6px 4px', cursor: 'pointer', borderRadius: 4, gap: 8 }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-base)')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <label key={r.value} className="option-row" style={{ display: 'flex', alignItems: 'center', padding: '6px 4px', borderRadius: 4, gap: 8 }}>
                         <input
                           type="checkbox"
                           checked={selectedRarities.includes(r.value)}
