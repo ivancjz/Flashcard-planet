@@ -50,7 +50,7 @@ export default function NavBar() {
                 <span style={{
                   fontSize: 9, padding: '2px 7px',
                   background: 'var(--gold-glow)', color: 'var(--gold)',
-                  border: '1px solid rgba(240,180,41,0.3)', borderRadius: 10,
+                  border: '1px solid var(--border-gold-soft)', borderRadius: 10,
                   fontFamily: 'var(--font-mono)', fontWeight: 700,
                 }}>PRO</span>
               )}

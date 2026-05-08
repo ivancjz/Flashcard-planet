@@ -309,7 +309,7 @@ function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 6,
       background: 'var(--gold-glow)', color: 'var(--gold)',
-      border: '1px solid rgba(240,180,41,0.3)',
+      border: '1px solid var(--border-gold-soft)',
       borderRadius: 12, padding: '2px 8px 2px 10px', fontSize: 12,
       maxWidth: 220, overflow: 'hidden',
     }}>

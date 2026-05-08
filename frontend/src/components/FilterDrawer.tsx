@@ -80,29 +80,18 @@ export default function FilterDrawer({ open, game, onClose, onChange, selectedSe
   return (
     <>
       {/* Backdrop */}
-      <div
-        onClick={onClose}
-        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 200 }}
-      />
+      <div className="drawer-backdrop" onClick={onClose} />
 
       {/* Drawer panel */}
-      <div style={{
-        position: 'fixed', top: 0, right: 0, bottom: 0,
-        width: 'clamp(280px, 100vw, 380px)',
-        background: 'var(--bg-elevated)',
-        borderLeft: '1px solid var(--border-subtle)',
-        zIndex: 201,
-        display: 'flex', flexDirection: 'column',
-        overflowY: 'hidden',
-      }}>
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 20px 14px' }}>
+      <div className="drawer">
+        {/* Header — class default bottom-pad 12px vs prior 14px; 2px delta accepted */}
+        <div className="drawer-header">
           <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16 }}>Filters</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 22, lineHeight: 1 }}>×</button>
         </div>
 
         {/* Scrollable content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px' }}>
+        <div className="drawer-body">
           {loadingOpts ? (
             <div style={{ color: 'var(--text-muted)', fontSize: 13, padding: '20px 0' }}>Loading options…</div>
           ) : (

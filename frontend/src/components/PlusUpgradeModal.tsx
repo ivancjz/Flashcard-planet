@@ -14,11 +14,14 @@ export default function PlusUpgradeModal({ onClose }: Props) {
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div
-        className="surface"
+        className="modal"
         style={{
-          maxWidth: 420, width: '100%', padding: 32,
-          border: '1px solid rgba(240,180,41,0.3)',
-          boxShadow: '0 0 48px rgba(240,180,41,0.12)',
+          maxWidth: 420,
+          borderRadius: 'var(--radius-lg)',     // class default --radius-md (8px); preserve 12px
+          background: 'var(--bg-surface)',       // class default --bg-elevated; preserve surface
+          border: '1px solid var(--border-gold-soft)',
+          boxShadow: 'var(--shadow-glow-gold)',
+          padding: 32,
         }}
       >
         <div style={{ fontSize: 28, marginBottom: 12 }}>⭐</div>
@@ -38,7 +41,7 @@ export default function PlusUpgradeModal({ onClose }: Props) {
               display: 'block', textAlign: 'center', padding: '11px 20px',
               borderRadius: 6, fontFamily: 'var(--font-display)', fontWeight: 700,
               fontSize: 14, textDecoration: 'none',
-              background: 'var(--gold-glow)', border: '1px solid rgba(240,180,41,0.4)',
+              background: 'var(--gold-glow)', border: '1px solid var(--border-gold-strong)',
               color: 'var(--gold)',
             }}
           >
