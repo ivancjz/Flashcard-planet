@@ -5,11 +5,12 @@ interface Props {
 export default function PlusUpgradeModal({ onClose }: Props) {
   return (
     <div
+      className="modal-backdrop"
       style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
-        background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)',
+        zIndex: 1000,
+        backdropFilter: 'blur(4px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 16,
+        padding: 'var(--space-4)',
       }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >

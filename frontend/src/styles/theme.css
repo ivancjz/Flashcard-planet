@@ -257,17 +257,12 @@ button:focus-visible,
   box-shadow: var(--shadow-glow-gold);
 }
 
-/* ── Modal scaffold (chrome only — caller owns inner padding) ── */
+/* ── Modal scaffold (chrome only — caller owns centering, blur, padding) ── */
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: 200;
   background: var(--scrim-medium);
-  backdrop-filter: blur(2px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
 }
 .modal {
   background: var(--bg-elevated);

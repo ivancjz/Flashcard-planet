@@ -54,11 +54,8 @@ export default function CardPickerModal({ open, onClose, onSelect, excludeIds, g
       {/* Backdrop */}
       <div
         onClick={onClose}
-        style={{
-          position: 'fixed', inset: 0, zIndex: 100,
-          background: 'rgba(12,12,16,0.75)',
-          backdropFilter: 'blur(2px)',
-        }}
+        className="modal-backdrop"
+        style={{ zIndex: 100, backdropFilter: 'blur(2px)' }}
       />
 
       {/* Modal — bg/border/radius/shadow/overflow from .modal; position+z-index stay inline */}
