@@ -113,6 +113,7 @@ class Settings(BaseSettings):
     ingest_schedule_enabled: bool = True
     ingest_interval_hours: float = Field(default=24.0, gt=0)
     zero_output_alert_window_hours: int = Field(default=24, ge=1)
+    signal_history_retention_days: int = Field(default=90, ge=7, le=365)
     gap_history_threshold: int = Field(default=7, ge=1)
     gap_set_coverage_threshold: float = Field(default=0.5, gt=0, le=1)
     backfill_batch_size: int = Field(default=100, ge=1, le=1000)
