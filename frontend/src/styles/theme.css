@@ -194,7 +194,7 @@ a { color: inherit; text-decoration: none; }
 .nav-logo-sub {
   font-family: var(--font-mono);
   font-size: 10px;
-  /* Was --text-muted (#5a5b6a → 4.24:1 on bg-base) — fails WCAG 1.4.3 4.5:1 for small text. */
+  /* Lifted from --text-muted (5.72:1) to --text-secondary (#9899a6, 6.92:1) — extra headroom for 10px mono text. */
   color: var(--text-secondary);
   margin-left: 2px;
 }

@@ -6,14 +6,15 @@ import { fetchAlerts } from '../api/api'
 import { useWatchlist } from '../hooks/useWatchlist'
 import { useUser } from '../hooks/useUser'
 
-// Makes a non-button element behave like a button for keyboard users.
-// WCAG 2.1.1 — Enter and Space activate the same handler as onClick.
+// Makes a non-<a> element that navigates keyboard-accessible.
+// role="link" + Enter: WCAG 4.1.2 (correct role for navigation) + WCAG 2.1.1.
+// Space is intentionally excluded — links activate on Enter only per ARIA spec.
 const activate = (handler: () => void) => ({
-  role: 'button' as const,
+  role: 'link' as const,
   tabIndex: 0,
   onClick: handler,
   onKeyDown: (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
+    if (e.key === 'Enter') {
       e.preventDefault()
       handler()
     }
