@@ -4,7 +4,7 @@
 >
 > **This file is for Claude Code to consume autonomously.** When picking up a session and there is no specific operator instruction, read this file and start the highest-priority task you have evidence to safely execute. See §0 below.
 
-**Last updated:** 2026-05-02 (v5 — Pro launch parameters decided, TASK-203 complete)
+**Last updated:** 2026-05-08 (v6 — TASK-103b duplicate removed, TASK-105 promoted from CLAUDE.md §7 Issue D for Phase 2)
 **Maintained by:** Ivan (operator) with proposed updates from Claude Code via PR
 
 ---
@@ -93,38 +93,43 @@ Format:
 
 ---
 
-
----
-
-#### TASK-103b — PR review automation via Codex Cloud (Path C)
+#### TASK-105 — `asset_signal_history` retention prune (Issue D Phase 2)
 
 **Priority:** P0
-**Status:** ready
-**Owner:** Ivan (5 min config) + Claude Code (AGENTS.md + CLAUDE.md updates)
+**Status:** blocked
+**Blocked by:** Phase 1 48h verification (operator action — see Preconditions)
+**Owner:** Claude Code (Phase 2 implementation) + Ivan (verification)
 
-**Background:** TASK-103a confirmed Codex CLI is headless-capable in CI but blocked on auth (ChatGPT OAuth session can't be stored as GitHub Secret). Three paths surfaced:
-- Path A: OpenAI API key + custom GitHub Action
-- Path B: Claude Code self-review (loses independence)
-- **Path C (chosen): Codex Cloud automated review** — included in current ChatGPT subscription, no API key needed, OpenAI-managed infrastructure
+**Background:** `asset_signal_history` was growing ~387k rows/day before transition guard fix — DB at 3.3 GB total, history table 2.6 GB (79%), 5.8 M rows, ~174 MB/day growth (CLAUDE.md §7 Issue D). **Phase 1 (transition guard) deployed in commit `78bd30b` on 2026-05-06 19:58 +1000.** Phase 2 = retention DELETE for the pre-fix accumulation plus ongoing daily trim.
 
-**Why Path C:** Zero additional cost (already paid via ChatGPT subscription). Zero ongoing maintenance (OpenAI hosts it). Preserves full reviewer independence. Configures in 5 minutes vs hours for Path A. Path A's strength was "works without ChatGPT" — irrelevant when we have ChatGPT. The OpenAI API credit purchased earlier gets redirected to TASK-401 (LLM analysis pool) where it produces direct product value instead.
-
-**Preconditions:** None.
+**Preconditions:**
+- Phase 1 in production: `78bd30b` reachable from `origin/main` — ✅ confirmed.
+- 48h post-deploy verification window closed (deploy ≈ 2026-05-06 09:58 UTC; window closed ≈ 2026-05-08 10:00 UTC).
+- Operator runs `GET /admin/diag/signal-history-stats?days=7` and confirms **all three** gates from CLAUDE.md §7:
+  1. `rows_written/day` dropped from ~387k toward transition rate (estimate: 4–20k/day)
+  2. `repeat_pct` < 5% on the most recent days (transitions ≈ rows_written)
+  3. DB total size growth rate dropped from ~174 MB/day to <10 MB/day (Railway → Postgres → Storage tab)
 
 **Definition of Done:**
-1. **Operator action (done)**: Log into chatgpt.com → Codex settings → enable Code review for `ivancjz/Flashcard-planet` repo. Toggle on "Automatic reviews".
-2. **Operator action (done)**: Verify the bot account is granted access to the repo via GitHub OAuth flow Codex initiates.
-3. `AGENTS.md` at repo root with review guidelines — **done** (committed 2026-05-02).
-4. CLAUDE.md §4 updated — **done** (committed 2026-05-02): Codex Cloud is primary; manual `codex exec review` is fallback.
-5. CLAUDE.md §1 invariant reworded: "No PR merges without Codex review (auto-posted by Codex Cloud, or manually pasted as fallback)" — **done**.
-6. **Validation**: Open one test PR. Confirm Codex Cloud posts a `## Codex Review` comment within 10 minutes.
+- New scheduler job `signal-history-prune` registered: interval trigger 24h, `_STARTUP_DELAY` entry, `next_run_time=None` (per CLAUDE.md §2 scheduler conventions).
+- Job DELETEs `WHERE computed_at < NOW() - (RETENTION_DAYS || ' days')::INTERVAL`.
+- `RETENTION_DAYS` env-configurable via `SIGNAL_HISTORY_RETENTION_DAYS`; default decided in packet (lean 90; tighter possible given pre-fix accumulation is mostly repeat-row garbage).
+- Job writes `scheduler_run_log` on every run with `meta_json={rows_deleted, retention_days_applied, oldest_remaining_at}`.
+- Job added to heartbeat `_monitored_jobs` list (CLAUDE.md §6 Lesson 9).
+- 48h post-deploy: DB total size trends down toward steady-state (`RETENTION_DAYS × post-fix-daily-rate` rows). Confirm via `/admin/diag/signal-history-stats` and Railway storage tab.
+- `/admin/diag/signal-history-stats` sentinel re-evaluated — remove if "48h verification of Issue D" purpose is satisfied.
 
-**Estimated effort:** XS (config) + S (AGENTS.md authoring)
-**Reference:** TASK-103a research output. Conversation 2026-05-02.
+**Estimated effort:** S (~2h, single PR, 2 commits — scheduler job + test).
+
+**Reference:**
+- CLAUDE.md §7 Issue D entry (still describes both phases as pending — needs sync once Phase 2 lands).
+- Commit `78bd30b` (Phase 1).
+- Diagnostic endpoint at `backend/app/backstage/routes.py:2302`.
+
 **Notes:**
-- Plus subscribers get ~400–1000 code reviews per 5-hour window. At Ivan's PR cadence (~30 PR/month), this is ~100x headroom.
-- AGENTS.md is read by Codex Cloud automatically. It does not duplicate CLAUDE.md — it extracts the review-relevant subset.
-- If Codex Cloud is later removed from Plus tier, fall back to Path A. The OpenAI API key from TASK-401 is sufficient — only need to add a GitHub Action workflow at that point.
+- **Do NOT prune before Phase 1 verification confirms inflow reduced.** CLAUDE.md §7: "it only buys ~10 days and the problem recurs."
+- Phase 1 already on production; this task is Phase 2 only.
+- `observation_match_logs` (127 MB, no purge) is a separate secondary concern in CLAUDE.md §7 — not part of TASK-105. Becomes urgent if eBay Browse API ingest is wired (currently paused while eBay-sold channel is dark).
 
 ---
 

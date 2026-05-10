@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getReadAlertIds } from '../lib/utils'
+import { tierBadge } from '../lib/tierBadge'
 import { fetchAlerts } from '../api/api'
 import { useWatchlist } from '../hooks/useWatchlist'
 import { useUser } from '../hooks/useUser'
@@ -25,6 +26,7 @@ export default function NavBar() {
   const [unreadCount, setUnreadCount] = useState(0)
   const { count: watchlistCount } = useWatchlist()
   const { email, tier, loading } = useUser()
+  const badge = tierBadge(tier)
 
   useEffect(() => {
     fetchAlerts({ limit: 50 }).then(r => {
@@ -60,13 +62,15 @@ export default function NavBar() {
         {!loading && (
           email ? (
             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {tier === 'pro' && (
+              {badge && (
                 <span style={{
                   fontSize: 9, padding: '2px 7px',
-                  background: 'var(--gold-glow)', color: 'var(--gold)',
-                  border: '1px solid rgba(240,180,41,0.3)', borderRadius: 10,
+                  background: badge.background,
+                  color: badge.color,
+                  border: `1px solid ${badge.borderColor}`,
+                  borderRadius: 10,
                   fontFamily: 'var(--font-mono)', fontWeight: 700,
-                }}>PRO</span>
+                }}>{badge.label}</span>
               )}
               <span
                 className="nav-link"

@@ -1,31 +1,46 @@
+import { useFocusTrap } from '../hooks/useFocusTrap'
+
 interface Props {
   onClose: () => void
 }
 
 export default function PlusUpgradeModal({ onClose }: Props) {
+  // Component only renders when shown — open is always true at mount
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose)
   return (
     <div
+      className="modal-backdrop"
       style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
-        background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)',
+        zIndex: 1000,
+        backdropFilter: 'blur(4px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 16,
+        padding: 'var(--space-4)',
       }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div
-        className="surface"
+        ref={trapRef}
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="plus-upgrade-title"
         style={{
-          maxWidth: 420, width: '100%', padding: 32,
-          border: '1px solid rgba(240,180,41,0.3)',
-          boxShadow: '0 0 48px rgba(240,180,41,0.12)',
+          maxWidth: 420,
+          borderRadius: 'var(--radius-lg)',     // class default --radius-md (8px); preserve 12px
+          background: 'var(--bg-surface)',       // class default --bg-elevated; preserve surface
+          border: '1px solid var(--border-gold-soft)',
+          boxShadow: 'var(--shadow-glow-gold)',
+          padding: 32,
         }}
       >
         <div style={{ fontSize: 28, marginBottom: 12 }}>⭐</div>
-        <h2 style={{
-          fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700,
-          marginBottom: 8, color: 'var(--text-primary)',
-        }}>
+        <h2
+          id="plus-upgrade-title"
+          style={{
+            fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700,
+            marginBottom: 8, color: 'var(--text-primary)', margin: '0 0 8px',
+          }}
+        >
           Upgrade to Plus for unlimited watchlist
         </h2>
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 24, lineHeight: 1.6 }}>
@@ -38,7 +53,7 @@ export default function PlusUpgradeModal({ onClose }: Props) {
               display: 'block', textAlign: 'center', padding: '11px 20px',
               borderRadius: 6, fontFamily: 'var(--font-display)', fontWeight: 700,
               fontSize: 14, textDecoration: 'none',
-              background: 'var(--gold-glow)', border: '1px solid rgba(240,180,41,0.4)',
+              background: 'var(--gold-glow)', border: '1px solid var(--border-gold-strong)',
               color: 'var(--gold)',
             }}
           >

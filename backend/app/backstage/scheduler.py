@@ -14,6 +14,7 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_DIGEST,
     JOB_EBAY,
     JOB_HEARTBEAT,
+    JOB_HISTORY_PRUNE,
     JOB_INGESTION,
     JOB_RETRY,
     JOB_SIGNALS,
@@ -98,6 +99,7 @@ _STARTUP_DELAY: dict[str, int] = {
     "bulk-set-price-refresh": 900,   # 15 min — after ingestion (120s+~5min run) and signal (600s)
     "explanation-sweep":      960,   # 16 min — after signal-sweep so new signals get explanations fast
     "market-digest-send":     1200,  # 20 min — after all other jobs have warmed up
+    "signal-history-prune":   1500,  # 25 min — last; pure DB DELETE, no upstream dependency (TASK-105)
     # "retry-pass" intentionally omitted — resume separately when confidence is high
 }
 
@@ -1189,6 +1191,20 @@ def build_scheduler() -> BackgroundScheduler:
         _STARTUP_DELAY.get("market-digest-send", 1200),
     )
 
+    scheduler.add_job(
+        _run_signal_history_prune,
+        "interval",
+        hours=24,
+        id="signal-history-prune",
+        replace_existing=True,
+        max_instances=1,
+        next_run_time=None,
+    )
+    logger.info(
+        "signal-history-prune registered. trigger=interval/24h first_run=startup+%ds",
+        _STARTUP_DELAY.get("signal-history-prune", 1500),
+    )
+
     return scheduler
 
 
@@ -1307,6 +1323,82 @@ def _send_market_digests() -> None:
             logger.exception("market-digest-send job failed: %s", e)
         finally:
             prune_old_runs(db, JOB_DIGEST)
+
+
+def _run_signal_history_prune() -> None:
+    """Daily DELETE of asset_signal_history rows older than the retention window.
+
+    Phase 2 of Issue D fix (Phase 1 = transition guard in commit 78bd30b).
+    Steady-state row count ≈ retention_days × post-fix daily transition rate
+    (~1500 rows/day as of 2026-05-08).
+
+    Pre-fix repeat rows age out naturally as computed_at crosses the retention
+    boundary. For immediate pre-fix bulk cleanup, see PR-B (TASK-106).
+    """
+    settings = get_settings()
+
+    try:
+        with SessionLocal() as _log_session:
+            _run_id = start_run(_log_session, JOB_HISTORY_PRUNE)
+    except Exception as exc:
+        logger.exception("start_run_failed job=%s", JOB_HISTORY_PRUNE)
+        send_discord_alert(
+            "error",
+            f"CRITICAL: start_run 失败 — {JOB_HISTORY_PRUNE}",
+            f"error={exc}\nJob 已跳过，本次无 run_log 记录",
+        )
+        return
+
+    _exc: BaseException | None = None
+    _log_meta: dict | None = None
+
+    try:
+        retention_days = settings.signal_history_retention_days
+        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+        with SessionLocal() as session:
+            result = session.execute(
+                sa_text("DELETE FROM asset_signal_history WHERE computed_at < :cutoff"),
+                {"cutoff": cutoff},
+            )
+            session.commit()
+            rows_deleted = result.rowcount or 0
+
+            oldest_remaining = session.execute(
+                sa_text("SELECT MIN(computed_at) FROM asset_signal_history")
+            ).scalar()
+
+        _log_meta = {
+            "retention_days_applied": retention_days,
+            "rows_deleted": rows_deleted,
+            "oldest_remaining_at": (
+                oldest_remaining.isoformat()
+                if oldest_remaining and hasattr(oldest_remaining, "isoformat")
+                else str(oldest_remaining) if oldest_remaining else None
+            ),
+        }
+        logger.info(
+            "signal-history-prune complete: deleted=%d retention_days=%d oldest_remaining=%s",
+            rows_deleted, retention_days, oldest_remaining,
+        )
+    except BaseException as exc:
+        _exc = exc
+        raise
+    finally:
+        log_status = "error" if _exc is not None else "success"
+        try:
+            with SessionLocal() as _log_session:
+                finish_run(
+                    _log_session, _run_id,
+                    status=log_status,
+                    meta_json=_log_meta,
+                    error_message=str(_exc) if _exc is not None else None,
+                )
+                prune_old_runs(_log_session, JOB_HISTORY_PRUNE)
+        except Exception:
+            logger.exception(
+                "finish_run_failed job=%s run_id=%s",
+                JOB_HISTORY_PRUNE, _run_id,
+            )
 
 
 def prepare_scheduler_for_startup(

@@ -3,15 +3,10 @@ import NavBar from '../components/NavBar'
 import SignalBadge from '../components/SignalBadge'
 import { fetchAlerts } from '../api/api'
 import { getReadAlertIds, markAlertRead, markAllAlertsRead, relativeTime, signalToMeta, formatDelta } from '../lib/utils'
+import { alertSeverityStyles } from '../lib/alertSeverity'
 import type { AlertEvent } from '../types/api'
 
 type Filter = 'ALL' | 'UNREAD' | 'HIGH'
-
-const SEVERITY_COLOR: Record<string, string> = {
-  high: 'var(--breakout)',
-  medium: 'var(--move)',
-  low: 'var(--watch)',
-}
 
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<AlertEvent[]>([])
@@ -87,6 +82,7 @@ export default function AlertsPage() {
             const isRead = readIds.has(alert.id)
             const meta = signalToMeta(alert.current_signal)
             const prevMeta = alert.previous_signal ? signalToMeta(alert.previous_signal) : null
+            const sev = alertSeverityStyles(alert.severity)
             return (
               <div
                 key={alert.id}
@@ -96,12 +92,12 @@ export default function AlertsPage() {
                   borderBottom: i < displayedAlerts.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                   display: 'flex', alignItems: 'center', gap: 14,
                   cursor: 'pointer',
-                  borderLeft: isRead ? '3px solid transparent' : `3px solid ${SEVERITY_COLOR[alert.severity]}`,
-                  background: isRead ? 'transparent' : `${SEVERITY_COLOR[alert.severity]}08`,
+                  borderLeft: isRead ? '3px solid transparent' : `3px solid ${sev.accent}`,
+                  background: isRead ? 'transparent' : sev.tint,
                   transition: 'background 0.15s',
                 }}
               >
-                <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: isRead ? 'transparent' : SEVERITY_COLOR[alert.severity] }} />
+                <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: isRead ? 'transparent' : sev.accent }} />
                 <div style={{ fontSize: 18, flexShrink: 0 }}>
                   {alert.severity === 'high' ? '🔥' : alert.severity === 'medium' ? '📊' : '👁️'}
                 </div>

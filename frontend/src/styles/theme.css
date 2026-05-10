@@ -19,21 +19,28 @@ a { color: inherit; text-decoration: none; }
   --bg-elevated: #1c1c26;
 
   /* Borders */
-  --border-subtle: rgba(255,255,255,0.06);
-  --border-strong: rgba(255,255,255,0.15);
+  --border-subtle:  rgba(255,255,255,0.06);
+  --border-default: rgba(255,255,255,0.10);
+  --border-strong:  rgba(255,255,255,0.15);
 
   /* Text */
   --text-primary:   #f1f1f3;
   --text-secondary: #9899a6;
-  --text-muted:     #5a5b6a;
+  /* Lifted from #5a5b6a (2.92:1 on bg-base, fails WCAG 1.4.3 AA at every size).
+     New value passes 4.5:1 on bg-base/surface/elevated. See PR #50. */
+  --text-muted:     #898a98;
+  --text-inverse:   #0c0c10;
 
   /* Brand */
   --gold:     #f0b429;
   --gold-dim: rgba(240,180,41,0.25);
   --gold-glow: rgba(240,180,41,0.12);
+  --border-gold-soft:   rgba(240,180,41,0.30);
+  --border-gold-strong: rgba(240,180,41,0.40);
 
   /* Radii */
   --radius-sm: 6px;
+  --radius-md: 8px;
   --radius-lg: 12px;
 
   /* Signal palette */
@@ -43,13 +50,62 @@ a { color: inherit; text-decoration: none; }
   --idle:     #6b7280;
   --nodata:   #4b4b5a;
 
+  /* Semantic */
+  --danger:     #ef4444;
+  --danger-bg:  rgba(239,68,68,0.12);
+  --tint-danger: rgba(239,68,68,0.08);   /* low-α row wash; background-color only */
+
+  /* Tier accent */
+  --plus:             #a78bfa;                   /* violet — distinct from gold/pro */
+  --plus-glow:        rgba(167,139,250,0.12);
+  --border-plus-soft: rgba(167,139,250,0.30);    /* mirrors --border-gold-soft pattern */
+
+  /* Alert severity (distinct from signal palette — see upgrade plan §decisions #3) */
+  --severity-high: #ef4444;             /* red — never reuse --breakout for alerts */
+  --severity-med:  #f59e0b;             /* amber */
+  --severity-low:  #6b7280;             /* grey */
+
+  /* Signal tints — background-color only, never border-color */
+  --tint-breakout: rgba(34,197,94,0.08);
+  --tint-move:     rgba(245,158,11,0.08);
+  --tint-watch:    rgba(251,146,60,0.08);
+
+  /* Severity tints (high reuses --tint-danger; med/low are dedicated) */
+  --tint-severity-med: rgba(245,158,11,0.08);    /* alpha-08 of --severity-med */
+  --tint-severity-low: rgba(107,114,128,0.08);   /* alpha-08 of --severity-low */
+
+  /* Scrims (modal/overlay backdrops) */
+  --scrim-light:  rgba(12,12,16,0.55);
+  --scrim-medium: rgba(12,12,16,0.75);
+  --scrim-strong: rgba(12,12,16,0.88);
+
   /* Typography */
   --font-display: 'Syne', sans-serif;
   --font-body:    'Inter', sans-serif;
   --font-mono:    'Space Mono', monospace;
 
-  /* Spacing */
-  --nav-h: 56px;
+  /* Type scale */
+  --text-xs:   11px;
+  --text-sm:   13px;
+  --text-base: 14px;
+  --text-md:   16px;
+  --text-lg:   20px;
+  --text-xl:   26px;
+  --text-2xl:  48px;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --nav-h:   56px;
+
+  /* Shadows / elevation */
+  --shadow-modal:     0 24px 64px rgba(0,0,0,0.60);  /* = CardPickerModal.tsx inline */
+  --shadow-glow-gold: 0 0 48px rgba(240,180,41,0.12); /* = PlusUpgradeModal.tsx inline */
 }
 
 /* ── Price change colours ── */
@@ -90,6 +146,23 @@ a { color: inherit; text-decoration: none; }
 .btn-sm {
   padding: 5px 12px;
   font-size: 12px;
+}
+
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn:disabled:hover,
+.btn[aria-disabled="true"]:hover {
+  /* lock the disabled visual against the .btn-primary / .btn-ghost hover rules above */
+  opacity: 0.5;
+}
+
+/* ── Keyboard focus indicators ── */
+:where(button, .btn, .nav-link, a, input, select, textarea, [role="button"], [tabindex="0"]):focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
 }
 
 /* ── Navigation ── */
@@ -172,6 +245,101 @@ a { color: inherit; text-decoration: none; }
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
+}
+
+/* ── Surface variants ── */
+.surface-emphasis {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-gold-soft);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-glow-gold);
+}
+.surface-emphasis-firm {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-gold-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-glow-gold);
+}
+
+/* ── Hover affordances (replace JS-driven onMouseEnter/Leave handlers) ── */
+.card-row {
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.card-row:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px var(--card-glow-color, rgba(0,0,0,0.3));
+}
+
+.icon-button {
+  transition: transform 0.1s, color 0.15s;
+}
+.icon-button:hover {
+  transform: scale(1.15);
+}
+
+.option-row {
+  transition: background 0.15s;
+  cursor: pointer;
+}
+.option-row:hover {
+  background: var(--bg-base);
+}
+.option-row:disabled,
+.option-row[aria-disabled="true"] {
+  cursor: default;
+}
+.option-row:disabled:hover,
+.option-row[aria-disabled="true"]:hover {
+  background: transparent;
+}
+
+/* ── Modal scaffold (chrome only — caller owns centering, blur, padding) ── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: var(--scrim-medium);
+}
+.modal {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-modal);
+  max-width: 480px;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* ── Drawer scaffold ── */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: var(--scrim-light);
+}
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: clamp(280px, 100vw, 380px);
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border-subtle);
+  z-index: 201;
+  display: flex;
+  flex-direction: column;
+  overflow-y: hidden;
+}
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-5) var(--space-5) var(--space-3);
+}
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 var(--space-5);
 }
 
 /* ── Page layout ── */
