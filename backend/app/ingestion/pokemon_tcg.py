@@ -66,6 +66,8 @@ class IngestionResult:
     inserted_asset_names: list[str] = field(default_factory=list)
     latest_captured_at: datetime | None = None
     api_calls_used: int = 0
+    deadline_reached: bool = False
+    assets_remaining: int = 0
 
 
 @dataclass
@@ -247,6 +249,7 @@ def add_price_point(
     currency: str,
     price: Decimal,
     captured_at: datetime,
+    market_segment: str,
 ) -> PricePointInsertResult:
     already_exists = session.scalar(
         select(PriceHistory).where(
@@ -276,6 +279,7 @@ def add_price_point(
             currency=currency,
             price=price,
             captured_at=captured_at,
+            market_segment=market_segment,
         )
     )
     return PricePointInsertResult(
@@ -304,6 +308,24 @@ def _record_observation_result(
     )
 
 
+def cap_and_backoff(retry_after_secs: float | None, attempt: int) -> float:
+    """Return the delay in seconds before the next retry of a Pokemon TCG API call.
+
+    Caps Retry-After at 60 s to prevent a single bad header stalling a run for
+    hours. The 60 s cap and [2.0, 5.0, 15.0] fallbacks were tuned in PR #12
+    against observed Pokemon TCG API behaviour. Do not import this for other
+    APIs without verifying their rate-limit semantics match.
+
+    Args:
+        retry_after_secs: Parsed value of the Retry-After header, or None.
+        attempt: 1-based retry attempt number. Out-of-range values are clamped.
+    """
+    if retry_after_secs is not None:
+        return min(retry_after_secs, 60.0)
+    idx = min(max(attempt - 1, 0), 2)
+    return [2.0, 5.0, 15.0][idx]
+
+
 def _parse_retry_after(response: httpx.Response) -> float | None:
     """Parse Retry-After header. Returns seconds as float, or None if absent/invalid.
 
@@ -326,12 +348,10 @@ def _parse_retry_after(response: httpx.Response) -> float | None:
 
 def _compute_retry_delay(response: httpx.Response | None, attempt: int) -> float:
     """Prefer Retry-After header if present, otherwise exponential backoff."""
+    retry_after_secs: float | None = None
     if response is not None:
-        retry_after = _parse_retry_after(response)
-        if retry_after is not None:
-            return min(retry_after, 60.0)
-    fallback = [2.0, 5.0, 15.0]
-    return fallback[min(attempt - 1, len(fallback) - 1)]
+        retry_after_secs = _parse_retry_after(response)
+    return cap_and_backoff(retry_after_secs, attempt)
 
 
 def fetch_card(client: httpx.Client, card_id: str) -> dict[str, Any]:
@@ -497,6 +517,7 @@ def ingest_game_cards(
                 currency="USD",
                 price=price,
                 captured_at=ingested_at,
+                market_segment='raw',
             )
             if insert_result.inserted:
                 result.price_points_inserted += 1
@@ -564,15 +585,16 @@ def _query_missing_price(session: Session, *, limit: int, primary_source: str) -
     from backend.app.models.asset import Asset
     from backend.app.models.game import Game
 
+    provider_card_id = Asset.metadata_json["provider_card_id"].as_string()
     subq = (
         select(
             Asset.id,
-            Asset.metadata_json["provider_card_id"].astext.label("provider_card_id"),
+            provider_card_id.label("provider_card_id"),
         )
         .where(
             Asset.metadata_json.isnot(None),
-            Asset.metadata_json["provider_card_id"].astext.isnot(None),
-            Asset.metadata_json["provider_card_id"].astext != "",
+            provider_card_id.isnot(None),
+            provider_card_id != "",
             Asset.game == Game.POKEMON.value,
         )
         .subquery()
@@ -598,20 +620,18 @@ def _query_missing_image(session: Session, *, limit: int) -> list[str]:
     from backend.app.models.asset import Asset
     from backend.app.models.game import Game
 
+    provider_card_id = Asset.metadata_json["provider_card_id"].as_string()
+    small_image_url = Asset.metadata_json["images"]["small"].as_string()
     rows = session.execute(
         select(
-            Asset.metadata_json["provider_card_id"].astext.label("provider_card_id"),
+            provider_card_id.label("provider_card_id"),
         )
         .where(
             Asset.metadata_json.isnot(None),
-            Asset.metadata_json["provider_card_id"].astext.isnot(None),
-            Asset.metadata_json["provider_card_id"].astext != "",
+            provider_card_id.isnot(None),
+            provider_card_id != "",
             Asset.game == Game.POKEMON.value,
-            ~(
-                Asset.metadata_json.has_key("images")
-                & Asset.metadata_json["images"].has_key("small")
-                & (Asset.metadata_json["images"]["small"].astext != "")
-            ),
+            ~((small_image_url.isnot(None)) & (small_image_url != "")),
         )
         .limit(limit)
     ).all()
@@ -669,6 +689,7 @@ def backfill_single_card(session: Session, asset: "Asset") -> bool:  # type: ign
                 currency="USD",
                 price=price,
                 captured_at=ingested_at,
+                market_segment='raw',
             )
             price_filled = insert_result.inserted
             has_image_now = bool((matched.metadata_json or {}).get("images", {}).get("small"))
@@ -725,7 +746,7 @@ def run_backfill_pass(session: Session) -> BackfillResult:
 
     assets = session.scalars(
         select(Asset).where(
-            Asset.metadata_json["provider_card_id"].astext.in_(to_backfill)
+            Asset.metadata_json["provider_card_id"].as_string().in_(to_backfill)
         )
     ).all()
     asset_by_card_id = {

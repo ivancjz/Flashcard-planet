@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import TickerBar from '../components/TickerBar'
 import CardArt from '../components/CardArt'
@@ -12,15 +12,38 @@ const FEATURES = [
   { icon: '📈', title: 'Price History', desc: '30-day rolling price chart per card from both sources.' },
 ]
 
+type WaitlistState = 'idle' | 'loading' | 'joined' | 'already_joined' | 'error'
+
 export default function LandingPage() {
   const nav = useNavigate()
   const [stats, setStats] = useState<MarketStats | null>(null)
   const [ticker, setTicker] = useState<TickerItem[]>([])
+  const [waitlistEmail, setWaitlistEmail] = useState('')
+  const [waitlistState, setWaitlistState] = useState<WaitlistState>('idle')
+  const waitlistInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     fetchStats().then(setStats)
     fetchTicker().then(setTicker)
   }, [])
+
+  async function handleWaitlistSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!waitlistEmail) return
+    setWaitlistState('loading')
+    try {
+      const res = await fetch('/api/v1/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: waitlistEmail, source_page: 'landing' }),
+      })
+      if (!res.ok) throw new Error('server_error')
+      const data = await res.json()
+      setWaitlistState(data.status === 'already_joined' ? 'already_joined' : 'joined')
+    } catch {
+      setWaitlistState('error')
+    }
+  }
 
   return (
     <div style={{ minHeight: '100vh' }}>
@@ -112,7 +135,7 @@ export default function LandingPage() {
         </div>
 
         {/* Plans */}
-        <div style={{ marginTop: 80 }}>
+        <div id="plus" style={{ marginTop: 80, scrollMarginTop: 80 }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, marginBottom: 8, textAlign: 'center' }}>
             Simple pricing
           </h2>
@@ -145,7 +168,7 @@ export default function LandingPage() {
             <div className="surface" style={{ padding: 28, border: '1px solid var(--gold)', boxShadow: '0 0 32px var(--gold-glow)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
                 <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Pro</div>
-                <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--gold)', background: 'var(--gold-glow)', border: '1px solid rgba(240,180,41,0.3)', borderRadius: 10, padding: '2px 7px' }}>COMING SOON</span>
+                <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--gold)', background: 'var(--gold-glow)', border: '1px solid var(--border-gold-soft)', borderRadius: 10, padding: '2px 7px' }}>COMING SOON</span>
               </div>
               <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>For serious TCG investors.</div>
               {[
@@ -161,19 +184,48 @@ export default function LandingPage() {
                   <span style={{ color: 'var(--text-secondary)' }}>{f}</span>
                 </div>
               ))}
-              <a
-                href="mailto:hello@flashcardplanet.com"
-                style={{
-                  display: 'flex', justifyContent: 'center', alignItems: 'center',
-                  fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13,
-                  color: 'var(--gold)', textDecoration: 'none',
-                  background: 'var(--gold-glow)', border: '1px solid rgba(240,180,41,0.4)',
-                  borderRadius: 6, padding: '10px 16px', marginTop: 24,
-                  transition: 'opacity 0.15s',
-                }}
-              >
-                Get early access →
-              </a>
+              {waitlistState === 'joined' || waitlistState === 'already_joined' ? (
+                <div style={{ marginTop: 24, padding: '10px 16px', borderRadius: 6, background: 'var(--gold-glow)', border: '1px solid var(--border-gold-strong)', textAlign: 'center' }}>
+                  <span style={{ color: 'var(--gold)', fontWeight: 700, fontSize: 13 }}>
+                    {waitlistState === 'already_joined' ? "You're already on the list." : "You're on the list — we'll be in touch."}
+                  </span>
+                </div>
+              ) : (
+                <form onSubmit={handleWaitlistSubmit} style={{ marginTop: 24 }}>
+                  <input
+                    ref={waitlistInputRef}
+                    type="email"
+                    required
+                    placeholder="your@email.com"
+                    value={waitlistEmail}
+                    onChange={e => setWaitlistEmail(e.target.value)}
+                    style={{
+                      width: '100%', boxSizing: 'border-box', padding: '9px 12px',
+                      borderRadius: 6, border: '1px solid rgba(240,180,41,0.4)',
+                      background: '#1a1a1a', color: '#f0f0f0', fontSize: 13,
+                      marginBottom: 8, outline: 'none',
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={waitlistState === 'loading'}
+                    style={{
+                      width: '100%', padding: '10px 16px', borderRadius: 6,
+                      background: 'var(--gold-glow)', border: '1px solid rgba(240,180,41,0.4)',
+                      color: 'var(--gold)', fontWeight: 700, fontSize: 13,
+                      cursor: waitlistState === 'loading' ? 'wait' : 'pointer',
+                      fontFamily: 'var(--font-display)',
+                    }}
+                  >
+                    {waitlistState === 'loading' ? 'Joining…' : 'Join the waitlist →'}
+                  </button>
+                  {waitlistState === 'error' && (
+                    <p style={{ color: '#e55', fontSize: 12, marginTop: 6, textAlign: 'center' }}>
+                      Something went wrong — try again.
+                    </p>
+                  )}
+                </form>
+              )}
             </div>
           </div>
         </div>

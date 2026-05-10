@@ -1,0 +1,22 @@
+{
+  "snapshot_time_utc": "2026-05-01T12:03:00Z",
+  "method": "direct production DB query via psycopg",
+  "note": "No live API URL available locally; queried production Railway DB directly",
+  "top_15_by_delta_pct": [
+    {"name": "Lickitung", "set": "Jungle", "label": "BREAKOUT", "price_delta_pct": 282.46, "confidence": 83, "liquidity_score": 98, "tcg_price": 2.18, "ebay_price": 1.66, "ebay_24h_count": 0, "signal_context": {"current_n": 10, "baseline_n": 5, "current_price": 2.18, "baseline_price": 0.57}},
+    {"name": "Kangaskhan ex", "set": "151", "label": "BREAKOUT", "price_delta_pct": 140.47, "confidence": 83, "liquidity_score": 98, "tcg_price": 7.19, "ebay_price": 8.50, "ebay_24h_count": 0, "signal_context": {"current_n": 10, "baseline_n": 5, "current_price": 7.19, "baseline_price": 2.99}},
+    {"name": "Snorlax", "set": "Crown Zenith", "label": "BREAKOUT", "price_delta_pct": 118.48, "confidence": 86, "liquidity_score": 95, "tcg_price": 2.01, "ebay_price": null, "ebay_24h_count": 0, "signal_context": {"current_n": 10, "baseline_n": 5, "current_price": 2.01, "baseline_price": 0.92}},
+    {"name": "Dark Jolteon", "set": "Team Rocket", "label": "BREAKOUT", "price_delta_pct": 114.69, "confidence": 86, "liquidity_score": 95, "tcg_price": 13.59, "ebay_price": null, "ebay_24h_count": 0, "signal_context": {"current_n": 10, "baseline_n": 5, "current_price": 13.59, "baseline_price": 6.33}},
+    {"name": "Marowak", "set": "Jungle", "label": "BREAKOUT", "price_delta_pct": 94.93, "confidence": 83, "liquidity_score": 98, "tcg_price": 2.69, "ebay_price": 9.99, "ebay_24h_count": 0, "signal_context": {"current_n": 10, "baseline_n": 5, "current_price": 2.69, "baseline_price": 1.38}},
+    {"name": "Mimikyu ex", "set": "Journey Together", "label": "MOVE", "price_delta_pct": 80.37, "confidence": 86, "liquidity_score": 95, "tcg_price": 1.93, "ebay_price": null, "ebay_24h_count": 0},
+    {"name": "Parasect", "set": "Jungle", "label": "MOVE", "price_delta_pct": 76.79, "confidence": 83, "liquidity_score": 98, "tcg_price": 0.99, "ebay_price": 3.99, "ebay_24h_count": 0},
+    {"name": "Alakazam ex", "set": "151", "label": "BREAKOUT", "price_delta_pct": 67.12, "confidence": 86, "liquidity_score": 95, "tcg_price": 2.44, "ebay_price": null, "ebay_24h_count": 0},
+    {"name": "Seaking", "set": "Jungle", "label": "MOVE", "price_delta_pct": 65.98, "confidence": 83, "liquidity_score": 98, "tcg_price": 1.61, "ebay_price": 11.00, "ebay_24h_count": 0},
+    {"name": "Rhydon", "set": "Jungle", "label": "MOVE", "price_delta_pct": 64.10, "confidence": 83, "liquidity_score": 98, "tcg_price": 1.92, "ebay_price": 4.99, "ebay_24h_count": 0}
+  ],
+  "anchor_cards": [
+    "Lickitung (Jungle) — #1 by delta",
+    "Kangaskhan ex (151) — #2 with eBay price shown",
+    "Stoutland (White Flare) — high TCG, no eBay"
+  ]
+}

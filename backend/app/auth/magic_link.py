@@ -87,4 +87,4 @@ def verify_magic_link(
     email = verify_magic_token(token)
     user = _get_or_create_user_by_email(db, email)
     login_user(request, user)
-    return RedirectResponse(url="/dashboard", status_code=302)
+    return RedirectResponse(url="/market", status_code=302)

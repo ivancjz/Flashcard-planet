@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getReadAlertIds } from '../lib/utils'
+import { tierBadge } from '../lib/tierBadge'
 import { fetchAlerts } from '../api/api'
 import { useWatchlist } from '../hooks/useWatchlist'
+import { useUser } from '../hooks/useUser'
 
 export default function NavBar() {
   const nav = useNavigate()
   const { pathname } = useLocation()
   const [unreadCount, setUnreadCount] = useState(0)
   const { count: watchlistCount } = useWatchlist()
+  const { email, tier, loading } = useUser()
+  const badge = tierBadge(tier)
 
   useEffect(() => {
     fetchAlerts({ limit: 50 }).then(r => {
@@ -39,6 +43,40 @@ export default function NavBar() {
       </div>
       <div className="nav-links">
         {link('/market', '🎴 Market')}
+
+        {/* Auth state — show skeleton while loading */}
+        {!loading && (
+          email ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {badge && (
+                <span style={{
+                  fontSize: 9, padding: '2px 7px',
+                  background: badge.background,
+                  color: badge.color,
+                  border: `1px solid ${badge.borderColor}`,
+                  borderRadius: 10,
+                  fontFamily: 'var(--font-mono)', fontWeight: 700,
+                }}>{badge.label}</span>
+              )}
+              <span
+                className="nav-link"
+                onClick={() => { window.location.href = '/auth/logout' }}
+                style={{ fontSize: 12, color: 'var(--text-muted)' }}
+              >
+                Sign out
+              </span>
+            </span>
+          ) : (
+            <span
+              className="nav-link"
+              onClick={() => { window.location.href = '/login' }}
+              style={{ fontSize: 13 }}
+            >
+              Sign in
+            </span>
+          )
+        )}
+
         {link('/watchlist', '⭐ Watchlist',
           watchlistCount > 0 && (
             <span style={{

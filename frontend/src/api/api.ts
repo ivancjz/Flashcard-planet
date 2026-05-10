@@ -3,6 +3,14 @@ import type { MarketStats, TickerItem, CardsResponse, CardDetail, AlertsResponse
 
 const BASE = ''  // same-origin: FastAPI serves both API and SPA
 
+// X-Dev-Tier header lets backend web endpoints resolve tier without full session lookup.
+// Set from UserContext after /me fetch, or localStorage fallback when not logged in.
+let _cachedTier: string = localStorage.getItem('fcp_dev_tier_override') ?? 'free'
+export function setCachedTier(t: string) { _cachedTier = t }
+function devTierHeaders(): Record<string, string> {
+  return _cachedTier === 'pro' ? { 'X-Dev-Tier': 'pro' } : {}
+}
+
 export async function fetchStats(): Promise<MarketStats> {
   const res = await fetch(`${BASE}/api/v1/web/stats`)
   if (!res.ok) throw new Error('stats fetch failed')
@@ -34,7 +42,7 @@ export async function fetchCards(params: {
   if (rarity?.length) qs.set('rarity', rarity.join(','))
   if (price_min != null) qs.set('price_min', String(price_min))
   if (price_max != null) qs.set('price_max', String(price_max))
-  const res = await fetch(`${BASE}/api/v1/web/cards?${qs}`)
+  const res = await fetch(`${BASE}/api/v1/web/cards?${qs}`, { headers: devTierHeaders() })
   if (!res.ok) throw new Error('cards fetch failed')
   return res.json()
 }
@@ -89,4 +97,33 @@ export async function fetchAlerts(params: {
   const res = await fetch(`${BASE}/api/v1/web/alerts?${qs}`)
   if (!res.ok) throw new Error('alerts fetch failed')
   return res.json()
+}
+
+export function exportCardsCsv(params: {
+  game?: string
+  signal?: Signal | 'ALL'
+  sort?: 'change' | 'price' | 'volume' | 'recent'
+  search?: string
+  set_id?: string[]
+  rarity?: string[]
+  price_min?: number
+  price_max?: number
+  asset_ids?: string[]
+}): void {
+  const qs = new URLSearchParams()
+  if (params.game) qs.set('game', params.game)
+  if (params.signal) qs.set('signal', params.signal)
+  if (params.sort) qs.set('sort', params.sort)
+  if (params.search) qs.set('search', params.search)
+  if (params.set_id?.length) qs.set('set_id', params.set_id.join(','))
+  if (params.rarity?.length) qs.set('rarity', params.rarity.join(','))
+  if (params.price_min != null) qs.set('price_min', String(params.price_min))
+  if (params.price_max != null) qs.set('price_max', String(params.price_max))
+  if (params.asset_ids?.length) qs.set('asset_ids', params.asset_ids.join(','))
+  const link = document.createElement('a')
+  link.href = `${BASE}/api/v1/web/cards/export?${qs}`
+  link.download = ''
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
 }

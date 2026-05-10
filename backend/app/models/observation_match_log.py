@@ -41,5 +41,8 @@ class ObservationMatchLog(Base):
     reason: Mapped[str | None] = mapped_column(Text)
     requires_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False, index=True)
+    market_segment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    grade_company: Mapped[str | None] = mapped_column(Text, nullable=True)
+    grade_score: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     matched_asset = relationship("Asset")

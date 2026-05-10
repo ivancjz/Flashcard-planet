@@ -51,9 +51,7 @@ class Settings(BaseSettings):
     database_url: str = Field(
         default="postgresql+psycopg://flashcard:flashcard@localhost:5432/flashcard_planet"
     )
-    bot_token: str = ""
-    discord_application_id: str = ""
-    discord_guild_id: str = ""
+    bot_token: str = ""      # Discord bot token — used by alert_service.py for user DM notifications
     backend_base_url: str = f"http://localhost:{os.environ.get('PORT', 8000)}"
     scheduler_poll_seconds: int = 300
     pokemon_tcg_api_base_url: str = "https://api.pokemontcg.io/v2"
@@ -71,6 +69,7 @@ class Settings(BaseSettings):
     ebay_sold_lookback_hours: int = Field(default=24, ge=1, le=168)
     ebay_search_keywords: str = ""  # comma-separated search terms
     ebay_scheduled_ingest_enabled: bool = False
+    graded_shadow_audit_enabled: bool = False  # Phase 0: audit graded eBay listings without price authority
     ebay_daily_budget_limit: int = Field(default=500, ge=1, le=5000)
     ebay_max_calls_per_run: int = Field(default=150, ge=1, le=5000)
     provider_1_source: str = "pokemon_tcg_api"
@@ -82,11 +81,11 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
     groq_base_url: str = "https://api.groq.com/openai/v1"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    openai_base_url: str = "https://api.openai.com/v1"
     llm_provider: str = "anthropic"
     secret_key: str = Field(default="change-me-in-production-use-a-long-random-string")
-    discord_client_id: str = ""
-    discord_client_secret: str = ""
-    discord_redirect_uri: str = ""   # e.g. https://yourdomain.com/auth/callback
     jwt_expire_days: int = Field(default=30, ge=1)
     # Auth v2
     google_client_id: str = ""
@@ -106,13 +105,15 @@ class Settings(BaseSettings):
     signal_sweep_alert_threshold: int = Field(default=5000, ge=1)
     signal_baseline_window_days: int = Field(default=7, ge=1)
     signal_current_window_hours: int = Field(default=24, ge=1)
-    signal_delta_source_weights: str = Field(default="ebay_sold=2.0,pokemon_tcg_api=1.0")
+    signal_delta_source_weights: str = Field(default="ebay_sold=2.0,pokemon_tcg_api=1.0,ygoprodeck_api=1.0")
     signal_breakout_min_price_usd: float = Field(default=2.00, ge=0)
     signal_move_min_price_usd: float = Field(default=1.00, ge=0)
     signal_breakout_min_baseline_n: int = Field(default=3, ge=1)
     signal_move_min_baseline_n: int = Field(default=2, ge=1)
     ingest_schedule_enabled: bool = True
     ingest_interval_hours: float = Field(default=24.0, gt=0)
+    zero_output_alert_window_hours: int = Field(default=24, ge=1)
+    signal_history_retention_days: int = Field(default=90, ge=7, le=365)
     gap_history_threshold: int = Field(default=7, ge=1)
     gap_set_coverage_threshold: float = Field(default=0.5, gt=0, le=1)
     backfill_batch_size: int = Field(default=100, ge=1, le=1000)

@@ -35,6 +35,7 @@ from backend.app.ingestion.pokemon_tcg import (
     MAX_FETCH_ATTEMPTS,
     RETRYABLE_STATUS_CODES,
     build_headers,
+    cap_and_backoff,
     choose_price_snapshot,
     parse_release_year,
 )
@@ -218,7 +219,7 @@ class PokemonTCGImporter:
 
     def _sleep_for_retry(self, response: Response | None, attempt: int) -> None:
         retry_after = self._parse_retry_after_seconds(response)
-        delay = retry_after if retry_after is not None else min(2 ** (attempt - 1), 8)
+        delay = cap_and_backoff(retry_after, attempt)
         logger.warning(
             "Pokemon TCG API rate-limited or transiently failed; sleeping %.2fs before retry %s/%s.",
             delay,
@@ -391,6 +392,7 @@ def flush_batch(
                         currency=payload["currency"],
                         price=payload["price"],
                         captured_at=payload["captured_at"],
+                        market_segment='raw',  # TCG API always quotes raw cards
                     )
                 )
 

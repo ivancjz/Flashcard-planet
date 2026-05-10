@@ -18,7 +18,7 @@ class ResendClientTests(unittest.TestCase):
         self.assertIn("https://example.com/verify?token=abc", call_args["html"])
         self.assertEqual(call_args["subject"], "Your Flashcard Planet login link")
 
-    def test_send_magic_link_email_uses_from_address(self):
+    def test_send_magic_link_email_uses_current_resend_from_address(self):
         mock_send = MagicMock()
         with patch("resend.Emails.send", mock_send):
             with patch("backend.app.email.resend_client.get_settings") as mock_settings:
@@ -27,4 +27,4 @@ class ResendClientTests(unittest.TestCase):
                 send_magic_link_email("x@y.com", "http://localhost/verify?token=t")
 
         call_args = mock_send.call_args[0][0]
-        self.assertIn("flashcardplanet.com", call_args["from"])
+        self.assertEqual(call_args["from"], "Flashcard Planet <onboarding@resend.dev>")

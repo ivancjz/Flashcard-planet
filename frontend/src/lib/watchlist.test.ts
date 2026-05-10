@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
   getWatchlist, addToWatchlist, removeFromWatchlist, isWatched,
-  getWatchlistCount, clearWatchlist,
+  getWatchlistCount, clearWatchlist, FREE_TIER_WATCHLIST_LIMIT,
 } from './watchlist'
 
 const KEY = 'fp_watchlist'
@@ -145,5 +145,61 @@ describe('clearWatchlist', () => {
     addToWatchlist('uuid-b')
     clearWatchlist()
     expect(getWatchlistCount()).toBe(0)
+  })
+})
+
+// ── TASK-301d: F-4 free-tier watchlist limit ──────────────────────────────────
+
+describe('FREE_TIER_WATCHLIST_LIMIT constant', () => {
+  it('is exported and equals 5', () => {
+    expect(FREE_TIER_WATCHLIST_LIMIT).toBe(5)
+  })
+})
+
+describe('addToWatchlist — free tier limit', () => {
+  it('allows exactly FREE_TIER_WATCHLIST_LIMIT entries for free tier', () => {
+    for (let i = 0; i < FREE_TIER_WATCHLIST_LIMIT; i++) {
+      expect(addToWatchlist(`uuid-${i}`, 'free')).toEqual({ ok: true })
+    }
+    expect(getWatchlistCount()).toBe(FREE_TIER_WATCHLIST_LIMIT)
+  })
+
+  it('blocks the entry beyond FREE_TIER_WATCHLIST_LIMIT for free tier', () => {
+    for (let i = 0; i < FREE_TIER_WATCHLIST_LIMIT; i++) {
+      addToWatchlist(`uuid-${i}`, 'free')
+    }
+    expect(addToWatchlist('uuid-blocked', 'free')).toEqual({ ok: false, reason: 'tier_limit' })
+  })
+
+  it('watchlist length stays at FREE_TIER_WATCHLIST_LIMIT after blocked add', () => {
+    for (let i = 0; i < FREE_TIER_WATCHLIST_LIMIT; i++) {
+      addToWatchlist(`uuid-${i}`, 'free')
+    }
+    addToWatchlist('uuid-blocked', 'free')
+    expect(getWatchlistCount()).toBe(FREE_TIER_WATCHLIST_LIMIT)
+  })
+
+  it('plus tier can add entries beyond the free limit', () => {
+    for (let i = 0; i < FREE_TIER_WATCHLIST_LIMIT; i++) {
+      addToWatchlist(`uuid-${i}`, 'plus')
+    }
+    expect(addToWatchlist('uuid-extra', 'plus')).toEqual({ ok: true })
+    expect(getWatchlistCount()).toBe(FREE_TIER_WATCHLIST_LIMIT + 1)
+  })
+
+  it('pro tier can add entries beyond the free limit', () => {
+    for (let i = 0; i < FREE_TIER_WATCHLIST_LIMIT; i++) {
+      addToWatchlist(`uuid-${i}`, 'pro')
+    }
+    expect(addToWatchlist('uuid-extra', 'pro')).toEqual({ ok: true })
+    expect(getWatchlistCount()).toBe(FREE_TIER_WATCHLIST_LIMIT + 1)
+  })
+
+  it('no tier param preserves legacy 500-cap behaviour (no tier_limit)', () => {
+    // Existing callers without tier continue to use the hard 500-cap only
+    for (let i = 0; i < FREE_TIER_WATCHLIST_LIMIT + 1; i++) {
+      expect(addToWatchlist(`uuid-${i}`)).toEqual({ ok: true })
+    }
+    expect(getWatchlistCount()).toBe(FREE_TIER_WATCHLIST_LIMIT + 1)
   })
 })

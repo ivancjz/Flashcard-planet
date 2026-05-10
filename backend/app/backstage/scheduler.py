@@ -11,12 +11,15 @@ from backend.app.ingestion.pokemon_tcg import backfill_single_card, run_backfill
 from backend.app.services.backfill_retry_service import run_retry_pass
 from backend.app.services.scheduler_run_log_service import (
     JOB_BULK_REFRESH,
+    JOB_DIGEST,
     JOB_EBAY,
     JOB_HEARTBEAT,
+    JOB_HISTORY_PRUNE,
     JOB_INGESTION,
     JOB_RETRY,
     JOB_SIGNALS,
     JOB_YGO,
+    JOB_EXPLANATION,
     finish_run,
     get_last_run,
     prune_old_runs,
@@ -34,7 +37,9 @@ from backend.app.ingestion.provider_registry import (
     get_unimplemented_configured_providers,
 )
 from sqlalchemy import func, select, text as sa_text
+from sqlalchemy.orm import Session
 from backend.app.models.asset import Asset
+from backend.app.models.scheduler_run_log import SchedulerRunLog
 
 from backend.app.alerting.discord import send_discord_alert
 from backend.app.services.alert_service import process_alert_notifications
@@ -42,6 +47,49 @@ from backend.app.services.signal_service import sweep_signals
 
 logger = logging.getLogger(__name__)
 ebay_logger = logging.getLogger("backend.app.ingestion.ebay_scheduled")
+
+JOB_WALL_CLOCK_LIMIT = timedelta(minutes=30)
+EBAY_DURATION_CANARY_THRESHOLD_SECS: int = 60
+EBAY_DURATION_CANARY_WINDOW_HOURS: int = 24
+
+_COMPLETED_STATUSES = {"success", "partial", "warning"}
+
+
+def get_zero_output_jobs(
+    session: Session,
+    *,
+    job_names: list[str],
+    window_hours: int,
+    now: datetime,
+) -> list[str]:
+    """Return job names that ran but wrote zero records across the entire window.
+
+    A job with no completed runs in the window is excluded — that is the 25h
+    absence check's territory, not a zero-output alert.
+    """
+    cutoff = now - timedelta(hours=window_hours)
+    flagged: list[str] = []
+    for job_name in job_names:
+        rows = session.execute(
+            select(
+                func.count().label("total"),
+                func.sum(
+                    SchedulerRunLog.records_written
+                ).label("total_records"),
+            )
+            .where(
+                SchedulerRunLog.job_name == job_name,
+                SchedulerRunLog.started_at >= cutoff,
+                SchedulerRunLog.status.in_(list(_COMPLETED_STATUSES)),
+            )
+        ).one()
+        total = rows.total or 0
+        total_records = rows.total_records or 0
+        if total > 0 and total_records == 0:
+            flagged.append(job_name)
+    return flagged
+
+
 _STARTUP_DELAY: dict[str, int] = {
     "scheduled-ingestion":    120,   #  2 min — first mover
     "signal-sweep":           600,   # 10 min
@@ -49,6 +97,9 @@ _STARTUP_DELAY: dict[str, int] = {
     "ebay-ingestion":         660,   # 11 min — after signal-sweep, before heartbeat reports it
     "yugioh-ingestion":       780,   # 13 min — after heartbeat, YGO sets are small so runs fast
     "bulk-set-price-refresh": 900,   # 15 min — after ingestion (120s+~5min run) and signal (600s)
+    "explanation-sweep":      960,   # 16 min — after signal-sweep so new signals get explanations fast
+    "market-digest-send":     1200,  # 20 min — after all other jobs have warmed up
+    "signal-history-prune":   1500,  # 25 min — last; pure DB DELETE, no upstream dependency (TASK-105)
     # "retry-pass" intentionally omitted — resume separately when confidence is high
 }
 
@@ -80,6 +131,8 @@ class EbayScheduledRunSummary:
     duplicates_skipped: int = 0
     match_status_counts: dict[str, int] = field(default_factory=dict)
     job_blocked_reason: str | None = None
+    deadline_reached: bool = False
+    assets_remaining: int = 0
 
 
 def _log_gap_report(report: GapReport) -> None:
@@ -217,6 +270,36 @@ def _run_retry_pass() -> None:
             finish_run(_log_session, _run_id, status="error")
 
 
+def _ebay_duration_canary_rows(
+    session: "Session",
+    threshold_secs: int,
+    window_hours: int,
+) -> tuple[int, int]:
+    """Return (total_completed_runs, fast_runs) for ebay-ingestion in window.
+
+    A run is "fast" if it completed in < threshold_secs seconds.
+    Explicitly-skipped runs (disabled, budget_exhausted, missing_credentials)
+    are excluded via job_blocked_reason IS NULL — they have short duration by
+    design (they did no API work), not because of fast-failing.
+    Used by _send_heartbeat to detect the fast-failing pattern
+    (Finding API rejecting before Browse fallback).
+    """
+    row = session.execute(sa_text("""
+        SELECT
+            COUNT(*) AS total_runs,
+            COUNT(*) FILTER (
+                WHERE finished_at IS NOT NULL
+                  AND EXTRACT(EPOCH FROM (finished_at - started_at)) < :threshold
+            ) AS fast_runs
+        FROM scheduler_run_log
+        WHERE job_name = 'ebay-ingestion'
+          AND status IN ('success', 'partial', 'warning', 'error', 'failed')
+          AND (meta_json->>'job_blocked_reason') IS NULL
+          AND started_at > NOW() - (:window_hours || ' hours')::INTERVAL
+    """), {"threshold": threshold_secs, "window_hours": window_hours}).fetchone()
+    return (int(row.total_runs or 0), int(row.fast_runs or 0))
+
+
 def _send_heartbeat() -> None:
     """Send a periodic health pulse to Discord.
 
@@ -301,6 +384,73 @@ def _send_heartbeat() -> None:
                     "interval job 可能被 deploy 打断，或凭证失效，或每次 api_calls_used=0",
                 )
 
+        # Zero-output alert: jobs that ran completed runs but wrote zero records.
+        # Detects the eBay-outage pattern: API calls consumed, status=success, 0 rows written.
+        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION, JOB_DIGEST]
+        with SessionLocal() as _zero_session:
+            zero_output = get_zero_output_jobs(
+                _zero_session,
+                job_names=_monitored_jobs,
+                window_hours=settings.zero_output_alert_window_hours,
+                now=now,
+            )
+        if zero_output:
+            window_h = settings.zero_output_alert_window_hours
+            send_discord_alert(
+                "warning",
+                f"零产出告警: {len(zero_output)} 个 job 在 {window_h}h 内无数据写入",
+                "以下 job 有完成的运行记录但 records_written=0 贯穿整个窗口:\n"
+                + "\n".join(f"  • {j}" for j in zero_output)
+                + f"\n\n检查 scheduler_run_log (last {window_h}h) 和对应的外部 API 状态。",
+            )
+
+        # eBay duration canary: warn when ALL completed runs in the window finished
+        # in under EBAY_DURATION_CANARY_THRESHOLD_SECS seconds.
+        #
+        # Rationale: a healthy Browse API run should take at least minutes once
+        # listing_snapshot is wired. Sub-threshold duration = fast-failing:
+        # the Finding API (svcs.ebay.com, decommissioned 2025-02-05) rejects on
+        # the first call before Browse fallback is attempted.
+        # This is a forward-looking WARNING — Browse fallback / listing_snapshot
+        # integration does not exist yet. Alert is informational, not actionable today.
+        if settings.ebay_scheduled_ingest_enabled and settings.ebay_app_id and settings.ebay_cert_id:
+            with SessionLocal() as _dur_session:
+                _ebay_total, _ebay_fast = _ebay_duration_canary_rows(
+                    _dur_session,
+                    threshold_secs=EBAY_DURATION_CANARY_THRESHOLD_SECS,
+                    window_hours=EBAY_DURATION_CANARY_WINDOW_HOURS,
+                )
+            if _ebay_total > 0 and _ebay_total == _ebay_fast:
+                send_discord_alert(
+                    "warning",
+                    f"eBay ingestion 快速失败警告: 过去 {EBAY_DURATION_CANARY_WINDOW_HOURS}h 全部 {_ebay_total} 次运行 < {EBAY_DURATION_CANARY_THRESHOLD_SECS}s",
+                    f"Finding API (svcs.ebay.com) 已于 2025-02-05 下线，首次调用即返回拒绝 (10001)。\n"
+                    f"Browse API fallback / listing_snapshot 尚未建立。\n"
+                    f"此为前瞻性 WARNING，当前无可操作修复。参见 CLAUDE.md eBay API status 节。",
+                )
+
+        # Defensive: alert if any ingest path wrote market_segment=NULL in the last 24h.
+        # Pre-backfill NULLs from old rows are excluded by the captured_at filter,
+        # so this only fires when a live ingest path is missing segment classification.
+        with SessionLocal() as _seg_session:
+            null_seg_rows = _seg_session.execute(sa_text("""
+                SELECT source, COUNT(*) AS cnt
+                FROM price_history
+                WHERE market_segment IS NULL
+                  AND captured_at > now() - interval '24 hours'
+                GROUP BY source
+                ORDER BY cnt DESC
+            """)).fetchall()
+        if null_seg_rows:
+            detail = "\n".join(f"  {r.source}: {r.cnt} rows" for r in null_seg_rows)
+            send_discord_alert(
+                "warning",
+                "市场数据质量警告: market_segment IS NULL (24h内)",
+                f"以下数据源写入了未分类的 price_history 行:\n{detail}\n"
+                "信号引擎会过滤这些行 → 对应资产信号静默丢失。"
+                "\n\n检查对应 ingest 路径，确认 market_segment='raw' 已设置。",
+            )
+
         lines = [f"{r.status}: {r.cnt} runs, last at {r.last_run}" for r in rows]
         tag = " [观察期]" if in_observation else ""
         send_discord_alert(
@@ -366,6 +516,8 @@ def _run_bulk_set_price_refresh() -> None:
     _records_written = 0
     _errors = 0
     _error_message: str | None = None
+    _meta_json: dict | None = None
+    importer = None
 
     try:
         settings = get_settings()
@@ -450,12 +602,22 @@ def _run_bulk_set_price_refresh() -> None:
                         importer.summary.cards_seen,
                     )
             _records_written = importer.summary.prices_recorded
+            _meta_json = {
+                "sets_processed": importer.summary.sets_processed,
+                "cards_processed": importer.summary.cards_processed,
+                "prices_recorded": importer.summary.prices_recorded,
+            }
         finally:
             importer.close()
 
     except Exception as exc:
         _errors = 1
         _error_message = str(exc)
+        _meta_json = {
+            "error_type": type(exc).__name__,
+            "error_message": str(exc)[:500],
+            "sets_completed_before_failure": importer.summary.sets_processed if importer is not None else 0,
+        }
         logger.exception("Bulk set price refresh job failed.")
 
     finally:
@@ -466,6 +628,7 @@ def _run_bulk_set_price_refresh() -> None:
                 records_written=_records_written,
                 errors=_errors,
                 error_message=_error_message,
+                meta_json=_meta_json,
             )
             prune_old_runs(_log_session, JOB_BULK_REFRESH)
 
@@ -617,6 +780,7 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
 
         started_at = datetime.now(UTC).replace(microsecond=0)
         today_start_iso = started_at.replace(hour=0, minute=0, second=0).isoformat()
+        deadline = started_at + JOB_WALL_CLOCK_LIMIT
 
         assets_considered = 0
         remaining_daily_budget = 0
@@ -628,10 +792,17 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
                 all_assets = list(session.scalars(_select(_Asset)).all())
                 assets_considered = len(all_assets)
 
-                # ── Daily budget: count assets already ingested since 00:00 UTC ──
+                # ── Daily budget: sum api_calls_used from completed runs today (UTC) ──
+                # Counts actual API calls attempted, not just successful asset writes.
+                _today_start = started_at.replace(hour=0, minute=0, second=0, microsecond=0)
+                _today_runs = session.execute(
+                    select(SchedulerRunLog)
+                    .where(SchedulerRunLog.job_name == "ebay-ingestion")
+                    .where(SchedulerRunLog.started_at >= _today_start)
+                ).scalars().all()
                 calls_today = sum(
-                    1 for a in all_assets
-                    if (a.metadata_json or {}).get("ebay_sold_last_ingested_at", "") >= today_start_iso
+                    (r.meta_json or {}).get("api_calls_used") or 0
+                    for r in _today_runs
                 )
                 remaining_daily_budget = max(0, settings.ebay_daily_budget_limit - calls_today)
                 effective_limit = min(settings.ebay_max_calls_per_run, remaining_daily_budget)
@@ -681,7 +852,7 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
                     for asset in ordered_assets[:effective_limit]
                 ]
 
-                result = ingest_ebay_sold_cards(session, card_ids=selected_ids)
+                result = ingest_ebay_sold_cards(session, card_ids=selected_ids, deadline=deadline)
 
         except Exception:
             ebay_logger.exception("ebay_scheduled_ingest_job_failed")
@@ -721,6 +892,8 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
             price_points_inserted=result.price_points_inserted,
             duplicates_skipped=result.price_points_skipped_existing_timestamp,
             match_status_counts=dict(result.observation_match_status_counts),
+            deadline_reached=result.deadline_reached,
+            assets_remaining=result.assets_remaining,
         )
 
         ebay_logger.info(
@@ -776,6 +949,8 @@ def _run_ebay_ingestion() -> EbayScheduledRunSummary:
                 "matched": _summary.matched,
                 "unmatched": _summary.unmatched,
                 "match_status_counts": _summary.match_status_counts,
+                "deadline_reached": _summary.deadline_reached,
+                "assets_remaining": _summary.assets_remaining,
             }
             log_error_message = _summary.errors[0] if _summary.errors else None
         with SessionLocal() as _log_session:
@@ -990,7 +1165,240 @@ def build_scheduler() -> BackgroundScheduler:
         next_run_time=None,
     )
 
+    scheduler.add_job(
+        _run_explanation_sweep,
+        "interval",
+        hours=6,
+        id="explanation-sweep",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=None,
+    )
+
+    scheduler.add_job(
+        _send_market_digests,
+        "interval",
+        minutes=30,
+        id="market-digest-send",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=None,
+    )
+    logger.info(
+        "Market Digest job registered. trigger=interval/30min first_run=startup+%ds",
+        _STARTUP_DELAY.get("market-digest-send", 1200),
+    )
+
+    scheduler.add_job(
+        _run_signal_history_prune,
+        "interval",
+        hours=24,
+        id="signal-history-prune",
+        replace_existing=True,
+        max_instances=1,
+        next_run_time=None,
+    )
+    logger.info(
+        "signal-history-prune registered. trigger=interval/24h first_run=startup+%ds",
+        _STARTUP_DELAY.get("signal-history-prune", 1500),
+    )
+
     return scheduler
+
+
+def _run_explanation_sweep() -> None:
+    """Generate AI explanations for all stale non-INSUFFICIENT_DATA signals."""
+    from backend.app.services.signal_explainer import bulk_generate_explanations
+
+    with SessionLocal() as db:
+        run_id = start_run(db, "explanation-sweep")
+        try:
+            written = bulk_generate_explanations(db)
+            finish_run(db, run_id, status="success", records_written=written)
+        except Exception as exc:
+            with SessionLocal() as err_db:
+                finish_run(err_db, run_id, status="error", error_message=str(exc))
+            logger.exception("explanation-sweep failed")
+        finally:
+            with SessionLocal() as prune_db:
+                prune_old_runs(prune_db, "explanation-sweep")
+
+
+def _send_market_digests() -> None:
+    """Market Digest job — fires every 30 min, executes only in 06:45–07:15 UTC window.
+
+    Idempotency:
+      Gate 1: time-window check (06:45–07:15 UTC)
+      Gate 2: job-level dedupe (any send today → skip)
+    """
+    import time as _time_module
+    from datetime import time as _time
+    from backend.app.services.market_digest import (
+        DRY_RUN,
+        get_digest_candidates,
+        get_or_generate_explanation,
+        resolve_subscribers,
+        send_digest,
+        should_send_digest,
+    )
+    from backend.app.models.user import User
+    from sqlalchemy import select, text as sa_text
+
+    with SessionLocal() as db:
+        run_id = start_run(db, JOB_DIGEST)
+        try:
+            now_utc = datetime.now(UTC)
+            t = now_utc.time()
+
+            # Gate 1: only execute in the 06:45–07:15 UTC window
+            if not (_time(6, 45) <= t <= _time(7, 15)):
+                finish_run(db, run_id, status="no_op",
+                           meta_json={"reason": "outside_send_window",
+                                      "current_utc": t.isoformat()})
+                return
+
+            # Gate 2: job-level dedupe — skip if any send completed today
+            today_utc = now_utc.date()
+            existing = db.execute(
+                sa_text("SELECT 1 FROM digest_send_log WHERE sent_at::date = :d LIMIT 1"),
+                {"d": today_utc},
+            ).fetchone()
+            if existing:
+                finish_run(db, run_id, status="no_op",
+                           meta_json={"reason": "already_sent_today",
+                                      "date": today_utc.isoformat()})
+                return
+
+            # Build today's candidate cards (shared across all users)
+            candidates = get_digest_candidates(db, today_utc)
+            has_signals = any(c.signal_type in ("BREAKOUT", "MOVE") for c in candidates)
+
+            if not candidates:
+                finish_run(db, run_id, status="no_op",
+                           meta_json={"reason": "insufficient_content"})
+                return
+
+            # Populate explanations
+            for card in candidates:
+                card.explanation = get_or_generate_explanation(
+                    db,
+                    card.asset_id,
+                    card.signal_type,
+                    today_utc,
+                    card.name,
+                    card.price_delta_pct,
+                )
+
+            # Resolve subscriber list (dry-run: operator only; normal: all active paid users)
+            subscribers = resolve_subscribers(db)
+            if subscribers is None:
+                finish_run(db, run_id, status="no_op",
+                           meta_json={"reason": "dry_run_user_not_found"})
+                return
+
+            sent_count = 0
+            fail_count = 0
+
+            for user in subscribers:
+                trigger_type = "event" if has_signals else "weekly_fallback"
+                if not should_send_digest(user, today_utc, has_signals=has_signals):
+                    continue
+                try:
+                    send_digest(db, user, candidates, trigger_type, today_utc)
+                    sent_count += 1
+                except Exception as e:
+                    logger.error("digest_batch_error user=%s error=%s", getattr(user, "id", "?"), e)
+                    fail_count += 1
+                _time_module.sleep(0.2)
+
+            status = "success" if fail_count == 0 else ("partial" if sent_count > 0 else "error")
+            finish_run(db, run_id, status=status, records_written=sent_count,
+                       errors=fail_count,
+                       meta_json={"sent": sent_count, "failed": fail_count,
+                                  "dry_run": DRY_RUN})
+        except Exception as e:
+            finish_run(db, run_id, status="error", error_message=str(e))
+            logger.exception("market-digest-send job failed: %s", e)
+        finally:
+            prune_old_runs(db, JOB_DIGEST)
+
+
+def _run_signal_history_prune() -> None:
+    """Daily DELETE of asset_signal_history rows older than the retention window.
+
+    Phase 2 of Issue D fix (Phase 1 = transition guard in commit 78bd30b).
+    Steady-state row count ≈ retention_days × post-fix daily transition rate
+    (~1500 rows/day as of 2026-05-08).
+
+    Pre-fix repeat rows age out naturally as computed_at crosses the retention
+    boundary. For immediate pre-fix bulk cleanup, see PR-B (TASK-106).
+    """
+    settings = get_settings()
+
+    try:
+        with SessionLocal() as _log_session:
+            _run_id = start_run(_log_session, JOB_HISTORY_PRUNE)
+    except Exception as exc:
+        logger.exception("start_run_failed job=%s", JOB_HISTORY_PRUNE)
+        send_discord_alert(
+            "error",
+            f"CRITICAL: start_run 失败 — {JOB_HISTORY_PRUNE}",
+            f"error={exc}\nJob 已跳过，本次无 run_log 记录",
+        )
+        return
+
+    _exc: BaseException | None = None
+    _log_meta: dict | None = None
+
+    try:
+        retention_days = settings.signal_history_retention_days
+        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+        with SessionLocal() as session:
+            result = session.execute(
+                sa_text("DELETE FROM asset_signal_history WHERE computed_at < :cutoff"),
+                {"cutoff": cutoff},
+            )
+            session.commit()
+            rows_deleted = result.rowcount or 0
+
+            oldest_remaining = session.execute(
+                sa_text("SELECT MIN(computed_at) FROM asset_signal_history")
+            ).scalar()
+
+        _log_meta = {
+            "retention_days_applied": retention_days,
+            "rows_deleted": rows_deleted,
+            "oldest_remaining_at": (
+                oldest_remaining.isoformat()
+                if oldest_remaining and hasattr(oldest_remaining, "isoformat")
+                else str(oldest_remaining) if oldest_remaining else None
+            ),
+        }
+        logger.info(
+            "signal-history-prune complete: deleted=%d retention_days=%d oldest_remaining=%s",
+            rows_deleted, retention_days, oldest_remaining,
+        )
+    except BaseException as exc:
+        _exc = exc
+        raise
+    finally:
+        log_status = "error" if _exc is not None else "success"
+        try:
+            with SessionLocal() as _log_session:
+                finish_run(
+                    _log_session, _run_id,
+                    status=log_status,
+                    meta_json=_log_meta,
+                    error_message=str(_exc) if _exc is not None else None,
+                )
+                prune_old_runs(_log_session, JOB_HISTORY_PRUNE)
+        except Exception:
+            logger.exception(
+                "finish_run_failed job=%s run_id=%s",
+                JOB_HISTORY_PRUNE, _run_id,
+            )
 
 
 def prepare_scheduler_for_startup(

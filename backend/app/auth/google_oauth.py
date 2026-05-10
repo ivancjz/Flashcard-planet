@@ -72,4 +72,4 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     db.refresh(user)
 
     login_user(request, user)
-    return RedirectResponse("/dashboard", status_code=302)
+    return RedirectResponse("/market", status_code=302)

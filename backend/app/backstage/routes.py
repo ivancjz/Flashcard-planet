@@ -1,9 +1,11 @@
 import logging
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from statistics import median as _median
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, Form, Header, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -14,19 +16,27 @@ from backend.app.api.deps import get_database
 from backend.app.auth.dependencies import get_current_user as get_session_user
 from backend.app.backstage import gap_detector as _gap_detector
 from backend.app.core.config import get_settings
+from backend.app.ingestion.ebay_sold import EBAY_FINDING_API_URL, _fetch_finding_completed
+from backend.app.ingestion.title_parser import parse_listing_title
 from backend.app.models.asset import Asset
 from backend.app.models.asset_signal import AssetSignal
 from backend.app.models.enums import AccessTier
+from backend.app.models.graded_observation_audit import GradedObservationAudit
 from backend.app.models.price_history import PriceHistory
 from backend.app.models.scheduler_run_log import SchedulerRunLog
+from backend.app.models.pro_waitlist import ProWaitlist
 from backend.app.models.user import User
 from backend.app.services.scheduler_run_log_service import (
     JOB_BULK_REFRESH,
+    JOB_DIGEST,
     JOB_EBAY,
+    JOB_EXPLANATION,
     JOB_HEARTBEAT,
+    JOB_HISTORY_PRUNE,
     JOB_INGESTION,
     JOB_RETRY,
     JOB_SIGNALS,
+    JOB_YGO,
 )
 from backend.app.services.diagnostics_summary_service import build_standardized_diagnostics_summary
 from backend.app.services.signal_service import sweep_signals
@@ -449,7 +459,8 @@ def admin_reject_upgrade(
     return RedirectResponse(url="/admin/upgrade-requests", status_code=303)
 
 
-def _last_run_summary(db: Session, job_name: str) -> dict[str, Any] | None:
+def _job_stats(db: Session, job_name: str) -> dict[str, Any]:
+    """Last run details + 24h run/failure counts for one scheduler job."""
     row = (
         db.query(SchedulerRunLog)
         .filter(SchedulerRunLog.job_name == job_name)
@@ -457,18 +468,52 @@ def _last_run_summary(db: Session, job_name: str) -> dict[str, Any] | None:
         .limit(1)
         .first()
     )
+    cutoff_24h = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=24)
+    run_count_24h = (
+        db.query(func.count(SchedulerRunLog.id))
+        .filter(
+            SchedulerRunLog.job_name == job_name,
+            SchedulerRunLog.started_at >= cutoff_24h,
+            SchedulerRunLog.status != "running",
+        )
+        .scalar()
+    ) or 0
+    failure_count_24h = (
+        db.query(func.count(SchedulerRunLog.id))
+        .filter(
+            SchedulerRunLog.job_name == job_name,
+            SchedulerRunLog.started_at >= cutoff_24h,
+            SchedulerRunLog.errors > 0,
+        )
+        .scalar()
+    ) or 0
+
     if row is None:
-        return {"status": "never_run"}
+        return {
+            "last_run_status": "never_run",
+            "last_run_started_at": None,
+            "last_run_finished_at": None,
+            "last_run_records_written": None,
+            "last_run_errors": None,
+            "last_run_duration_ms": None,
+            "last_run_meta_json": None,
+            "run_count_24h": run_count_24h,
+            "failure_count_24h": failure_count_24h,
+        }
+
     duration_ms: int | None = None
     if row.finished_at is not None and row.started_at is not None:
         duration_ms = int((row.finished_at - row.started_at).total_seconds() * 1000)
     return {
-        "started_at": row.started_at.isoformat() if row.started_at else None,
-        "finished_at": row.finished_at.isoformat() if row.finished_at else None,
-        "status": row.status,
-        "records_written": row.records_written,
-        "errors": row.errors,
-        "duration_ms": duration_ms,
+        "last_run_started_at": row.started_at.isoformat() if row.started_at else None,
+        "last_run_finished_at": row.finished_at.isoformat() if row.finished_at else None,
+        "last_run_status": row.status,
+        "last_run_records_written": row.records_written,
+        "last_run_errors": row.errors,
+        "last_run_duration_ms": duration_ms,
+        "last_run_meta_json": row.meta_json,
+        "run_count_24h": run_count_24h,
+        "failure_count_24h": failure_count_24h,
     }
 
 
@@ -512,14 +557,20 @@ def admin_stats(
     signal_total = sum(signal_counts.values())
     latest_signal_at_val = db.query(func.max(AssetSignal.computed_at)).scalar()
 
-    # Scheduler last runs (job names from scheduler_run_log_service constants)
+    # Scheduler last runs — keyed by job name for direct jq access
+    _tracked_jobs = [
+        JOB_INGESTION,
+        JOB_SIGNALS,
+        JOB_EBAY,
+        JOB_HEARTBEAT,
+        JOB_YGO,
+        JOB_DIGEST,
+        JOB_BULK_REFRESH,
+        JOB_EXPLANATION,
+        JOB_HISTORY_PRUNE,
+    ]
     scheduler = {
-        "last_ingestion": _last_run_summary(db, JOB_INGESTION),
-        "last_retry": _last_run_summary(db, JOB_RETRY),
-        "last_signals": _last_run_summary(db, JOB_SIGNALS),
-        "last_ebay": _last_run_summary(db, JOB_EBAY),
-        "last_bulk_refresh": _last_run_summary(db, JOB_BULK_REFRESH),
-        "last_heartbeat": _last_run_summary(db, JOB_HEARTBEAT),
+        "jobs": {job: _job_stats(db, job) for job in _tracked_jobs},
     }
 
     return {
@@ -673,6 +724,661 @@ def admin_coverage(
     }
 
 
+@router.get("/diag/pred-accuracy")
+def admin_pred_accuracy(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """One-off: prediction accuracy for Up/Down signals made 7-14 days ago vs prices 7 days later."""
+    from sqlalchemy import text
+    # asset_signal_history has no price_at_event; fetch price closest to pred_time
+    # and closest price in the 7d-later window from price_history (pokemon_tcg_api only).
+    sql = text("""
+        WITH past_predictions AS (
+          SELECT
+            ash.asset_id,
+            ash.computed_at AS pred_time,
+            ash.prediction,
+            ph_then.price AS price_then
+          FROM asset_signal_history ash
+          JOIN LATERAL (
+            SELECT price FROM price_history
+            WHERE asset_id = ash.asset_id
+              AND source = 'pokemon_tcg_api'
+              AND captured_at <= ash.computed_at
+            ORDER BY captured_at DESC
+            LIMIT 1
+          ) ph_then ON true
+          WHERE ash.computed_at BETWEEN NOW() - INTERVAL '14 days' AND NOW() - INTERVAL '7 days'
+            AND ash.prediction IN ('Up', 'Down')
+        ),
+        later_prices AS (
+          SELECT DISTINCT ON (asset_id)
+            asset_id, price
+          FROM price_history
+          WHERE source = 'pokemon_tcg_api'
+            AND captured_at BETWEEN NOW() - INTERVAL '7 days' AND NOW() - INTERVAL '6 days'
+          ORDER BY asset_id, captured_at DESC
+        )
+        SELECT
+          p.prediction,
+          COUNT(*) AS total,
+          COUNT(*) FILTER (WHERE l.price > p.price_then) AS went_up,
+          COUNT(*) FILTER (WHERE l.price < p.price_then) AS went_down,
+          ROUND(100.0 * COUNT(*) FILTER (
+            WHERE (p.prediction = 'Up' AND l.price > p.price_then)
+               OR (p.prediction = 'Down' AND l.price < p.price_then)
+          ) / NULLIF(COUNT(*), 0), 1) AS accuracy_pct
+        FROM past_predictions p
+        JOIN later_prices l ON l.asset_id = p.asset_id
+        GROUP BY p.prediction
+        ORDER BY p.prediction
+    """)
+    rows = db.execute(sql).fetchall()
+    if not rows:
+        diag = db.execute(text("""
+            SELECT
+              MIN(computed_at) AS first_signal,
+              MAX(computed_at) AS last_signal,
+              COUNT(*) FILTER (WHERE prediction IN ('Up','Down')) AS predictions_total,
+              COUNT(*) FILTER (WHERE prediction IN ('Up','Down') AND computed_at >= NOW() - INTERVAL '14 days') AS predictions_last_14d
+            FROM asset_signal_history
+        """)).fetchone()
+        return {
+            "result": [],
+            "diagnostic": {
+                "note": "No data in 7-14 day window — project may be too new",
+                "first_signal": diag[0].isoformat() if diag[0] else None,
+                "last_signal": diag[1].isoformat() if diag[1] else None,
+                "predictions_total": diag[2],
+                "predictions_last_14d": diag[3],
+                "earliest_usable_date": "Need data >= 14 days old; rerun after project has been running 14+ days",
+            }
+        }
+    return [
+        {
+            "prediction": r[0],
+            "total": r[1],
+            "went_up": r[2],
+            "went_down": r[3],
+            "accuracy_pct": float(r[4]) if r[4] is not None else None,
+        }
+        for r in rows
+    ]
+
+
+_VALID_HUMAN_LABELS = {
+    "graded_correct", "wrong_segment", "wrong_asset",
+    "not_single_card", "non_english", "unclear",
+}
+
+
+@router.get("/diag/graded-shadow-admission")
+def admin_graded_shadow_diag(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Phase 0 graded shadow admission — audit summary and review sample.
+
+    Removal condition: Remove after Phase 2 manual review complete and
+    Phase 3 graded enablement decision made.
+    """
+    rows = db.scalars(select(GradedObservationAudit)).all()
+
+    total_by_decision: dict[str, int] = {}
+    total_by_segment: dict[str, int] = {}
+    reviewed = 0
+    unreviewed = 0
+    label_by_decision: dict[str, dict[str, int]] = {}
+
+    for row in rows:
+        total_by_decision[row.shadow_decision] = total_by_decision.get(row.shadow_decision, 0) + 1
+        seg = row.parser_market_segment or "null"
+        total_by_segment[seg] = total_by_segment.get(seg, 0) + 1
+        if row.human_label:
+            reviewed += 1
+            bucket = label_by_decision.setdefault(row.shadow_decision, {})
+            bucket[row.human_label] = bucket.get(row.human_label, 0) + 1
+        else:
+            unreviewed += 1
+
+    # Stratified sample: up to 5 per decision bucket from unreviewed rows
+    sample_buckets: dict[str, list] = {}
+    for row in rows:
+        if row.human_label is None:
+            b = sample_buckets.setdefault(row.shadow_decision, [])
+            if len(b) < 5:
+                b.append({
+                    "id": str(row.id),
+                    "raw_title": row.raw_title,
+                    "shadow_decision": row.shadow_decision,
+                    "parser_market_segment": row.parser_market_segment,
+                    "parser_confidence": row.parser_confidence,
+                    "parser_notes": row.parser_notes,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                })
+    unreviewed_sample = [item for bucket in sample_buckets.values() for item in bucket]
+
+    return {
+        "total_by_decision": total_by_decision,
+        "total_by_segment": total_by_segment,
+        "reviewed_count": reviewed,
+        "unreviewed_count": unreviewed,
+        "precision_by_decision": label_by_decision,
+        "unreviewed_sample": unreviewed_sample,
+        "removal_condition": (
+            "Remove after Phase 2 manual review complete and "
+            "Phase 3 graded enablement decision made"
+        ),
+    }
+
+
+@router.post("/diag/graded-shadow-admission/label")
+def admin_graded_shadow_label(
+    payload: dict,
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Label a graded_observation_audit row for human review."""
+    row_id = payload.get("id")
+    human_label = payload.get("human_label")
+    reviewer_notes = payload.get("reviewer_notes")
+
+    if human_label not in _VALID_HUMAN_LABELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid human_label {human_label!r}. "
+                   f"Allowed: {sorted(_VALID_HUMAN_LABELS)}",
+        )
+
+    try:
+        row_uuid = uuid.UUID(str(row_id))
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid id format")
+
+    row = db.scalar(
+        select(GradedObservationAudit).where(GradedObservationAudit.id == row_uuid)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Audit row not found")
+
+    row.human_label = human_label
+    row.human_reviewed_at = datetime.now(timezone.utc)
+    if reviewer_notes is not None:
+        row.reviewer_notes = reviewer_notes
+    db.commit()
+    db.refresh(row)
+
+    return {
+        "id": str(row.id),
+        "human_label": row.human_label,
+        "human_reviewed_at": row.human_reviewed_at.isoformat() if row.human_reviewed_at else None,
+        "reviewer_notes": row.reviewer_notes,
+        "shadow_decision": row.shadow_decision,
+        "raw_title": row.raw_title,
+    }
+
+
+# TEMP — Phase 0 Gate 3: verify graded listings never entered price_history
+# Remove alongside graded-shadow-admission diag endpoints (Phase 2 complete)
+@router.get("/diag/graded-price-check")
+def admin_graded_price_check(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Gate 3 (corrected): check ebay_sold price_history for true graded leakage.
+
+    'unknown' is not graded — it is honest parser uncertainty (ambiguous title,
+    partial grade signal). Gate 3 excludes 'unknown' and checks only for
+    canonical graded segments (psa_*, bgs_*, cgc_*, sgc_*).
+
+    gate3_pass=False means Phase 0 has a graded-price leak — stop condition.
+    unknown_rows is a separate data-hygiene metric; non-zero is expected and OK.
+    """
+    graded_rows = db.execute(text("""
+        SELECT
+            market_segment,
+            COUNT(*)          AS n,
+            MIN(captured_at)::text AS earliest,
+            MAX(captured_at)::text AS latest
+        FROM price_history
+        WHERE source = 'ebay_sold'
+          AND market_segment IS NOT NULL
+          AND market_segment NOT IN ('raw', 'unknown')
+        GROUP BY market_segment
+        ORDER BY n DESC
+    """)).fetchall()
+
+    unknown_rows = db.execute(text("""
+        SELECT COUNT(*) AS n FROM price_history
+        WHERE source = 'ebay_sold' AND market_segment = 'unknown'
+    """)).scalar() or 0
+
+    # Diagnose: asset names behind the unknown rows (for Phase 0 investigation only)
+    unknown_sample = db.execute(text("""
+        SELECT
+            ph.id::text,
+            a.name            AS asset_name,
+            ph.price::text,
+            ph.captured_at::text
+        FROM price_history ph
+        JOIN assets a ON a.id = ph.asset_id
+        WHERE ph.source = 'ebay_sold'
+          AND ph.market_segment = 'unknown'
+        ORDER BY ph.captured_at DESC
+        LIMIT 20
+    """)).fetchall()
+
+    graded_total = sum(r[1] for r in graded_rows)
+    return {
+        "gate3_pass": graded_total == 0,
+        "graded_rows_total": graded_total,
+        "graded_by_segment": [
+            {"segment": r[0], "n": r[1], "earliest": r[2], "latest": r[3]}
+            for r in graded_rows
+        ],
+        "unknown_rows_total": unknown_rows,
+        "unknown_sample": [
+            {"id": r[0], "asset_name": r[1], "price": r[2], "captured_at": r[3]}
+            for r in unknown_sample
+        ],
+        "note": (
+            "'unknown' is parser uncertainty, not graded leakage. "
+            "gate3_pass only fails for canonical graded segments."
+        ),
+    }
+
+
+# TEMP — remove after cleanup confirmed (future-timestamp rows deleted)
+@router.post("/trigger/delete-future-timestamps")
+def admin_delete_future_timestamps(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Delete price_history rows with captured_at > NOW().
+
+    Root cause: ebay_sold ingest had no upper-bound filter; eBay scheduled
+    auctions with future end_time were written to the DB. Fix is in ebay_sold.py.
+    This one-shot cleans the 749 rows that accumulated before the fix.
+    """
+    result = db.execute(text("""
+        DELETE FROM price_history
+        WHERE captured_at > NOW()
+    """))
+    db.commit()
+    return {"ok": True, "rows_deleted": result.rowcount}
+
+
+# TEMP DIAG ENDPOINT — future-captured_at audit (surfaced 2026-04-27)
+# Remove after root cause identified and confirmed fixed
+@router.get("/diag/future-timestamps")
+def admin_future_timestamps(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Find price_history rows with captured_at > NOW() — indicates ingest timestamp bug."""
+    rows = db.execute(text("""
+        SELECT
+            source,
+            COUNT(*)                    AS future_rows,
+            MIN(captured_at)::text      AS earliest_future,
+            MAX(captured_at)::text      AS latest_future,
+            MIN(asset_id::text)         AS sample_asset_id
+        FROM price_history
+        WHERE captured_at > NOW()
+        GROUP BY source
+        ORDER BY future_rows DESC
+    """)).fetchall()
+    return {
+        "now": db.execute(text("SELECT NOW()::text")).scalar(),
+        "future_rows_by_source": [
+            {
+                "source": r[0],
+                "future_rows": r[1],
+                "earliest_future": r[2],
+                "latest_future": r[3],
+                "sample_asset_id": r[4],
+            }
+            for r in rows
+        ],
+        "total_future_rows": sum(r[1] for r in rows),
+    }
+
+
+# TEMP DIAG ENDPOINT — PR #28 verification
+# Remove after rarity coverage analysis is documented (target: 2026-05-04)
+@router.get("/diag/ygo-rarity-coverage")
+def admin_ygo_rarity_coverage(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Per-rarity YGO price coverage — most-recent ygoprodeck_api row per asset."""
+    rows = db.execute(text("""
+        SELECT
+            COALESCE(a.metadata->>'rarity', '— unknown —') AS rarity,
+            COUNT(*)                                        AS asset_count,
+            COUNT(ph.id)                                    AS with_price_rows,
+            COUNT(CASE WHEN ph.price > 0 THEN 1 END)       AS with_nonzero_price,
+            ROUND(AVG(CASE WHEN ph.price > 0 THEN ph.price END)::numeric, 2) AS avg_nonzero_price
+        FROM assets a
+        LEFT JOIN price_history ph
+               ON ph.asset_id = a.id
+              AND ph.source = 'ygoprodeck_api'
+              AND ph.captured_at = (
+                  SELECT MAX(captured_at) FROM price_history
+                  WHERE asset_id = a.id AND source = 'ygoprodeck_api'
+              )
+        WHERE a.game = 'yugioh'
+        GROUP BY a.metadata->>'rarity'
+        ORDER BY asset_count DESC
+    """)).fetchall()
+    total = sum(r[1] for r in rows)
+    with_price = sum(r[2] for r in rows)
+    with_nonzero = sum(r[3] for r in rows)
+    return {
+        "summary": {
+            "total_ygo_assets": total,
+            "with_any_price_row": with_price,
+            "with_nonzero_price": with_nonzero,
+            "coverage_pct": round(with_nonzero / total * 100, 1) if total else 0,
+        },
+        "by_rarity": [
+            {
+                "rarity": r[0],
+                "asset_count": r[1],
+                "with_price_rows": r[2],
+                "with_nonzero_price": r[3],
+                "avg_nonzero_price": float(r[4]) if r[4] else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/diag/null-audit")
+def admin_null_audit(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    nulls = db.execute(text("""
+        SELECT source,
+               COUNT(*) AS null_rows,
+               MIN(captured_at)::text AS earliest_null,
+               MAX(captured_at)::text AS latest_null
+        FROM price_history
+        WHERE market_segment IS NULL
+        GROUP BY source
+        ORDER BY null_rows DESC
+    """)).fetchall()
+    version = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
+    return {
+        "alembic_version": version,
+        "null_audit": [{"source": r[0], "null_rows": r[1], "earliest": r[2], "latest": r[3]} for r in nulls],
+    }
+
+
+@router.get("/diag/ygo-verify-26")
+def admin_ygo_verify_26(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Post-PR-26 verification: A/B migration+nulls, C new YGO ingest, D YGO signals, E Pokemon regression."""
+    # A: alembic version
+    version = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
+
+    # B: any remaining NULLs
+    nulls = db.execute(text("""
+        SELECT source, COUNT(*) AS null_rows
+        FROM price_history WHERE market_segment IS NULL
+        GROUP BY source ORDER BY null_rows DESC
+    """)).fetchall()
+
+    # C: new YGO rows in last 15 min (run after first ingestion post-deploy)
+    ygo_recent = db.execute(text("""
+        SELECT market_segment, COUNT(*) AS n, MAX(captured_at)::text AS latest
+        FROM price_history
+        WHERE source = 'ygoprodeck_api'
+          AND captured_at > NOW() - INTERVAL '15 minutes'
+        GROUP BY market_segment
+    """)).fetchall()
+
+    # D: YGO signal distribution (run after first sweep post-deploy)
+    ygo_signals = db.execute(text("""
+        SELECT s.label, COUNT(*) AS n
+        FROM asset_signals s
+        JOIN assets a ON a.id = s.asset_id
+        WHERE a.game = 'yugioh'
+        GROUP BY s.label ORDER BY n DESC
+    """)).fetchall()
+
+    # E: Pokemon signal regression check (asset_signals is one-row-per-asset upsert)
+    pokemon_signals = db.execute(text("""
+        SELECT s.label, COUNT(*) AS n
+        FROM asset_signals s
+        JOIN assets a ON a.id = s.asset_id
+        WHERE a.game = 'pokemon'
+        GROUP BY s.label ORDER BY n DESC
+    """)).fetchall()
+
+    return {
+        "A_alembic_version": version,
+        "A_pass": version == "0025",
+        "B_null_rows": [{"source": r[0], "count": r[1]} for r in nulls],
+        "B_pass": len(nulls) == 0,
+        "C_ygo_recent_15min": [{"segment": r[0], "n": r[1], "latest": r[2]} for r in ygo_recent],
+        "C_pass": any(r[0] == "raw" for r in ygo_recent) if ygo_recent else None,
+        "D_ygo_signals": [{"label": r[0], "n": r[1]} for r in ygo_signals],
+        "D_pass": any(r[0] != "INSUFFICIENT_DATA" for r in ygo_signals) if ygo_signals else None,
+        "E_pokemon_signals": [{"label": r[0], "n": r[1]} for r in pokemon_signals],
+        "E_breakout": next((r[1] for r in pokemon_signals if r[0] == "BREAKOUT"), 0),
+        "E_move": next((r[1] for r in pokemon_signals if r[0] == "MOVE"), 0),
+        "E_pass": None,  # manual: compare to PR B baseline (BREAKOUT~115, MOVE~188)
+    }
+
+
+# TEMP — PR #29 verification: YGO metadata.set nested block fix
+# Remove after D_new_rows_set_id confirmed (after first yugioh-ingestion post-deploy, ~6h)
+@router.get("/diag/ygo-set-fix-verify")
+def admin_ygo_set_fix_verify(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    """Post-PR-29 verification for YGO metadata.set nested block fix.
+
+    B: migration 0028 backfilled all existing YGO rows.
+    C: /filters/sets-style query now returns rows for YGO (expect 13 sets).
+    D: New YGO rows written after deploy also have nested set block.
+    """
+    # B: did migration 0028 backfill all existing rows?
+    b = db.execute(text("""
+        SELECT
+          COUNT(*) FILTER (WHERE metadata->'set'->>'id' IS NOT NULL) AS with_nested_set,
+          COUNT(*)                                                    AS total_ygo,
+          COUNT(*) FILTER (WHERE metadata->>'set_code' IS NOT NULL)  AS with_flat_set_code
+        FROM assets
+        WHERE game = 'yugioh'
+    """)).fetchone()
+
+    # C: cardinality check — set.id must group cards into expansion buckets, not one-per-card.
+    # The specific bug was set.id = card_number (e.g. "LEDE-EN001" per card).
+    # Regression check: count assets where set.id == card_number (must be 0 after fix).
+    c_card = db.execute(text("""
+        SELECT COUNT(*) FROM assets
+        WHERE game = 'yugioh'
+          AND metadata->'set'->>'id' = card_number
+    """)).scalar() or 0
+
+    c_cardinality = db.execute(text("""
+        SELECT
+          COUNT(DISTINCT metadata->'set'->>'id') AS unique_set_ids,
+          COUNT(*)                               AS total_assets
+        FROM assets
+        WHERE game = 'yugioh'
+          AND metadata->'set'->>'id' IS NOT NULL
+    """)).fetchone()
+
+    c_sets = db.execute(text("""
+        SELECT
+          metadata->'set'->>'id'   AS set_id,
+          metadata->'set'->>'name' AS set_name,
+          COUNT(*)                 AS card_count
+        FROM assets
+        WHERE game = 'yugioh'
+          AND metadata->'set'->>'id' IS NOT NULL
+        GROUP BY metadata->'set'->>'id', metadata->'set'->>'name'
+        ORDER BY card_count DESC
+    """)).fetchall()
+
+    # D: new YGO rows since last deploy have nested set block (run after next ingestion ~6h)
+    d_rows = db.execute(text("""
+        SELECT
+          metadata->'set'->>'id' AS set_id,
+          market_segment,
+          COUNT(*) AS n,
+          MAX(ph.captured_at)::text AS latest
+        FROM price_history ph
+        JOIN assets a ON a.id = ph.asset_id
+        WHERE a.game = 'yugioh'
+          AND ph.captured_at > NOW() - INTERVAL '15 minutes'
+        GROUP BY 1, 2
+    """)).fetchall()
+
+    with_nested = b[0] if b else 0
+    total_ygo = b[1] if b else 0
+    with_flat = b[2] if b else 0
+    unique_set_ids = c_cardinality[0] if c_cardinality else 0
+    total_assets = c_cardinality[1] if c_cardinality else 0
+
+    return {
+        "B_with_nested_set": with_nested,
+        "B_total_ygo": total_ygo,
+        "B_with_flat_set_code": with_flat,
+        "B_pass": with_nested == total_ygo and total_ygo > 0,
+        # C_regression_zero is the primary correctness signal:
+        #   0 = set.id is never equal to card_number (printing code) — bug is gone.
+        #   > 0 = bug still present for that many assets.
+        # C_unique_set_ids << C_total_assets confirms grouping; exact bucket count
+        # is NOT asserted (some sets may have no data if fetch failed at ingest time).
+        "C_regression_zero": c_card == 0,
+        "C_assets_with_printing_code_as_set_id": c_card,
+        "C_unique_set_ids": unique_set_ids,
+        "C_total_assets": total_assets,
+        "C_sets": [{"set_id": r[0], "set_name": r[1], "card_count": r[2]} for r in c_sets],
+        "D_new_rows_15min": [{"set_id": r[0], "segment": r[1], "n": r[2], "latest": r[3]} for r in d_rows],
+        "D_new_rows_have_set_id": all(r[0] is not None for r in d_rows) if d_rows else None,
+    }
+
+
+# TEMP — one-shot price volatility check for YGO; remove after pct_unchanged decision made
+@router.get("/diag/ygo-price-volatility")
+def admin_ygo_price_volatility(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    """How much do YGOPRODeck prices actually change? Answers 'does YGO need eBay sold?'
+
+    pct_unchanged > 80%: source prices are static → YGO needs eBay sold for signals.
+    pct_unchanged 30-80%: sparse movement, consider baseline window or weight tuning.
+    pct_unchanged < 30%: prices are moving, signals should work once baseline fills.
+    """
+    row = db.execute(text("""
+        SELECT
+          COUNT(DISTINCT asset_id)                                                        AS assets,
+          COUNT(*) FILTER (WHERE price_changes_count = 0) * 100.0 / NULLIF(COUNT(*), 0)  AS pct_unchanged,
+          AVG(price_changes_count)                                                        AS avg_changes,
+          MAX(price_changes_count)                                                        AS max_changes
+        FROM (
+          SELECT asset_id, COUNT(DISTINCT price) AS price_changes_count
+          FROM price_history
+          WHERE source = 'ygoprodeck_api'
+            AND captured_at >= NOW() - INTERVAL '14 days'
+          GROUP BY asset_id
+        ) t
+    """)).fetchone()
+
+    # Also show per-asset breakdown for assets that DO move
+    movers = db.execute(text("""
+        SELECT a.name, a.card_number, COUNT(DISTINCT ph.price) AS distinct_prices,
+               MIN(ph.price)::text AS min_price, MAX(ph.price)::text AS max_price
+        FROM price_history ph
+        JOIN assets a ON a.id = ph.asset_id
+        WHERE ph.source = 'ygoprodeck_api'
+          AND ph.captured_at >= NOW() - INTERVAL '14 days'
+        GROUP BY a.id, a.name, a.card_number
+        HAVING COUNT(DISTINCT ph.price) > 1
+        ORDER BY COUNT(DISTINCT ph.price) DESC
+        LIMIT 10
+    """)).fetchall()
+
+    return {
+        "assets": row[0] if row else 0,
+        "pct_unchanged": float(row[1]) if row and row[1] is not None else None,
+        "avg_changes": float(row[2]) if row and row[2] is not None else None,
+        "max_changes": int(row[3]) if row and row[3] is not None else None,
+        "top_movers": [
+            {"name": r[0], "card_number": r[1], "distinct_prices": r[2],
+             "min": r[3], "max": r[4]}
+            for r in movers
+        ],
+    }
+
+
+# TEMP — PR #29 backfill: migration 0028 used `metadata ? 'set_code'` which psycopg
+# interprets as a parameter placeholder — UPDATE matched 0 rows. This trigger uses
+# `metadata->>'set_code' IS NOT NULL` (equivalent but safe) to do the same backfill.
+# Remove after B_pass confirmed in /diag/ygo-set-fix-verify.
+@router.post("/trigger/backfill-ygo-set-nested")
+def admin_trigger_backfill_ygo_set_nested(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Backfill metadata.set nested block for existing YGO assets.
+
+    Migration 0028 silently matched 0 rows because the PostgreSQL JSONB `?` operator
+    was interpreted as a psycopg parameter placeholder. This endpoint uses the
+    `->>` text-extraction form which is parameterization-safe.
+
+    Idempotent: the WHERE clause only touches rows where metadata.set.id is not yet set.
+    """
+    result = db.execute(text("""
+        UPDATE assets
+        SET metadata = metadata || jsonb_build_object(
+            'set', jsonb_build_object(
+                'id',    split_part(metadata->>'set_code', '-', 1),
+                'name',  metadata->>'set_name',
+                'total', NULL
+            )
+        )
+        WHERE game = 'yugioh'
+          AND metadata->>'set_code' IS NOT NULL
+          AND COALESCE(metadata->'set'->>'id', '') = ''
+    """))
+    db.commit()
+    return {"ok": True, "rows_updated": result.rowcount}
+
+
+# TEMP — remove after B_pass confirmed (alembic 0025 pre-ran; NULL rows accumulated post-migration)
+@router.post("/trigger/backfill-ygo-segment")
+def admin_trigger_backfill_ygo_segment(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Backfill market_segment='raw' for ygoprodeck_api rows still NULL after 0025.
+
+    0025 ran before the ygo.py ingest fix deployed; rows written in the gap
+    came in with market_segment=NULL and were not covered by the migration.
+    This is a one-shot idempotent UPDATE — safe to re-run.
+    """
+    result = db.execute(text("""
+        UPDATE price_history
+        SET market_segment = 'raw'
+        WHERE source = 'ygoprodeck_api'
+          AND market_segment IS NULL
+    """))
+    db.commit()
+    return {"ok": True, "rows_updated": result.rowcount}
+
+
 @router.post("/trigger/signal-sweep")
 def admin_trigger_signal_sweep(
     _: None = Depends(require_admin_key),
@@ -688,4 +1394,1234 @@ def admin_trigger_signal_sweep(
         "watch": result.watch,
         "idle": result.idle,
         "insufficient_data": result.insufficient_data,
+    }
+
+
+# REMOVE AFTER: YGO eBay feasibility spike confirmed — delete this block + endpoint +
+#               _fetch_finding_completed / parse_listing_title imports above.
+# Self-disables 2026-05-15; if forgotten it returns 410 rather than wasting quota.
+_YGO_SPIKE_CONFIRM_TOKEN = "ygo-ebay-spike-2026-04-29"
+_YGO_SPIKE_EXPIRY = date(2026, 5, 15)
+_YGO_SPIKE_PREFERRED_SETS = ["LEDE", "PHNI", "AGOV", "POTE", "TOCH"]
+_YGO_SPIKE_PER_SET_LIMIT = 7          # POTE×7 + TOCH×7; covers rarity tiers
+_YGO_SPIKE_SAMPLE_SIZE = _YGO_SPIKE_PER_SET_LIMIT * 2  # 14 total
+_YGO_SPIKE_LISTINGS_PER_ASSET = 20
+_YGO_SPIKE_MAX_API_CALLS = 30
+
+
+@router.post("/trigger/ygo-ebay-spike")
+def admin_trigger_ygo_ebay_spike(
+    confirm: str = Query(default=""),
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Read-only YGO eBay feasibility spike.
+
+    Runs pre-flight checks (budget + active jobs), then queries eBay findCompletedItems
+    for 14 sampled YGO assets (POTE×7 + TOCH×7, spread across rarity tiers). No DB writes.
+
+    Requires ?confirm=ygo-ebay-spike-2026-04-29 to protect against accidental triggers.
+    Self-disables after 2026-05-15 (returns 410).
+
+    Remove this endpoint once the spike report has been reviewed.
+    """
+    if confirm != _YGO_SPIKE_CONFIRM_TOKEN:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Pass ?confirm={_YGO_SPIKE_CONFIRM_TOKEN} to run the spike.",
+        )
+    if date.today() > _YGO_SPIKE_EXPIRY:
+        raise HTTPException(
+            status_code=410,
+            detail=f"Spike endpoint expired {_YGO_SPIKE_EXPIRY}. Delete this endpoint and its constants.",
+        )
+
+    settings = get_settings()
+
+    # ── Pre-flight 1: budget check ────────────────────────────────────────────
+    # Sum api_calls_used from completed ebay-ingestion runs today (UTC).
+    # More accurate than counting per-asset metadata: captures attempted calls
+    # even when writes failed (e.g. during upstream eBay outages).
+    budget_row = db.execute(text("""
+        SELECT COALESCE(SUM((meta_json->>'api_calls_used')::int), 0) AS calls_today
+        FROM scheduler_run_log
+        WHERE job_name = 'ebay-ingestion'
+          AND started_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')
+    """)).fetchone()
+    calls_today = int(budget_row.calls_today or 0)
+    budget_limit = settings.ebay_daily_budget_limit
+    budget_remaining = budget_limit - calls_today
+    budget_ok = budget_remaining >= _YGO_SPIKE_MAX_API_CALLS
+
+    # ── Pre-flight 2: active jobs check ───────────────────────────────────────
+    active_jobs = db.execute(text("""
+        SELECT job_name, started_at
+        FROM scheduler_run_log
+        WHERE finished_at IS NULL
+          AND started_at > NOW() - INTERVAL '15 minutes'
+        ORDER BY started_at DESC
+    """)).fetchall()
+    jobs_ok = len(active_jobs) == 0
+
+    # ── Pre-flight 3: eBay Finding API quota probe ────────────────────────────
+    # DB budget_remaining tracks our internal counter; eBay enforces its own
+    # daily quota per App ID independently. A single cheap probe call detects
+    # quota exhaustion before wasting the full 14-call spike budget.
+    try:
+        with httpx.Client() as _probe_client:
+            _probe_resp = _probe_client.get(
+                EBAY_FINDING_API_URL,
+                params={
+                    "OPERATION-NAME": "findCompletedItems",
+                    "SERVICE-VERSION": "1.0.0",
+                    "SECURITY-APPNAME": settings.ebay_app_id,
+                    "RESPONSE-DATA-FORMAT": "XML",
+                    "keywords": "test",
+                    "paginationInput.entriesPerPage": "1",
+                },
+                timeout=10.0,
+            )
+        finding_quota_ok = "10001" not in _probe_resp.text
+    except Exception:
+        finding_quota_ok = True  # network error ≠ quota exhausted; let the loop handle it
+
+    preflight = {
+        "budget_limit": budget_limit,
+        "calls_today": calls_today,
+        "budget_remaining": budget_remaining,
+        "budget_ok": budget_ok,
+        "active_jobs": [{"job_name": r.job_name, "started_at": str(r.started_at)} for r in active_jobs],
+        "jobs_ok": jobs_ok,
+        "finding_quota_ok": finding_quota_ok,
+        "preflight_pass": budget_ok and jobs_ok and finding_quota_ok,
+    }
+
+    if not preflight["preflight_pass"]:
+        hint = (
+            "finding_api_quota_exhausted — rerun after UTC midnight before ebay-ingestion fires (~09:00 UTC)"
+            if not finding_quota_ok else None
+        )
+        return {"ok": False, "preflight": preflight, "report": None, "hint": hint}
+
+    # ── Sample YGO assets ─────────────────────────────────────────────────────
+    all_ygo: list[Asset] = db.execute(
+        select(Asset).where(Asset.game == "yugioh").order_by(Asset.external_id)
+    ).scalars().all()
+
+    def _expansion(a: Asset) -> str:
+        return (a.metadata_json or {}).get("set", {}).get("id", "") or (a.card_number or "").split("-")[0]
+
+    def _rarity_spread(assets: list, limit: int) -> list:
+        """Round-robin across distinct rarity (variant) buckets to ensure spread."""
+        buckets: dict[str, list] = {}
+        for a in assets:
+            r = (a.variant or "Unknown").strip()
+            if r not in buckets:
+                buckets[r] = []
+            buckets[r].append(a)
+        result: list = []
+        pool = [list(v) for v in buckets.values()]
+        while len(result) < limit and pool:
+            next_pool = []
+            for b in pool:
+                if len(result) < limit and b:
+                    result.append(b.pop(0))
+                if b:
+                    next_pool.append(b)
+            pool = next_pool
+        return result
+
+    # Group preferred assets by set, spread each group across rarity tiers
+    by_set: dict[str, list] = {}
+    for a in all_ygo:
+        if _expansion(a) in _YGO_SPIKE_PREFERRED_SETS:
+            by_set.setdefault(_expansion(a), []).append(a)
+    sampled: list[Asset] = []
+    for set_id in _YGO_SPIKE_PREFERRED_SETS:
+        if set_id not in by_set:
+            continue
+        sampled.extend(_rarity_spread(by_set[set_id], _YGO_SPIKE_PER_SET_LIMIT))
+    # Pad with remaining assets if preferred sets don't fill the budget
+    if len(sampled) < _YGO_SPIKE_SAMPLE_SIZE:
+        seen_ids = {a.id for a in sampled}
+        for a in all_ygo:
+            if a.id not in seen_ids:
+                sampled.append(a)
+            if len(sampled) >= _YGO_SPIKE_SAMPLE_SIZE:
+                break
+
+    # ── eBay search ───────────────────────────────────────────────────────────
+    api_calls_used = 0
+    per_asset: list[dict] = []
+
+    with httpx.Client() as client:
+        for asset in sampled:
+            if api_calls_used >= _YGO_SPIKE_MAX_API_CALLS:
+                per_asset.append({
+                    "external_id": asset.external_id,
+                    "name": asset.name,
+                    "set_id": _expansion(asset),
+                    "error": "budget_exhausted",
+                })
+                continue
+
+            query = f"{asset.name} {asset.card_number or ''} {asset.variant or ''}".strip()
+            raw_listings = _fetch_finding_completed(client, query)
+            api_calls_used += 1
+
+            if raw_listings is None:
+                per_asset.append({
+                    "external_id": asset.external_id,
+                    "name": asset.name,
+                    "set_id": _expansion(asset),
+                    "error": "ebay_api_error",
+                })
+                continue
+
+            counts: dict[str, int] = {"raw": 0, "graded": 0, "unknown": 0, "excluded": 0}
+            titles: list[str] = []
+            for item in raw_listings[:_YGO_SPIKE_LISTINGS_PER_ASSET]:
+                title = item.get("title", "")
+                result = parse_listing_title(title)
+                if result.excluded:
+                    counts["excluded"] += 1
+                elif result.market_segment == "raw":
+                    counts["raw"] += 1
+                elif result.grade_company:
+                    counts["graded"] += 1
+                else:
+                    counts["unknown"] += 1
+                titles.append(title[:80])
+
+            total_this = counts["raw"] + counts["graded"] + counts["unknown"] + counts["excluded"]
+            per_asset.append({
+                "external_id": asset.external_id,
+                "name": asset.name,
+                "set_id": _expansion(asset),
+                "card_number": asset.card_number,
+                "rarity": asset.variant,
+                "listings": total_this,
+                "raw": counts["raw"],
+                "graded": counts["graded"],
+                "unknown": counts["unknown"],
+                "excluded": counts["excluded"],
+                "sample_titles": titles[:5],
+            })
+
+    # ── Aggregate stats ───────────────────────────────────────────────────────
+    ok_results = [r for r in per_asset if "error" not in r]
+    listing_counts = [r["listings"] for r in ok_results]
+    med = _median(listing_counts) if listing_counts else 0.0
+    zero_assets = sum(1 for r in ok_results if r["listings"] == 0)
+    total_raw = sum(r["raw"] for r in ok_results)
+    total_graded = sum(r["graded"] for r in ok_results)
+    total_unknown = sum(r["unknown"] for r in ok_results)
+    total_scored = total_raw + total_graded + total_unknown
+    raw_pct = total_raw / total_scored * 100 if total_scored else 0.0
+    graded_pct = total_graded / total_scored * 100 if total_scored else 0.0
+    unknown_pct = total_unknown / total_scored * 100 if total_scored else 0.0
+
+    q1 = med >= 5
+    q2 = raw_pct >= 60.0
+    q3 = 10.0 <= graded_pct <= 50.0
+
+    recommendation: str
+    if q1 and q2 and q3:
+        recommendation = "ALL_PASS: proceed to Phase B (YGO eBay ingest PR)"
+    elif not q1 and zero_assets > len(ok_results) // 2:
+        recommendation = "Q1_FAIL: consider popular cards only or expand lookback to 60 days"
+    elif not q1:
+        recommendation = "Q1_FAIL: volume sparse; consider expanding lookback to 60 days"
+    elif not q2:
+        recommendation = "Q2_FAIL: parse_listing_title needs YGO-specific patterns before Phase B"
+    elif graded_pct > 50.0:
+        recommendation = "Q3_HIGH: graded parser must be production-ready before enabling YGO eBay"
+    else:
+        recommendation = "Q3_LOW: graded shadow audit can stay disabled for YGO initially"
+
+    report = {
+        "assets_sampled": len(sampled),
+        "api_calls_used": api_calls_used,
+        "api_budget_max": _YGO_SPIKE_MAX_API_CALLS,
+        "total_listings": sum(r["listings"] for r in ok_results),
+        "median_listings_per_asset": round(med, 1),
+        "assets_with_zero_listings": zero_assets,
+        "raw_pct": round(raw_pct, 1),
+        "graded_pct": round(graded_pct, 1),
+        "unknown_pct": round(unknown_pct, 1),
+        "q1_pass": q1,
+        "q2_pass": q2,
+        "q3_pass": q3,
+        "recommendation": recommendation,
+        "per_asset": per_asset,
+    }
+
+    return {"ok": True, "preflight": preflight, "report": report}
+
+
+# REMOVE AFTER: YGO ingest gap root-cause confirmed (2026-04-29).
+@router.get("/diag/ygo-ingest-audit")
+def admin_diag_ygo_ingest_audit(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Diagnose why production only has POTE+TOCH sets instead of the expected 13.
+
+    A: last 10 yugioh-ingestion scheduler runs
+    B: aggregate success/error counts + total records_written
+    C: price_history YGO set_code diversity (which sets actually have data)
+    """
+    # A: last 10 yugioh-ingestion runs
+    a_rows = db.execute(text("""
+        SELECT started_at, finished_at, status, records_written,
+               error_message, meta_json
+        FROM scheduler_run_log
+        WHERE job_name = 'yugioh-ingestion'
+        ORDER BY started_at DESC
+        LIMIT 10
+    """)).fetchall()
+
+    # B: aggregate stats
+    b_row = db.execute(text("""
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'success')  AS successes,
+          COUNT(*) FILTER (WHERE status = 'error')    AS errors,
+          COUNT(*) FILTER (WHERE status = 'partial')  AS partials,
+          SUM(records_written)                        AS total_records_written,
+          MIN(started_at)                             AS first_run,
+          MAX(started_at)                             AS last_run
+        FROM scheduler_run_log
+        WHERE job_name = 'yugioh-ingestion'
+    """)).fetchone()
+
+    # C: price_history diversity by set_code (flat metadata key)
+    c_rows = db.execute(text("""
+        SELECT
+          a.metadata->>'set_code'        AS set_code,
+          a.metadata->'set'->>'id'       AS set_id_nested,
+          COUNT(DISTINCT ph.id)           AS price_rows,
+          COUNT(DISTINCT a.id)            AS assets,
+          MIN(ph.captured_at)             AS first_seen,
+          MAX(ph.captured_at)             AS last_seen
+        FROM assets a
+        LEFT JOIN price_history ph
+               ON ph.asset_id = a.id AND ph.source = 'ygoprodeck_api'
+        WHERE a.game = 'yugioh'
+        GROUP BY 1, 2
+        ORDER BY 1
+    """)).fetchall()
+
+    return {
+        "A_last_10_runs": [
+            {
+                "started_at":      str(r.started_at),
+                "finished_at":     str(r.finished_at) if r.finished_at else None,
+                "status":          r.status,
+                "records_written": r.records_written,
+                "error_message":   r.error_message,
+                "meta_json":       r.meta_json,
+            }
+            for r in a_rows
+        ],
+        "B_aggregate": {
+            "successes":            b_row.successes,
+            "errors":               b_row.errors,
+            "partials":             b_row.partials,
+            "total_records_written": b_row.total_records_written,
+            "first_run":            str(b_row.first_run) if b_row.first_run else None,
+            "last_run":             str(b_row.last_run) if b_row.last_run else None,
+        },
+        "C_set_diversity": [
+            {
+                "set_code":      r.set_code,
+                "set_id_nested": r.set_id_nested,
+                "price_rows":    r.price_rows,
+                "assets":        r.assets,
+                "first_seen":    str(r.first_seen) if r.first_seen else None,
+                "last_seen":     str(r.last_seen)  if r.last_seen  else None,
+            }
+            for r in c_rows
+        ],
+        "D_coverage_by_configured_set": _ygo_configured_set_coverage(db),
+    }
+
+
+def _ygo_configured_set_coverage(db: Session) -> list[dict]:
+    """Coverage for all 13 sets currently in YGO_PHASE2_SETS."""
+    rows = db.execute(text("""
+        WITH ygo_sets AS (
+            SELECT unnest(ARRAY[
+                'LEDE','PHNI','AGOV','POTE','TOCH',
+                'MZMI','INFO','DUNE','RA01','RA02','BLTR','CYAC','WISU'
+            ]) AS set_code
+        )
+        SELECT
+            s.set_code,
+            COUNT(DISTINCT a.id)   AS assets_in_db,
+            COUNT(DISTINCT ph.id)  AS price_rows,
+            MAX(ph.captured_at)    AS last_price_seen
+        FROM ygo_sets s
+        LEFT JOIN assets a
+               ON a.metadata->>'set_code' LIKE s.set_code || '-%'
+              AND a.game = 'yugioh'
+        LEFT JOIN price_history ph
+               ON ph.asset_id = a.id
+              AND ph.source = 'ygoprodeck_api'
+        GROUP BY s.set_code
+        ORDER BY s.set_code
+    """)).fetchall()
+    return [
+        {
+            "set_code":       r.set_code,
+            "assets_in_db":   r.assets_in_db,
+            "price_rows":     r.price_rows,
+            "last_price_seen": str(r.last_price_seen) if r.last_price_seen else None,
+        }
+        for r in rows
+    ]
+
+
+# REMOVE AFTER: YGO set-fetch debug confirmed (2026-04-29).
+@router.get("/diag/ygo-set-fetch-debug")
+def admin_diag_ygo_set_fetch_debug(
+    set_code: str = Query(..., description="YGO set code to debug, e.g. LEDE"),
+    _: None = Depends(require_admin_key),
+):
+    """Debug why a set code produces 0 entries in fetch_set_entries.
+
+    Returns: resolved set name, total raw cards from API, prefix match count,
+    price > 0 count, and up to 3 sample set_code values from card_sets.
+    Remove once the LEDE/PHNI/AGOV gap is resolved.
+    """
+    from backend.app.ingestion.game_data.yugioh_client import YugiohClient
+    import httpx as _httpx
+
+    client = YugiohClient()
+
+    # Step 1: resolve set name
+    try:
+        resolved_name = client._resolve_set_name(set_code)
+    except ValueError as e:
+        return {"error": "resolve_failed", "detail": str(e)}
+
+    # Step 2: raw API call
+    try:
+        resp = client.client.get(
+            f"{YugiohClient.BASE_URL}/cardinfo.php",
+            params={"cardset": resolved_name, "misc": "yes"},
+        )
+        resp.raise_for_status()
+    except Exception as e:
+        return {"error": "api_call_failed", "detail": str(e), "resolved_name": resolved_name}
+
+    data = resp.json().get("data") or []
+    total_raw_cards = len(data)
+
+    # Step 3: walk entries and count prefix matches / price > 0
+    prefix = f"{set_code}-"
+    prefix_match = 0
+    price_positive = 0
+    sample_set_codes: list[str] = []
+
+    for raw in data:
+        for entry in raw.get("card_sets") or []:
+            sc = entry.get("set_code", "")
+            if len(sample_set_codes) < 5 and sc not in sample_set_codes:
+                sample_set_codes.append(sc)
+            if sc.startswith(prefix):
+                prefix_match += 1
+                try:
+                    if float(entry.get("set_price") or "0") > 0:
+                        price_positive += 1
+                except ValueError:
+                    pass
+
+    return {
+        "set_code":          set_code,
+        "resolved_name":     resolved_name,
+        "total_raw_cards":   total_raw_cards,
+        "prefix":            prefix,
+        "prefix_match":      prefix_match,
+        "price_positive":    price_positive,
+        "sample_set_codes":  sample_set_codes,
+    }
+
+
+# REMOVE AFTER: Phase B (catalog/price decoupling) is live and all 13 sets confirmed in DB.
+# Run at any time; no eBay quota consumed.
+_YGO_ALL_13_SETS = [
+    "LEDE", "PHNI", "AGOV", "POTE", "TOCH",
+    "MZMI", "INFO", "DUNE", "RA01", "RA02", "BLTR", "CYAC", "WISU",
+]
+
+
+@router.get("/diag/ygo-13set-coverage")
+def admin_diag_ygo_13set_coverage(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Per-set asset + price_history coverage for all 13 configured YGO sets.
+
+    Pure DB query — no external API calls, no eBay quota consumed.
+    Run before and after Phase B catalog/price decoupling to measure ingest scope.
+    """
+    rows = db.execute(text("""
+        WITH ygo_sets AS (
+            SELECT unnest(ARRAY[
+                'LEDE','PHNI','AGOV','POTE','TOCH',
+                'MZMI','INFO','DUNE','RA01','RA02','BLTR','CYAC','WISU'
+            ]) AS set_code
+        )
+        SELECT
+            s.set_code,
+            COUNT(DISTINCT a.id)  AS assets_in_db,
+            COUNT(DISTINCT ph.id) AS price_rows,
+            MAX(ph.captured_at)   AS last_price_seen
+        FROM ygo_sets s
+        LEFT JOIN assets a
+               ON a.metadata->>'set_code' LIKE s.set_code || '-%'
+              AND a.game = 'yugioh'
+        LEFT JOIN price_history ph
+               ON ph.asset_id = a.id
+              AND ph.source = 'ygoprodeck_api'
+        GROUP BY s.set_code
+        ORDER BY s.set_code
+    """)).fetchall()
+
+    sets_with_assets = 0
+    sets_with_prices = 0
+    result = []
+    for r in rows:
+        has_assets = (r.assets_in_db or 0) > 0
+        has_prices = (r.price_rows or 0) > 0
+        if has_assets:
+            sets_with_assets += 1
+        if has_prices:
+            sets_with_prices += 1
+        result.append({
+            "set_code": r.set_code,
+            "assets_in_db": r.assets_in_db or 0,
+            "price_rows": r.price_rows or 0,
+            "last_price_seen": str(r.last_price_seen) if r.last_price_seen else None,
+            "has_assets": has_assets,
+            "has_prices": has_prices,
+        })
+
+    return {
+        "total_configured_sets": len(_YGO_ALL_13_SETS),
+        "sets_with_assets": sets_with_assets,
+        "sets_with_prices": sets_with_prices,
+        "per_set": result,
+    }
+
+
+@router.get("/diag/waitlist")
+def admin_diag_waitlist(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+    recent_n: int = 20,
+):
+    """Pro waitlist: total count, recent sign-ups, 7-day growth rate."""
+    total = db.execute(text("SELECT COUNT(*) FROM pro_waitlist")).scalar() or 0
+
+    today_count = db.execute(text(
+        "SELECT COUNT(*) FROM pro_waitlist WHERE signed_up_at >= CURRENT_DATE"
+    )).scalar() or 0
+
+    week_avg = db.execute(text(
+        "SELECT COUNT(*) / 7.0 FROM pro_waitlist WHERE signed_up_at >= NOW() - INTERVAL '7 days'"
+    )).scalar() or 0
+
+    recent_rows = db.execute(text(
+        "SELECT email, signed_up_at, source_page, locale, ip_country "
+        "FROM pro_waitlist ORDER BY signed_up_at DESC LIMIT :n"
+    ), {"n": recent_n}).fetchall()
+
+    return {
+        "total": total,
+        "today": today_count,
+        "daily_avg_7d": round(float(week_avg), 2),
+        "recent": [
+            {
+                "email": r.email,
+                "signed_up_at": r.signed_up_at.isoformat(),
+                "source_page": r.source_page,
+                "locale": r.locale,
+                "ip_country": r.ip_country,
+            }
+            for r in recent_rows
+        ],
+    }
+
+
+@router.post("/trigger/ip-tagging-sample")
+def admin_trigger_ip_tagging_sample(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+    n: int = Query(default=100, ge=1, le=200),
+):
+    """Run the OpenAI IP tagging validation experiment on N random assets.
+
+    Samples n/2 Pokemon + n/2 YGO assets, tags each with franchise/character/themes/artist.
+    Remove after validation completes (target >85% accuracy; see TASK-401 DoD).
+    """
+    from backend.app.services.ip_tagger import run_ip_tagging_sample
+
+    result = run_ip_tagging_sample(db, n=n)
+    return {
+        "total_attempted": result.total_attempted,
+        "api_parse_succeeded": result.total_succeeded,
+        "api_parse_failed": result.total_failed,
+        "api_parse_success_rate": round(result.api_parse_success_rate, 3),
+        "accuracy_note": (
+            "api_parse_success_rate measures whether the API returned parseable JSON, "
+            "NOT whether the tags are semantically correct. "
+            "Manually verify ~30 random results below before declaring accuracy target met."
+        ),
+        "results": result.results,
+    }
+
+
+@router.get("/diag/db-size")
+def admin_diag_db_size(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Database and top-10 table sizes. Remove after volume capacity confirmed."""
+    db_row = db.execute(text(
+        "SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size,"
+        "       pg_database_size(current_database()) AS db_bytes"
+    )).fetchone()
+
+    table_rows = db.execute(text("""
+        SELECT
+            schemaname,
+            relname,
+            pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
+            pg_size_pretty(pg_relation_size(relid))       AS table_size,
+            pg_total_relation_size(relid)                 AS total_bytes,
+            n_live_tup
+        FROM pg_stat_user_tables
+        ORDER BY pg_total_relation_size(relid) DESC
+        LIMIT 10
+    """)).fetchall()
+
+    return {
+        "db_size": db_row.db_size,
+        "db_bytes": db_row.db_bytes,
+        "top_tables": [
+            {
+                "schema": r.schemaname,
+                "table": r.relname,
+                "total_size": r.total_size,
+                "table_size": r.table_size,
+                "total_bytes": r.total_bytes,
+                "live_rows": r.n_live_tup,
+            }
+            for r in table_rows
+        ],
+    }
+
+
+@router.post("/diag/issue-e-baseline")
+def admin_diag_issue_e_baseline(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Issue E follow-up: baseline_n distribution, downgrade_reason breakdown,
+    asset age vs classification. REMOVE AFTER: Issue E root cause confirmed.
+    """
+    # 1. baseline_n distribution (from signal_context JSONB)
+    baseline_dist = db.execute(text("""
+        SELECT
+            CASE
+                WHEN (s.signal_context->>'baseline_n')::int = 0         THEN '0'
+                WHEN (s.signal_context->>'baseline_n')::int BETWEEN 1 AND 2  THEN '1-2'
+                WHEN (s.signal_context->>'baseline_n')::int BETWEEN 3 AND 4  THEN '3-4'
+                WHEN (s.signal_context->>'baseline_n')::int BETWEEN 5 AND 6  THEN '5-6'
+                WHEN (s.signal_context->>'baseline_n')::int BETWEEN 7 AND 9  THEN '7-9'
+                ELSE '10+'
+            END AS bucket,
+            COUNT(*) AS asset_count,
+            COUNT(*) FILTER (WHERE s.label = 'INSUFFICIENT_DATA') AS insufficient,
+            COUNT(*) FILTER (WHERE s.label != 'INSUFFICIENT_DATA') AS classified
+        FROM asset_signals s
+        JOIN assets a ON a.id = s.asset_id
+        WHERE a.game = 'pokemon'
+          AND s.signal_context IS NOT NULL
+        GROUP BY 1
+        ORDER BY 1
+    """)).fetchall()
+
+    # 2. downgrade_reason actual distribution
+    downgrade_dist = db.execute(text("""
+        SELECT
+            s.signal_context->>'downgrade_reason' AS reason,
+            COUNT(*) AS n
+        FROM asset_signals s
+        JOIN assets a ON a.id = s.asset_id
+        WHERE a.game = 'pokemon'
+          AND s.label = 'INSUFFICIENT_DATA'
+          AND s.signal_context IS NOT NULL
+        GROUP BY 1
+        ORDER BY 2 DESC
+    """)).fetchall()
+
+    # 3. asset age vs classification
+    age_dist = db.execute(text("""
+        SELECT
+            CASE
+                WHEN a.created_at > NOW() - INTERVAL '7 days'  THEN 'new (<7d)'
+                WHEN a.created_at > NOW() - INTERVAL '14 days' THEN 'mid (7-14d)'
+                ELSE 'old (>14d)'
+            END AS age_bucket,
+            s.label,
+            COUNT(*) AS n
+        FROM assets a
+        JOIN asset_signals s ON s.asset_id = a.id
+        WHERE a.game = 'pokemon'
+        GROUP BY 1, 2
+        ORDER BY 1, 2
+    """)).fetchall()
+
+    return {
+        "baseline_n_distribution": [
+            {"bucket": r.bucket, "asset_count": r.asset_count,
+             "insufficient": r.insufficient, "classified": r.classified}
+            for r in baseline_dist
+        ],
+        "downgrade_reason_distribution": [
+            {"reason": r.reason, "n": r.n} for r in downgrade_dist
+        ],
+        "age_vs_classification": [
+            {"age_bucket": r.age_bucket, "label": r.label, "n": r.n}
+            for r in age_dist
+        ],
+    }
+
+
+@router.post("/diag/current-n-distribution")
+def admin_diag_current_n_distribution(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Distribution of current_n from signal_context + threshold sensitivity.
+    Used for Issue E diagnosis: MIN_CURRENT_N_FOR_SIGNAL vs API update frequency.
+    REMOVE AFTER: threshold decision made.
+    """
+    # Distribution of current_n values across Pokemon assets
+    dist_rows = db.execute(text("""
+        SELECT
+            (s.signal_context->>'current_n')::int   AS current_n,
+            s.label,
+            COUNT(*)                                 AS asset_count
+        FROM asset_signals s
+        JOIN assets a ON a.id = s.asset_id
+        WHERE a.game = 'pokemon'
+          AND s.signal_context IS NOT NULL
+        GROUP BY 1, 2
+        ORDER BY 1 NULLS FIRST, 2
+    """)).fetchall()
+
+    # Threshold sensitivity: how many assets exit INSUFFICIENT_DATA at each threshold
+    sensitivity = db.execute(text("""
+        WITH current_ns AS (
+            SELECT
+                a.id,
+                (s.signal_context->>'current_n')::int AS current_n,
+                s.label
+            FROM asset_signals s
+            JOIN assets a ON a.id = s.asset_id
+            WHERE a.game = 'pokemon'
+              AND s.label = 'INSUFFICIENT_DATA'
+              AND s.signal_context IS NOT NULL
+              AND s.signal_context->>'downgrade_reason' IS NULL
+        )
+        SELECT
+            threshold,
+            COUNT(*) FILTER (WHERE current_n >= threshold) AS would_exit_insufficient
+        FROM current_ns
+        CROSS JOIN (VALUES (1),(2),(3),(4),(5),(7),(10)) AS thresholds(threshold)
+        GROUP BY threshold
+        ORDER BY threshold
+    """)).fetchall()
+
+    # Among assets that would newly qualify at threshold=2, what is their distinct_prices?
+    newly_at_2 = db.execute(text("""
+        WITH candidates AS (
+            SELECT a.id AS asset_id
+            FROM asset_signals s
+            JOIN assets a ON a.id = s.asset_id
+            WHERE a.game = 'pokemon'
+              AND s.label = 'INSUFFICIENT_DATA'
+              AND s.signal_context IS NOT NULL
+              AND s.signal_context->>'downgrade_reason' IS NULL
+              AND (s.signal_context->>'current_n')::int >= 2
+        )
+        SELECT
+            COUNT(DISTINCT ph.price)                 AS distinct_prices,
+            COUNT(*)                                 AS obs_count
+        FROM candidates c
+        JOIN price_history ph ON ph.asset_id = c.asset_id
+        WHERE ph.source = 'pokemon_tcg_api'
+          AND ph.market_segment = 'raw'
+          AND ph.captured_at > NOW() - INTERVAL '14 days'
+        GROUP BY c.asset_id
+        ORDER BY distinct_prices DESC
+        LIMIT 20
+    """)).fetchall()
+
+    return {
+        "current_n_distribution": [
+            {"current_n": r.current_n, "label": r.label, "asset_count": r.asset_count}
+            for r in dist_rows
+        ],
+        "threshold_sensitivity_insufficient_data_only": [
+            {"threshold": r.threshold, "assets_that_would_exit_insufficient": r.would_exit_insufficient}
+            for r in sensitivity
+        ],
+        "sanity_check_newly_qualifying_at_threshold_2": [
+            {"distinct_prices": r.distinct_prices, "obs_count": r.obs_count}
+            for r in newly_at_2
+        ],
+    }
+
+
+@router.post("/diag/price-variance")
+def admin_diag_price_variance(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+    source: str = Query(default="pokemon_tcg_api"),
+    days: int = Query(default=14, ge=1, le=30),
+    min_obs: int = Query(default=5, ge=1),
+    limit: int = Query(default=30, ge=1, le=200),
+):
+    """Distinct price count per asset over N days — diagnose whether a source has real variance.
+    REMOVE AFTER: YGO vs Pokemon price source comparison confirmed.
+    """
+    rows = db.execute(text("""
+        SELECT
+            asset_id::text,
+            COUNT(DISTINCT price)   AS distinct_prices,
+            COUNT(*)                AS total_observations,
+            MIN(price)::text        AS min_price,
+            MAX(price)::text        AS max_price,
+            (MAX(price) - MIN(price))::text AS price_range
+        FROM price_history
+        WHERE source = :source
+          AND captured_at > NOW() - (:days || ' days')::INTERVAL
+          AND market_segment = 'raw'
+        GROUP BY asset_id
+        HAVING COUNT(*) >= :min_obs
+        ORDER BY distinct_prices ASC
+        LIMIT :limit
+    """), {"source": source, "days": days, "min_obs": min_obs, "limit": limit}).fetchall()
+
+    distinct_counts = [r.distinct_prices for r in rows]
+    all_one = sum(1 for d in distinct_counts if d == 1)
+    return {
+        "source": source,
+        "days": days,
+        "assets_with_min_obs": len(rows),
+        "assets_with_single_price": all_one,
+        "assets_with_variance": len(rows) - all_one,
+        "rows": [
+            {
+                "asset_id": r.asset_id,
+                "distinct_prices": r.distinct_prices,
+                "total_observations": r.total_observations,
+                "min_price": r.min_price,
+                "max_price": r.max_price,
+                "price_range": r.price_range,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/diag/ygo-signal-context")
+def admin_diag_ygo_signal_context(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """YGO asset_signals with signal_context breakdown — diagnose IDLE vs genuine stability.
+    REMOVE AFTER: TASK-101 signal quality confirmed.
+    """
+    rows = db.execute(text("""
+        SELECT
+            a.name                                       AS card_name,
+            a.card_number,
+            s.label,
+            s.price_delta_pct                           AS delta,
+            s.confidence,
+            s.signal_context->>'baseline_n'             AS baseline_n,
+            s.signal_context->>'current_n'              AS current_n,
+            s.signal_context->>'reason'                 AS reason,
+            s.signal_context->>'downgrade_reason'       AS downgrade_reason,
+            s.signal_context->>'baseline_price'         AS baseline_price,
+            s.signal_context->>'current_price'          AS current_price
+        FROM assets a
+        JOIN asset_signals s ON s.asset_id = a.id
+        WHERE a.game = 'yugioh'
+        ORDER BY s.price_delta_pct DESC NULLS LAST
+    """)).fetchall()
+
+    # Summarise: how many have null delta, zero delta, or real delta
+    null_delta  = sum(1 for r in rows if r.delta is None)
+    zero_delta  = sum(1 for r in rows if r.delta is not None and float(r.delta) == 0.0)
+    real_delta  = sum(1 for r in rows if r.delta is not None and float(r.delta) != 0.0)
+    null_baseline = sum(1 for r in rows if not r.baseline_n)
+    null_current  = sum(1 for r in rows if not r.current_n)
+
+    return {
+        "total_ygo_assets": len(rows),
+        "summary": {
+            "delta_null": null_delta,
+            "delta_zero": zero_delta,
+            "delta_nonzero": real_delta,
+            "baseline_n_missing": null_baseline,
+            "current_n_missing": null_current,
+        },
+        "top_20_by_delta": [
+            {
+                "card_name": r.card_name,
+                "card_number": r.card_number,
+                "label": r.label,
+                "delta": str(r.delta) if r.delta is not None else None,
+                "confidence": r.confidence,
+                "baseline_n": r.baseline_n,
+                "current_n": r.current_n,
+                "reason": r.reason,
+                "downgrade_reason": r.downgrade_reason,
+                "baseline_price": r.baseline_price,
+                "current_price": r.current_price,
+            }
+            for r in rows[:20]
+        ],
+    }
+
+
+@router.get("/diag/signal-history-stats")
+def admin_diag_signal_history_stats(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+    days: int = Query(default=7, ge=1, le=30),
+):
+    """Daily breakdown of asset_signal_history writes: total rows, transitions, repeats.
+
+    Used to verify Issue D fix (transition guard in _append_history).
+    After guard deploy, transitions/day should approach total rows/day (ratio ~1:1).
+    Before fix: ~387k rows/day, nearly all repeats.
+    After fix: rows/day drops toward actual transition rate.
+    REMOVE AFTER: 48h verification gates confirmed satisfied.
+    """
+    rows = db.execute(text("""
+        SELECT
+            DATE(computed_at AT TIME ZONE 'UTC')                                        AS day,
+            COUNT(*)                                                                    AS rows_written,
+            COUNT(*) FILTER (
+                WHERE previous_label IS NULL
+                   OR previous_label != label
+            )                                                                           AS transitions,
+            COUNT(*) FILTER (
+                WHERE previous_label IS NOT NULL
+                  AND previous_label = label
+            )                                                                           AS repeats
+        FROM asset_signal_history
+        WHERE computed_at > NOW() - (:days || ' days')::INTERVAL
+        GROUP BY 1
+        ORDER BY 1 DESC
+    """), {"days": days}).fetchall()
+
+    return {
+        "days": days,
+        "rows": [
+            {
+                "day": str(r.day),
+                "rows_written": r.rows_written,
+                "transitions": r.transitions,
+                "repeats": r.repeats,
+                "repeat_pct": round(100.0 * r.repeats / r.rows_written, 1) if r.rows_written else 0,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/diag/scheduler-history")
+def admin_diag_scheduler_history(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+    days: int = Query(default=7, ge=1, le=30),
+):
+    """7-day (configurable) per-day breakdown of scheduler run counts and write volumes.
+
+    Mirrors the SQL the operator runs manually — returns same shape as the query.
+    REMOVE AFTER: used for ad-hoc investigation.
+    """
+    rows = db.execute(text("""
+        SELECT
+            job_name,
+            DATE(started_at AT TIME ZONE 'UTC') AS day,
+            COUNT(*) FILTER (WHERE status = 'success')                  AS success_runs,
+            COUNT(*) FILTER (WHERE status IN ('error','failed'))        AS failed_runs,
+            COUNT(*) FILTER (WHERE status = 'no_op')                   AS noop_runs,
+            COALESCE(SUM(records_written), 0)                          AS total_writes,
+            MIN(records_written)                                        AS min_writes,
+            MAX(records_written)                                        AS max_writes,
+            ROUND(AVG(
+                EXTRACT(EPOCH FROM (finished_at - started_at)) * 1000
+            )::NUMERIC, 0)                                             AS avg_duration_ms
+        FROM scheduler_run_log
+        WHERE started_at > NOW() - (:days || ' days')::INTERVAL
+        GROUP BY 1, 2
+        ORDER BY 2 DESC, 1
+    """), {"days": days}).fetchall()
+
+    return {
+        "days": days,
+        "rows": [
+            {
+                "job_name": r.job_name,
+                "day": str(r.day),
+                "success_runs": r.success_runs,
+                "failed_runs": r.failed_runs,
+                "noop_runs": r.noop_runs,
+                "total_writes": int(r.total_writes or 0),
+                "min_writes": r.min_writes,
+                "max_writes": r.max_writes,
+                "avg_duration_ms": r.avg_duration_ms,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/diag/digest-status")
+def admin_diag_digest_status(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Diagnose why a digest may not have sent — shows recent run logs + user state."""
+    from backend.app.services.market_digest import DRY_RUN, DRY_RUN_EMAIL
+
+    run_rows = db.execute(text("""
+        SELECT job_name, started_at, finished_at, status, records_written, errors, meta_json
+        FROM scheduler_run_log
+        WHERE job_name = 'market-digest-send'
+        ORDER BY started_at DESC LIMIT 10
+    """)).fetchall()
+
+    send_rows = db.execute(text("""
+        SELECT user_id, subject, sent_at, delivery_status, error_message, trigger_type, dedupe_key
+        FROM digest_send_log
+        ORDER BY sent_at DESC LIMIT 5
+    """)).fetchall()
+
+    user = db.scalars(select(User).where(User.email == DRY_RUN_EMAIL)).first()
+    user_info = None
+    if user:
+        user_info = {
+            "email": user.email,
+            "subscription_tier": user.subscription_tier,
+            "digest_frequency": user.digest_frequency,
+            "last_digest_sent_at": user.last_digest_sent_at.isoformat() if user.last_digest_sent_at else None,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "trial_started_at": user.trial_started_at.isoformat() if user.trial_started_at else None,
+        }
+
+    return {
+        "dry_run": DRY_RUN,
+        "dry_run_email": DRY_RUN_EMAIL,
+        "dry_run_user_found": user is not None,
+        "dry_run_user": user_info,
+        "recent_scheduler_runs": [
+            {
+                "started_at": str(r.started_at),
+                "finished_at": str(r.finished_at),
+                "status": r.status,
+                "records_written": r.records_written,
+                "errors": r.errors,
+                "meta_json": r.meta_json,
+            }
+            for r in run_rows
+        ],
+        "recent_sends": [
+            {
+                "sent_at": str(r.sent_at),
+                "subject": r.subject,
+                "delivery_status": r.delivery_status,
+                "error_message": r.error_message,
+                "trigger_type": r.trigger_type,
+                "dedupe_key": r.dedupe_key,
+            }
+            for r in send_rows
+        ],
+    }
+
+
+@router.get("/diag/ebay-probe")
+def admin_diag_ebay_probe(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Live eBay API health check + last-row timestamp.
+
+    Makes one Finding API call and one Browse API call with a known query,
+    returns raw status codes and item counts so we can distinguish outage vs. code bug.
+    REMOVE AFTER: eBay ingestion confirmed writing rows again.
+    """
+    import httpx
+    from backend.app.ingestion.ebay_sold import (
+        EBAY_FINDING_API_URL,
+        EBAY_BROWSE_API_URL,
+        _get_app_token,
+        _parse_finding_items,
+        _parse_browse_items,
+    )
+    from backend.app.core.config import get_settings as _get_settings
+
+    _s = _get_settings()
+    TEST_QUERY = "Pokemon Charizard Base Set -PSA -BGS -CGC -SGC -GMA -graded -slab"
+
+    last_ebay_row = db.execute(text(
+        "SELECT MAX(captured_at) AS last_captured FROM price_history WHERE source = 'ebay_sold'"
+    )).fetchone()
+
+    result: dict = {
+        "last_ebay_sold_captured_at": str(last_ebay_row.last_captured) if last_ebay_row else None,
+        "test_query": TEST_QUERY,
+        "finding_api": {},
+        "browse_api": {},
+    }
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            token = _get_app_token(client)
+
+            # Finding API probe
+            try:
+                finding_resp = client.get(
+                    EBAY_FINDING_API_URL,
+                    params={
+                        "OPERATION-NAME": "findCompletedItems",
+                        "SERVICE-VERSION": "1.0.0",
+                        "SECURITY-APPNAME": _s.ebay_app_id,
+                        "RESPONSE-DATA-FORMAT": "XML",
+                        "keywords": TEST_QUERY,
+                        "itemFilter(0).name": "SoldItemsOnly",
+                        "itemFilter(0).value": "true",
+                        "paginationInput.entriesPerPage": "5",
+                    },
+                    timeout=15.0,
+                )
+                has_10001 = "10001" in finding_resp.text
+                parsed = _parse_finding_items(finding_resp.text) if not has_10001 and finding_resp.status_code == 200 else []
+                result["finding_api"] = {
+                    "status_code": finding_resp.status_code,
+                    "has_10001_error": has_10001,
+                    "items_returned": len(parsed),
+                    "response_length": len(finding_resp.text),
+                    "response_preview": finding_resp.text[:300],
+                }
+            except Exception as e:
+                result["finding_api"] = {"error": str(e)}
+
+            # Browse API probe
+            try:
+                browse_resp = client.get(
+                    EBAY_BROWSE_API_URL,
+                    headers={"Authorization": f"Bearer {token}", "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"},
+                    params={
+                        "q": TEST_QUERY,
+                        "filter": "buyingOptions:{FIXED_PRICE}",
+                        "limit": "5",
+                    },
+                    timeout=15.0,
+                )
+                browse_data = browse_resp.json() if browse_resp.status_code == 200 else {}
+                parsed_browse = _parse_browse_items(browse_data)
+                result["browse_api"] = {
+                    "status_code": browse_resp.status_code,
+                    "total_items_in_response": len(browse_data.get("itemSummaries", [])),
+                    "items_parsed": len(parsed_browse),
+                    "sample_item": browse_data.get("itemSummaries", [{}])[0] if browse_data.get("itemSummaries") else None,
+                }
+            except Exception as e:
+                result["browse_api"] = {"error": str(e)}
+
+    except Exception as e:
+        result["oauth_error"] = str(e)
+
+    return result
+
+
+_DIGEST_FORCE_CONFIRM = "send-digest-now"
+
+
+@router.post("/trigger/send-digest-now")
+def admin_trigger_send_digest_now(
+    confirm: str = Query(default=""),
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Force-send the digest immediately, bypassing the time-window and dedupe gates.
+
+    Requires ?confirm=send-digest-now.
+    Uses dry-run logic (sends to operator email only if DIGEST_DRY_RUN=true).
+    REMOVE AFTER: digest delivery confirmed working end-to-end.
+    """
+    if confirm != _DIGEST_FORCE_CONFIRM:
+        raise HTTPException(status_code=400, detail=f"Pass ?confirm={_DIGEST_FORCE_CONFIRM}")
+
+    from backend.app.services.market_digest import (
+        DRY_RUN,
+        DRY_RUN_EMAIL,
+        get_digest_candidates,
+        get_or_generate_explanation,
+        resolve_subscribers,
+        send_digest,
+        should_send_digest,
+    )
+
+    today_utc = datetime.now(timezone.utc).date()
+    candidates = get_digest_candidates(db, today_utc)
+    if not candidates:
+        return {"ok": False, "reason": "no_candidates"}
+
+    for card in candidates:
+        card.explanation = get_or_generate_explanation(
+            db, card.asset_id, card.signal_type, today_utc, card.name, card.price_delta_pct
+        )
+
+    subscribers = resolve_subscribers(db)
+    if subscribers is None:
+        return {"ok": False, "reason": "dry_run_user_not_found", "email": DRY_RUN_EMAIL}
+
+    sent = 0
+    skipped = 0
+    failed = 0
+    errors = []
+    has_signals = any(c.signal_type in ("BREAKOUT", "MOVE") for c in candidates)
+
+    for user in subscribers:
+        trigger_type = "event" if has_signals else "weekly_fallback"
+        if not should_send_digest(user, today_utc, has_signals=has_signals):
+            skipped += 1
+            continue
+        try:
+            send_digest(db, user, candidates, trigger_type, today_utc)
+            sent += 1
+        except Exception as e:
+            failed += 1
+            errors.append(str(e))
+
+    return {
+        "ok": True,
+        "dry_run": DRY_RUN,
+        "sent": sent,
+        "skipped": skipped,
+        "failed": failed,
+        "errors": errors,
+        "candidates": len(candidates),
     }

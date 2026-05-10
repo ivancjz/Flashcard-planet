@@ -11,7 +11,20 @@ _TEMPLATE_ENV = Environment(
     loader=FileSystemLoader(Path(__file__).parent / "templates")
 )
 
-FROM_ADDRESS = "Flashcard Planet <login@flashcardplanet.com>"
+# TODO: switch back to login@flashcardplanet.com once domain verified in Resend
+FROM_ADDRESS = "Flashcard Planet <onboarding@resend.dev>"
+
+
+def send_waitlist_confirmation_email(to_email: str) -> None:
+    """Send a Pro waitlist confirmation email via Resend."""
+    resend.api_key = get_settings().resend_api_key
+    html = _TEMPLATE_ENV.get_template("waitlist_confirmation.html").render()
+    resend.Emails.send({
+        "from": FROM_ADDRESS,
+        "to": [to_email],
+        "subject": "You're on the Flashcard Planet Pro waitlist",
+        "html": html,
+    })
 
 
 def send_magic_link_email(to_email: str, magic_url: str) -> None:
@@ -22,5 +35,16 @@ def send_magic_link_email(to_email: str, magic_url: str) -> None:
         "from": FROM_ADDRESS,
         "to": [to_email],
         "subject": "Your Flashcard Planet login link",
+        "html": html,
+    })
+
+
+def send_digest_email(to_email: str, subject: str, html: str) -> None:
+    """Send a Market Digest email via Resend."""
+    resend.api_key = get_settings().resend_api_key
+    resend.Emails.send({
+        "from": FROM_ADDRESS,
+        "to": [to_email],
+        "subject": subject,
         "html": html,
     })

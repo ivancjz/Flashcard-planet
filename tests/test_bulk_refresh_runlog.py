@@ -126,5 +126,41 @@ class TestBulkRefreshRunLog(unittest.TestCase):
         self.assertEqual(mock_prune.call_args[0][1], JOB_BULK_REFRESH)
 
 
+    # ── test 7: finish_run has non-null meta_json on exception path (TASK-606) ──
+
+    def test_finish_run_meta_json_non_null_on_exception(self):
+        """finish_run must receive non-null meta_json containing error_type when an
+        exception is raised mid-loop. This was the TASK-606 gap: meta_json was
+        absent from finish_run on both success and failure paths, making error
+        diagnosis impossible from scheduler_run_log alone."""
+        settings_with_sets = MagicMock()
+        settings_with_sets.bulk_set_id_list = ["base1"]
+        settings_with_sets.bulk_refresh_auto_import_new_sets = True
+
+        with (
+            patch("backend.app.backstage.scheduler.SessionLocal", _mock_session_local()),
+            patch("backend.app.backstage.scheduler.get_settings", return_value=settings_with_sets),
+            patch("backend.app.backstage.scheduler.start_run", return_value=1),
+            patch("backend.app.backstage.scheduler.finish_run") as mock_finish,
+            patch("backend.app.backstage.scheduler.prune_old_runs"),
+            patch(
+                "scripts.import_pokemon_cards.PokemonTCGImporter",
+                side_effect=RuntimeError("API unavailable"),
+            ),
+        ):
+            from backend.app.backstage.scheduler import _run_bulk_set_price_refresh
+            _run_bulk_set_price_refresh()
+
+        mock_finish.assert_called_once()
+        call_kwargs = mock_finish.call_args[1]
+        self.assertEqual(call_kwargs["status"], "error")
+        meta = call_kwargs.get("meta_json")
+        self.assertIsNotNone(meta, "meta_json must not be None on exception path")
+        self.assertIn("error_type", meta, "meta_json must contain 'error_type'")
+        self.assertEqual(meta["error_type"], "RuntimeError")
+        self.assertIn("error_message", meta)
+        self.assertIn("sets_completed_before_failure", meta)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -284,6 +284,37 @@ def test_api_calls_used_tracked() -> None:
         assert result.api_calls_used >= 3
 
 
+def test_future_dated_listing_is_skipped() -> None:
+    """Listings with captured_at > now() must not be written to price_history.
+
+    eBay returns future end_time for scheduled/upcoming auctions. Before the fix,
+    these passed the lookback_cutoff filter and accumulated in the DB, eventually
+    entering signal baseline windows as they aged into the past.
+    """
+    with session_scope() as session:
+        create_asset(session, name="Charizard")
+        future_end_time = datetime.now(UTC) + timedelta(days=9)
+        browse_data = make_browse_response(
+            title="Charizard Base Set Holo Rare",
+            item_id="ebay-future-001",
+            price="500.00",
+            end_time=future_end_time,
+        )
+
+        with (
+            patch_settings(),
+            _patch_finding,
+            patch("backend.app.ingestion.ebay_sold.httpx.Client", return_value=make_http_client(browse_data)),
+        ):
+            result = ingest_ebay_sold_cards(session)
+
+        assert result.price_points_inserted == 0, (
+            "future-dated listing must not be inserted into price_history"
+        )
+        rows = session.execute(select(PriceHistory)).scalars().all()
+        assert len(rows) == 0
+
+
 def load_tests(loader: unittest.TestLoader, tests: unittest.TestSuite, pattern: str | None) -> unittest.TestSuite:
     suite = unittest.TestSuite()
     for test in (
@@ -294,6 +325,7 @@ def load_tests(loader: unittest.TestLoader, tests: unittest.TestSuite, pattern: 
         test_unmatched_title_is_skipped,
         test_volume_signal_stored_in_metadata,
         test_api_calls_used_tracked,
+        test_future_dated_listing_is_skipped,
     ):
         suite.addTest(unittest.FunctionTestCase(test))
     return suite

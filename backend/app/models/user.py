@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, String
+from sqlalchemy import Boolean, DateTime, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -30,6 +31,32 @@ class User(Base):
         server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
+    # Subscription fields (populated by LemonSqueezy webhook handler)
+    # subscription_tier values: free | plus | pro
+    # subscription_status values: free | trialing | active | past_due | cancelled | expired
+    subscription_tier: Mapped[str] = mapped_column(String(16), nullable=False, server_default="free", default="free")
+    subscription_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="free", default="free")
+    subscription_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)           # 'lemonsqueezy'
+    subscription_provider_id: Mapped[str | None] = mapped_column(String(128), nullable=True)       # LS subscription ID
+    subscription_current_period_end: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    subscription_cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
+    trial_started_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    is_founders: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
+    founders_locked_price_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+
+    # Market Digest preferences
+    digest_frequency: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="daily", default="daily"
+    )
+    last_digest_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        Index("ix_users_subscription_status", "subscription_status"),
+    )
+
     watchlists: Mapped[list["Watchlist"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
@@ -39,3 +66,5 @@ class User(Base):
         super().__init__(**kwargs)
         if self.access_tier is None:
             self.access_tier = "free"
+        if self.digest_frequency is None:
+            self.digest_frequency = "daily"

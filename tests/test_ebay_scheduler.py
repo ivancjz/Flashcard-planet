@@ -27,6 +27,8 @@ from backend.app.ingestion.ebay_sold import EBAY_SOLD_PRICE_SOURCE, ingest_ebay_
 from backend.app.models.asset import Asset
 from backend.app.models.observation_match_log import ObservationMatchLog
 from backend.app.models.price_history import PriceHistory
+from backend.app.models.scheduler_run_log import SchedulerRunLog
+from backend.app.services.scheduler_run_log_service import JOB_EBAY
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -80,6 +82,23 @@ def make_asset(
     session.commit()
     session.refresh(asset)
     return asset
+
+
+def make_run_log(session: Session, *, api_calls_used: int, started_at: datetime | None = None) -> SchedulerRunLog:
+    """Insert a completed ebay-ingestion run log entry to simulate prior budget consumption."""
+    today = datetime.now(UTC).date()
+    now = started_at or datetime(today.year, today.month, today.day, 1, 0, 0, tzinfo=UTC)
+    row = SchedulerRunLog(
+        job_name=JOB_EBAY,
+        started_at=now,
+        finished_at=now,
+        status="success",
+        records_written=0,
+        meta_json={"api_calls_used": api_calls_used},
+    )
+    session.add(row)
+    session.commit()
+    return row
 
 
 def make_browse_response(*, title: str, item_id: str, price: str, end_time: datetime) -> dict:
@@ -229,18 +248,17 @@ def test_run_ebay_ingestion_skipped_missing_credentials() -> None:
 
 def test_budget_exhausted_returns_skipped() -> None:
     """When all daily budget is consumed the run returns 'skipped'."""
-    today_iso = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-
     with session_scope() as session:
-        # Create 2 assets already ingested today.
-        make_asset(session, name="Card A", external_id="ext-a", last_ingested_at=today_iso)
-        make_asset(session, name="Card B", external_id="ext-b", last_ingested_at=today_iso)
+        # Simulate 2 API calls already used today via scheduler_run_log.
+        make_run_log(session, api_calls_used=2)
+        make_asset(session, name="Card A", external_id="ext-a")
+        make_asset(session, name="Card B", external_id="ext-b")
 
         mock_settings = MagicMock(
             ebay_scheduled_ingest_enabled=True,
             ebay_app_id="app-id",
             ebay_cert_id="cert-id",
-            ebay_daily_budget_limit=2,    # 2 assets already done today
+            ebay_daily_budget_limit=2,    # 2 calls already used today
             ebay_max_calls_per_run=10,
         )
         settings_patch = patch("backend.app.backstage.scheduler.get_settings", return_value=mock_settings)
@@ -263,13 +281,13 @@ def test_budget_exhausted_returns_skipped() -> None:
 
 def test_budget_cap_limits_assets_processed() -> None:
     """effective_limit = min(max_calls_per_run, remaining_budget) — only that many assets queried."""
-    today_iso = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     end_time = datetime.now(UTC) - timedelta(hours=1)
 
     with session_scope() as session:
-        # 5 assets in DB; only 2 already ingested today → remaining_daily_budget = 3
-        make_asset(session, name="Card A", external_id="ext-a", last_ingested_at=today_iso)
-        make_asset(session, name="Card B", external_id="ext-b", last_ingested_at=today_iso)
+        # 5 assets in DB; 2 calls already used today → remaining_daily_budget = 3
+        make_run_log(session, api_calls_used=2)
+        make_asset(session, name="Card A", external_id="ext-a")
+        make_asset(session, name="Card B", external_id="ext-b")
         make_asset(session, name="Charizard", external_id="ext-c")
         make_asset(session, name="Pikachu", external_id="ext-d")
         make_asset(session, name="Mewtwo", external_id="ext-e")

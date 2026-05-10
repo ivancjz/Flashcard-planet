@@ -8,14 +8,17 @@ from xml.etree import ElementTree
 
 import httpx
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import settings
 from backend.app.core.price_sources import EBAY_SOLD_PRICE_SOURCE, SAMPLE_PRICE_SOURCE
 from backend.app.ingestion.rule_engine_patches import ObservationSkipReason, preflight_observation
 from backend.app.ingestion.pokemon_tcg import IngestionResult
+from backend.app.ingestion.title_parser import parse_listing_title
 from backend.app.models.asset import Asset
 from backend.app.models.game import GAME_CONFIG, Game
+from backend.app.models.graded_observation_audit import GradedObservationAudit
 from backend.app.models.observation_match_log import ObservationMatchLog
 from backend.app.models.price_history import PriceHistory
 
@@ -292,12 +295,66 @@ def _build_search_query(asset: Asset) -> str:
     return " ".join(parts)
 
 
+_SHADOW_DECISIONS = {"audit_only", "parser_raw", "parser_unknown", "parser_excluded"}
+
+
+def _write_graded_shadow_audit(
+    session: Session,
+    asset: Asset,
+    listing: dict,
+    captured_at: datetime | None,
+    pf_grade_info: dict | None,
+) -> None:
+    """Write one row to graded_observation_audit; silently skip duplicates."""
+    parse_result = parse_listing_title(listing["title"])
+
+    if parse_result.excluded:
+        decision = "parser_excluded"
+    elif parse_result.market_segment == "raw":
+        decision = "parser_raw"
+    elif parse_result.market_segment == "unknown":
+        decision = "parser_unknown"
+    else:
+        decision = "audit_only"
+
+    try:
+        price = Decimal(listing.get("price", "0") or "0")
+    except InvalidOperation:
+        price = None
+
+    stmt = (
+        pg_insert(GradedObservationAudit)
+        .values(
+            provider=EBAY_SOLD_PRICE_SOURCE,
+            external_item_id=listing.get("item_id", ""),
+            candidate_asset_id=asset.id,
+            raw_title=listing["title"],
+            price=price,
+            currency=listing.get("currency", "USD"),
+            captured_at=captured_at,
+            parser_market_segment=parse_result.market_segment,
+            parser_grade_company=parse_result.grade_company,
+            parser_grade_score=parse_result.grade_score,
+            parser_confidence=parse_result.confidence,
+            parser_notes=parse_result.parser_notes,
+            preflight_grade_info=pf_grade_info,
+            shadow_decision=decision,
+        )
+        .on_conflict_do_nothing(
+            index_elements=["provider", "external_item_id", "candidate_asset_id"]
+        )
+    )
+    session.execute(stmt)
+    session.flush()
+
+
 def ingest_ebay_sold_cards(
     session: Session,
     card_ids: list[str] | None = None,
     max_assets: int | None = None,
     *,
     clear_sample_seed: bool = False,
+    deadline: datetime | None = None,
 ) -> IngestionResult:
     if settings.ebay_app_id == "" or settings.ebay_cert_id == "":
         return IngestionResult()
@@ -360,7 +417,19 @@ def ingest_ebay_sold_cards(
             logger.exception("ebay_sold_oauth_token_failed")
             return result
 
-        for asset in all_assets:
+        for idx, asset in enumerate(all_assets):
+            if deadline is not None and datetime.now(UTC) > deadline:
+                not_yet_started = len(all_assets) - idx
+                logger.warning(
+                    "ebay_sold_wall_clock_limit_reached "
+                    "assets_processed=%d assets_remaining=%d",
+                    result.cards_processed,
+                    not_yet_started,
+                )
+                result.deadline_reached = True
+                result.assets_remaining = not_yet_started
+                break
+
             query = _build_search_query(asset)
             _log_info("ebay_sold_asset_fetch_started", asset_id=asset.id, name=asset.name, query=query)
 
@@ -411,7 +480,7 @@ def ingest_ebay_sold_cards(
             candidates: list[tuple[dict[str, str], datetime, Decimal]] = []
             for listing in raw_listings:
                 captured_at = _parse_iso_datetime(listing["captured_at"])
-                if captured_at is None or captured_at < lookback_cutoff:
+                if captured_at is None or captured_at < lookback_cutoff or captured_at > now:
                     continue
                 title = listing["title"]
                 if not _is_single_card(title):
@@ -422,6 +491,15 @@ def ingest_ebay_sold_cards(
                     continue
                 _pf = preflight_observation(title)
                 if _pf.should_skip:
+                    if (
+                        _pf.skip_reason == ObservationSkipReason.GRADED_CARD
+                        and settings.graded_shadow_audit_enabled
+                        and _title_contains_card_name(_pf.normalised_title, asset)
+                        and _card_number_matches(asset, title)
+                    ):
+                        _write_graded_shadow_audit(
+                            session, asset, listing, captured_at, _pf.grade_info
+                        )
                     result.observations_unmatched += 1
                     skip_key = f"unmatched_preflight_{_pf.skip_reason.value}"
                     result.observation_match_status_counts[skip_key] = (
@@ -511,6 +589,10 @@ def ingest_ebay_sold_cards(
                     )
                     continue
 
+                parse_result = parse_listing_title(listing["title"])
+                if parse_result.excluded:
+                    continue
+
                 session.add(
                     PriceHistory(
                         asset_id=asset.id,
@@ -518,6 +600,9 @@ def ingest_ebay_sold_cards(
                         currency="USD",
                         price=price,
                         captured_at=captured_at,
+                        market_segment=parse_result.market_segment,
+                        grade_company=parse_result.grade_company,
+                        grade_score=parse_result.grade_score,
                     )
                 )
                 session.add(
@@ -531,6 +616,9 @@ def ingest_ebay_sold_cards(
                         reason=f"Searched by asset name via {api_used} API; grade-compatible; passed IQR filter.",
                         requires_review=False,
                         created_at=captured_at,
+                        market_segment=parse_result.market_segment,
+                        grade_company=parse_result.grade_company,
+                        grade_score=parse_result.grade_score,
                     )
                 )
                 result.price_points_inserted += 1

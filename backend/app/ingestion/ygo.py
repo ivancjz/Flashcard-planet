@@ -21,11 +21,21 @@ logger = logging.getLogger(__name__)
 YGO_PRICE_SOURCE = "ygoprodeck_api"
 
 YGO_PHASE2_SETS = [
+    # Original 5
     "LEDE",   # Legacy of Destruction (2024)
     "PHNI",   # Phantom Nightmare (2024)
     "AGOV",   # Age of Overlord (2023)
     "POTE",   # Power of the Elements (2022)
     "TOCH",   # Toon Chaos (2020) — high-value staples
+    # Expanded 8
+    "MZMI",   # Maze of Millennia (2024)
+    "INFO",   # Infinite Forbidden (2024)
+    "DUNE",   # Duelist Nexus (2023)
+    "RA01",   # Rarity Collection Quarter Century Edition (2024)
+    "RA02",   # Rarity Collection 2 (2025)
+    "BLTR",   # Battles of Legend: Terminal Revenge (2024)
+    "CYAC",   # Cyberstorm Access (2023)
+    "WISU",   # Wild Survivors (2023)
 ]
 
 
@@ -55,6 +65,9 @@ def _upsert_ygo_asset(
     """Return (asset, created). created=True if a new row was inserted."""
     existing = session.scalars(select(Asset).where(Asset.external_id == external_id)).first()
     if existing:
+        if not (existing.metadata_json or {}).get("set", {}).get("id"):
+            existing.metadata_json = metadata
+            session.flush()
         return existing, False
 
     asset = Asset(
@@ -123,6 +136,32 @@ def ingest_ygo_sets(
             card_images = raw.get("card_images") or []
             image_url = card_images[0].get("image_url_small") if card_images else None
 
+            # Write metadata in BOTH the YGO-native flat shape and the Pokemon-style
+            # nested shape so all game-agnostic web queries work uniformly.
+            # The web layer reads `metadata->'set'->>'id'` (mirroring Pokemon's
+            # ingest path) for /filters/sets, the set_id filter on /cards, and
+            # the index ix_assets_set_id from migration 0023. Without the nested
+            # `set` block, YGO assets are invisible to every set-aware query.
+            metadata_payload = {
+                "konami_id": konami_id,
+                "set_code": set_entry_code,         # flat (legacy)
+                "set_name": entry["set_name"],       # flat (legacy)
+                "set": {                             # nested (web layer + index 0023)
+                    "id": set_code,                  # expansion code (LEDE), not printing code (LEDE-EN001)
+                    "name": entry["set_name"],
+                    "total": None,
+                },
+                "rarity": rarity,
+                "image_url": image_url,
+                "images": {"small": image_url},
+                "atk": raw.get("atk"),
+                "def": raw.get("def"),
+                "level": raw.get("level"),
+                "race": raw.get("race"),
+                "attribute": raw.get("attribute"),
+                "card_type": raw.get("type"),
+            }
+
             asset, created = _upsert_ygo_asset(
                 session,
                 external_id=external_id,
@@ -132,19 +171,7 @@ def ingest_ygo_sets(
                 rarity=rarity,
                 card_type=raw.get("type"),
                 image_url=image_url,
-                metadata={
-                    "konami_id": konami_id,
-                    "set_code": set_entry_code,
-                    "set_name": entry["set_name"],
-                    "rarity": rarity,
-                    "image_url": image_url,
-                    "images": {"small": image_url},
-                    "atk": raw.get("atk"),
-                    "def": raw.get("def"),
-                    "level": raw.get("level"),
-                    "race": raw.get("race"),
-                    "attribute": raw.get("attribute"),
-                },
+                metadata=metadata_payload,
             )
 
             if created:
@@ -157,6 +184,7 @@ def ingest_ygo_sets(
                 currency="USD",
                 price=price,
                 captured_at=captured_at,
+                market_segment='raw',
             ).on_conflict_do_nothing()
             rows = session.execute(stmt)
             if rows.rowcount:

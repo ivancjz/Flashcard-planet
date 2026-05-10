@@ -25,6 +25,9 @@ JOB_EBAY         = "ebay-ingestion"
 JOB_BULK_REFRESH = "bulk-set-price-refresh"
 JOB_HEARTBEAT    = "alert-heartbeat"
 JOB_YGO          = "yugioh-ingestion"
+JOB_EXPLANATION  = "explanation-sweep"
+JOB_DIGEST       = "market-digest-send"
+JOB_HISTORY_PRUNE = "signal-history-prune"
 
 _KEEP_RUNS = 50
 

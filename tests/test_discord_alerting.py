@@ -35,6 +35,7 @@ def _fake_settings(**overrides):
         signal_sweep_alert_threshold=5000,
         ebay_scheduled_ingest_enabled=False,
         ebay_app_id="",
+        zero_output_alert_window_hours=24,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -254,13 +255,25 @@ class TestSendHeartbeat(unittest.TestCase):
         mock_result = MagicMock()
         mock_result.fetchall.return_value = db_rows
 
+        # NULL-segment check query returns [] (no rogue NULLs in test environment)
+        mock_null_seg_result = MagicMock()
+        mock_null_seg_result.fetchall.return_value = []
+
+        def _execute_dispatch(stmt, *args, **kwargs):
+            """Route execute calls: scheduler_run_log → db_rows, everything else → []."""
+            sql = str(stmt)
+            if "scheduler_run_log" in sql:
+                return mock_result
+            return mock_null_seg_result
+
         with (
             patch("backend.app.backstage.scheduler.get_settings", return_value=s),
             patch("backend.app.backstage.scheduler.SessionLocal") as mock_sl,
+            patch("backend.app.backstage.scheduler.get_zero_output_jobs", return_value=[]),
             patch("backend.app.backstage.scheduler.send_discord_alert") as mock_alert,
         ):
             mock_session = MagicMock()
-            mock_session.execute.return_value = mock_result
+            mock_session.execute.side_effect = _execute_dispatch
             mock_sl.return_value.__enter__ = MagicMock(return_value=mock_session)
             mock_sl.return_value.__exit__ = MagicMock(return_value=False)
 

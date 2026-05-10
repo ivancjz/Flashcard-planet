@@ -7,9 +7,15 @@ import DashboardPage from './pages/DashboardPage'
 import CardDetailPage from './pages/CardDetailPage'
 import AlertsPage from './pages/AlertsPage'
 import WatchlistPage from './pages/WatchlistPage'
+import ComparePage from './pages/ComparePage'
+import AccountPage from './pages/AccountPage'
+import DigestPreferencesPage from './pages/DigestPreferencesPage'
+import DevTierSwitcher from './components/DevTierSwitcher'
+import { UserProvider } from './contexts/UserContext'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    <UserProvider>
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<LandingPage />} />
@@ -17,7 +23,12 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/market/:assetId" element={<CardDetailPage />} />
         <Route path="/alerts" element={<AlertsPage />} />
         <Route path="/watchlist" element={<WatchlistPage />} />
+        <Route path="/compare" element={<ComparePage />} />
+        <Route path="/account" element={<AccountPage />} />
+        <Route path="/account/digest-preferences" element={<DigestPreferencesPage />} />
       </Routes>
+      <DevTierSwitcher />
     </BrowserRouter>
+    </UserProvider>
   </StrictMode>
 )

@@ -5,6 +5,8 @@ const KEY = 'fp_watchlist'
 const MAX_ENTRIES = 500
 const CURRENT_VERSION = 1
 
+export const FREE_TIER_WATCHLIST_LIMIT = 5
+
 function readRaw(): WatchlistStorage {
   try {
     const raw = localStorage.getItem(KEY)
@@ -64,11 +66,18 @@ export function getWatchlistCount(): number {
   return getWatchlist().length
 }
 
-export function addToWatchlist(assetId: string): { ok: true } | { ok: false; reason: 'duplicate' | 'cap' | 'storage' } {
+export function addToWatchlist(
+  assetId: string,
+  tier?: string,
+): { ok: true } | { ok: false; reason: 'duplicate' | 'cap' | 'storage' | 'tier_limit' } {
   const state = readRaw()
 
   if (state.entries.some(e => e.asset_id === assetId)) {
     return { ok: false, reason: 'duplicate' }
+  }
+
+  if (tier === 'free' && state.entries.length >= FREE_TIER_WATCHLIST_LIMIT) {
+    return { ok: false, reason: 'tier_limit' }
   }
 
   if (state.entries.length >= MAX_ENTRIES) {

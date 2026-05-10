@@ -222,7 +222,10 @@ def _get_active_asset_ids(db: Session, *, limit: int | None = None) -> list[Any]
     cutoff = datetime.now(UTC) - timedelta(days=ACTIVE_WINDOW_DAYS)
     stmt = (
         select(PriceHistory.asset_id, func.count().label("pts"))
-        .where(PriceHistory.captured_at >= cutoff)
+        .where(
+            PriceHistory.captured_at >= cutoff,
+            PriceHistory.market_segment == 'raw',
+        )
         .group_by(PriceHistory.asset_id)
         .order_by(func.count().desc())
     )
@@ -249,7 +252,10 @@ def _get_recent_prices_for_prediction(
             )
             .label("rn"),
         )
-        .where(PriceHistory.asset_id.in_(asset_ids))
+        .where(
+            PriceHistory.asset_id.in_(asset_ids),
+            PriceHistory.market_segment == 'raw',
+        )
         .subquery()
     )
     rows = db.execute(
@@ -353,6 +359,7 @@ def _compute_delta_batch(
         .where(
             PriceHistory.asset_id.in_(asset_ids),
             PriceHistory.captured_at <= baseline_cutoff,
+            PriceHistory.market_segment == 'raw',
         )
         .subquery()
     )
@@ -383,6 +390,7 @@ def _compute_delta_batch(
             PriceHistory.asset_id.in_(asset_ids),
             PriceHistory.captured_at >= current_start,
             PriceHistory.captured_at <= now,
+            PriceHistory.market_segment == 'raw',
         )
         .subquery()
     )
@@ -474,6 +482,12 @@ def _upsert_signal(db: Session, *, signal: SignalRow) -> None:
 
 
 def _append_history(db: Session, *, signal: SignalRow, previous_label: str | None = None) -> None:
+    # Transition guard: only write when label changes or this is the first write.
+    # Without this guard, every sweep wrote one row per asset regardless of change,
+    # growing asset_signal_history by ~387k rows/day (Issue D, 2026-05-07).
+    # previous_label=None means the asset has no prior signal — first write always proceeds.
+    if previous_label is not None and previous_label == signal.label.value:
+        return
     db.add(
         AssetSignalHistory(
             asset_id=signal.asset_id,
@@ -742,24 +756,3 @@ def get_all_signals(db: Session, *, limit: int = 200) -> list[AssetSignal]:
     ).all()
 
 
-def get_daily_snapshot_signals(
-    db: Session,
-    *,
-    label: str | None = None,
-) -> list[AssetSignalHistory]:
-    from datetime import timezone
-
-    today_midnight = datetime.combine(
-        date.today(), datetime.min.time(), tzinfo=timezone.utc
-    )
-
-    q = (
-        select(AssetSignalHistory)
-        .where(AssetSignalHistory.computed_at < today_midnight)
-        .order_by(AssetSignalHistory.asset_id, AssetSignalHistory.computed_at.desc())
-        .distinct(AssetSignalHistory.asset_id)
-    )
-    if label is not None:
-        q = q.where(AssetSignalHistory.label == label)
-
-    return list(db.scalars(q).all())

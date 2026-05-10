@@ -4,9 +4,11 @@ import {
 } from '../lib/watchlist'
 import { WATCHLIST_CHANGED_EVENT } from '../types/watchlist'
 import type { WatchlistEntry } from '../types/watchlist'
+import { useUser } from '../contexts/UserContext'
 
 export function useWatchlist() {
   const [entries, setEntries] = useState<WatchlistEntry[]>(() => getWatchlist())
+  const { tier } = useUser()
 
   useEffect(() => {
     const sync = () => setEntries(getWatchlist())
@@ -23,10 +25,10 @@ export function useWatchlist() {
       removeFromWatchlist(assetId)
       return { ok: true }
     } else {
-      const result = addToWatchlist(assetId)
+      const result = addToWatchlist(assetId, tier)
       return result.ok ? { ok: true } : { ok: false, reason: result.reason }
     }
-  }, [])
+  }, [tier])
 
   const remove = useCallback((assetId: string) => {
     removeFromWatchlist(assetId)

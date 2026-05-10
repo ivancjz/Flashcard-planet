@@ -3,11 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import NavBar from '../components/NavBar'
 import TickerBar from '../components/TickerBar'
 import GameSwitcher from '../components/GameSwitcher'
-import ProGate from '../components/ProGate'
 import FilterDrawer from '../components/FilterDrawer'
 import CardGrid from '../components/CardGrid'
 import type { FilterState } from '../components/FilterDrawer'
-import { fetchStats, fetchCards, fetchTicker, fetchSetOptions } from '../api/api'
+import { fetchStats, fetchCards, fetchTicker, fetchSetOptions, exportCardsCsv } from '../api/api'
 import type { Signal, CardSummary, MarketStats, TickerItem } from '../types/api'
 
 type SortKey = 'change' | 'price' | 'volume' | 'recent'
@@ -197,6 +196,23 @@ export default function DashboardPage() {
             </span>
           )}
         </button>
+        <button
+          className="btn btn-ghost"
+          onClick={() => exportCardsCsv({
+            game: activeGame,
+            signal,
+            sort,
+            search: debouncedSearch || undefined,
+            set_id: selectedSets.length ? selectedSets : undefined,
+            rarity: selectedRarities.length ? selectedRarities : undefined,
+            price_min: priceMin ?? undefined,
+            price_max: priceMax ?? undefined,
+          })}
+          title="Export current view as CSV"
+          style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+        >
+          ↓ Export
+        </button>
         </div>
 
         {/* Active filter chips */}
@@ -240,18 +256,18 @@ export default function DashboardPage() {
               style={sort === 'price' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
               Price
             </button>
-            <ProGate locked feature="Sort by Volume" reason="Advanced sorting on Pro plan">
-              <button className="btn btn-ghost btn-sm" onClick={() => setSort('volume')}
-                style={sort === 'volume' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
-                Volume
-              </button>
-            </ProGate>
-            <ProGate locked feature="Sort by Recent" reason="Advanced sorting on Pro plan">
-              <button className="btn btn-ghost btn-sm" onClick={() => setSort('recent')}
-                style={sort === 'recent' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
-                Recent
-              </button>
-            </ProGate>
+            {/* TEMP: ProGate removed for testing phase. Restore when commercial tier is finalized.
+                Restore: <ProGate feature="Sort by Volume" reason="Advanced sorting on Pro plan"> */}
+            <button className="btn btn-ghost btn-sm" onClick={() => setSort('volume')}
+              style={sort === 'volume' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
+              Volume
+            </button>
+            {/* TEMP: ProGate removed for testing phase. Restore when commercial tier is finalized.
+                Restore: <ProGate feature="Sort by Recent" reason="Advanced sorting on Pro plan"> */}
+            <button className="btn btn-ghost btn-sm" onClick={() => setSort('recent')}
+              style={sort === 'recent' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
+              Recent
+            </button>
           </div>
         </div>
 
@@ -293,7 +309,7 @@ function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 6,
       background: 'var(--gold-glow)', color: 'var(--gold)',
-      border: '1px solid rgba(240,180,41,0.3)',
+      border: '1px solid var(--border-gold-soft)',
       borderRadius: 12, padding: '2px 8px 2px 10px', fontSize: 12,
       maxWidth: 220, overflow: 'hidden',
     }}>

@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
 _DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
 app = FastAPI(title=settings.project_name, lifespan=lifespan)
-app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site="lax", https_only=False)
+app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site="lax", https_only=False, max_age=30 * 24 * 60 * 60)  # 30-day persistent session
 app.mount(
     "/static",
     StaticFiles(directory=Path(__file__).resolve().parent / "static"),

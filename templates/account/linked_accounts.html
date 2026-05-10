@@ -31,15 +31,8 @@
     <div class="row">
       <div>
         <div class="label">Discord</div>
-        {% if user.discord_user_id %}
-          <div class="badge-linked">Linked ({{ user.username or user.discord_user_id }})</div>
-        {% else %}
-          <div class="badge-unlinked">Not linked</div>
-        {% endif %}
+        <div class="badge-unlinked">Alert delivery via webhook (no account linking required)</div>
       </div>
-      {% if not user.discord_user_id %}
-        <a href="/account/link-discord" class="btn btn-primary">Link Discord</a>
-      {% endif %}
     </div>
 
     <div style="margin-top: 24px;">
