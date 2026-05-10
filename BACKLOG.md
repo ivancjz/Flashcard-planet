@@ -455,6 +455,28 @@ Code PR (≤2 files, ~10 lines):
 **Proposed:** 2026-05-02 (TASK-204 audit finding)
 `failed_backfill_queue` permanent failure count is not visible in any admin endpoint. Add to next diagnostic endpoint PR alongside TASK-301 diag work.
 
+#### TASK-T03 — Frontend a11y deferred items (WCAG 2.1 AA)
+**Proposed:** 2026-05-08 (frontend WCAG audit; quick wins shipped on `fix/a11y-quick-wins`).
+**Quick wins shipped:** `nav-logo-sub` contrast (1.4.3), aria-labels on FilterDrawer/WatchlistPage form controls (3.3.2), keyboard activation for NavBar nav-link spans (2.1.1).
+
+**Deferred items, each warrants its own PR:**
+
+1. **Modal accessibility** — `CardPickerModal`, `PlusUpgradeModal`, and `FilterDrawer` are missing `role="dialog"` + `aria-modal="true"`, focus traps, Escape-key close, focus restoration on close, and scroll lock. WCAG 4.1.2, 2.4.3. Recommend tackling all three together so they share a `useDialog()` hook (or a `<Dialog>` wrapper from item 3 — pattern promotion).
+
+2. **GameSwitcher dropdown items** — "Coming soon" entries are `<div>` without keyboard semantics. WCAG 2.1.1. Should be `<button disabled>` or get role/tabIndex/onKeyDown.
+
+3. **Skip link** — no "Skip to main content" link before NavBar. WCAG 2.4.1. Add as first focusable element with visually-hidden-until-focused styling.
+
+4. **Live regions** — `DigestPreferencesPage` "Saved ✓" and NavBar unread-alert badge should announce changes via `aria-live="polite"`. WCAG 4.1.3.
+
+5. **Heading hierarchy** — `ComparePage.tsx:78` uses a `<div>` styled as a title instead of `<h1>`. WCAG 1.3.1, 2.4.6. Sweep for similar non-semantic titles across pages.
+
+6. **Link/button semantics** — `PlusUpgradeModal.tsx:35` is `<a href="/#plus">` for what is effectively a button action; either clarify as link with `aria-label` or convert to `<button>`. WCAG 4.1.2 (P2).
+
+**Triage criteria:** Item 1 (modals) is the highest-impact and the natural pair to "Pattern promotion" (`.modal` extraction). Items 2–4 are independent and small. Items 5–6 are P2 polish.
+
+**Audit report archived in:** session transcript 2026-05-08; `frontend/src/styles/theme.css` history reflects the design-system fixes that preceded this audit.
+
 #### TASK-301e2 — Market Digest Section 2: Personalised watchlist movers
 **Proposed:** 2026-05-03
 **Status:** deferred — do not start without operator approval

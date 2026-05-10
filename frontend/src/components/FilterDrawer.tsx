@@ -162,15 +162,17 @@ export default function FilterDrawer({ open, game, onClose, onChange, selectedSe
                   <input
                     type="number"
                     placeholder="Min"
+                    aria-label="Minimum TCG price in USD"
                     min={0}
                     value={priceMin ?? ''}
                     onChange={e => onChange({ selectedSets, selectedRarities, priceMin: e.target.value ? Number(e.target.value) : null, priceMax })}
                     style={{ ...inputStyle, width: '50%' }}
                   />
-                  <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>—</span>
+                  <span style={{ color: 'var(--text-muted)', flexShrink: 0 }} aria-hidden="true">—</span>
                   <input
                     type="number"
                     placeholder="Max"
+                    aria-label="Maximum TCG price in USD"
                     min={0}
                     value={priceMax ?? ''}
                     onChange={e => onChange({ selectedSets, selectedRarities, priceMin, priceMax: e.target.value ? Number(e.target.value) : null })}

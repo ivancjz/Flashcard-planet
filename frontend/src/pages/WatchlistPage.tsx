@@ -151,6 +151,7 @@ export default function WatchlistPage() {
               <select
                 value={sort}
                 onChange={e => setSort(e.target.value as WatchlistSort)}
+                aria-label="Sort watchlist by"
                 style={selectStyle}
               >
                 <option value="recently_added">Recently added</option>
