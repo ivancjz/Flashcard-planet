@@ -189,6 +189,10 @@ def web_cards(
         params["price_max"] = price_max
     price_filter = " ".join(price_parts)
 
+    # Validate sort — unknown values fall back to change
+    if sort not in {"change", "price", "volume", "recent"}:
+        sort = "change"
+
     # COUNT does not need LATERAL join results — simple join is sufficient
     total = db.execute(text(f"""
         SELECT COUNT(*)
@@ -384,8 +388,10 @@ def web_cards(
                 ORDER BY captured_at DESC LIMIT 1
             ) ebay ON TRUE
         """), params).fetchall()
-    else:
+    elif sort == "volume":
         # sort=volume: pre-aggregate eBay 24h count per asset (cheap, ebay_sold is small).
+        # Sort by real-time 24h eBay sold count from price_history.
+        # signal_context->>'current_n' was rejected: capped at _CURRENT_SAMPLE_POINTS=10.
         # LATERAL only runs for the 50 returned rows to fetch TCG and eBay prices.
         rows = db.execute(text(f"""
             WITH vol_24h AS (
@@ -429,7 +435,7 @@ def web_cards(
                   {set_filter}
                   {rarity_filter}
                   {price_filter}
-                        ORDER BY vol.cnt DESC NULLS LAST
+                ORDER BY vol.cnt DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub
             LEFT JOIN LATERAL (
@@ -443,6 +449,9 @@ def web_cards(
                 ORDER BY captured_at DESC LIMIT 1
             ) ebay ON TRUE
         """), params).fetchall()
+    else:
+        # Defensive fallback — unreachable after sort validation above.
+        rows = []
 
     return {
         "cards": [dict(r._mapping) for r in rows],
