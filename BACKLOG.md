@@ -283,7 +283,7 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 #### TASK-205 — Dashboard structure audit vs. v3 spec
 
 **Priority:** P2
-**Status:** ready
+**Status:** complete
 **Owner:** Claude Code
 **Preconditions:** None
 
@@ -301,7 +301,7 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 #### TASK-206 — Signals page Pro/Free hierarchy audit
 
 **Priority:** P2
-**Status:** ready
+**Status:** complete
 **Owner:** Claude Code
 **Preconditions:** None
 
@@ -344,7 +344,7 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 #### TASK-303 — `start_run` outside try block hardening
 
 **Priority:** P2
-**Status:** ready (re-evaluation conditions matter)
+**Status:** complete (already implemented — audit confirmed 2026-05-12)
 **Owner:** Claude Code
 **Preconditions:** Re-evaluate condition triggered, per CLAUDE.md §7:
 - (a) `scheduler_run_log` shows unexplained gaps >2h for any job, OR
@@ -400,7 +400,7 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 #### TASK-306 — Evaluate replacing Discord alerts with Sentry / Healthchecks / email
 
 **Priority:** P2
-**Status:** ready
+**Status:** complete
 **Owner:** Claude Code
 **Preconditions:** TASK-104 completed (Discord bot archived — done 2026-05-02).
 
@@ -593,6 +593,13 @@ When a task ships, move it here with PR number and merge date. Keep this section
 
 | TASK | Title | PR | Merged | Outcome |
 |---|---|---|---|---|
+| TASK-T06 | Delete stale /admin/diag/ingestion-history | commit 2176d0f | 2026-05-12 | Deleted 30-line endpoint with hardcoded 2026-04-23 timestamps. |
+| TASK-T07 | health_warnings in /admin/stats + /admin/diagnostics/json | commit 2176d0f | 2026-05-12 | Added health_warnings[] to /admin/stats (calls get_zero_output_jobs). Added /admin/diagnostics/json JSON endpoint. |
+| TASK-T08 | Operational quick reference in DEV_NOTES.md | commit 2176d0f | 2026-05-12 | Added 6-command "Operational health check" section to docs/DEV_NOTES.md. |
+| TASK-303 | start_run try/except hardening | already done | 2026-05-12 | Audit confirmed: all 9 scheduler jobs including signal-history-prune already have start_run wrapped in try/except with send_discord_alert. No change needed. |
+| TASK-205 | Dashboard structure audit vs. v3 spec A-1 | docs/audits/2026-05-12-dashboard-signals-audit.md | 2026-05-12 | Design intent met. SPA filter/sort covers all 5 v3 modules. Volume/Recent sort gating deferred to TASK-301. |
+| TASK-206 | Signals page Pro/Free hierarchy audit | docs/audits/2026-05-12-dashboard-signals-audit.md | 2026-05-12 | signals_page (Python) replaced by SPA. 3 gates open (testing phase): confidence, AI analysis, volume/recent sort. All tracked in TASK-301 via CLAUDE.md §12. |
+| TASK-306 | Discord alerts evaluation | docs/decisions/2026-05-12-discord-alerts-keep.md | 2026-05-12 | Decision: keep Discord REST API. Sentry/Healthchecks/email rejected. health_warnings on /admin/stats reduces alert fatigue without new tooling. |
 | TASK-101 | YGO signal graduation verification | BLOCKED — see active backlog | 2026-05-07 | Attempted 2026-05-07. Criteria 1 (IDLE state) and 3 (Card Detail renders) met. Criterion 2 (BREAKOUT/MOVE/WATCH) structurally unreachable: YGOPRODeck returns static prices, delta=0 on all 67 assets across 14 days. TASK-201 also blocked. Root: no real-time YGO sold-price source exists. |
 | TASK-606 | bulk-set-price-refresh failure logging gap | commits (scheduler.py + test) | 2026-05-07 | Added meta_json to finish_run on both success path (sets_processed, cards_processed, prices_recorded) and exception path (error_type, error_message[:500], sets_completed_before_failure). 1 new test; 7/7 pass. |
 | TASK-606 (PR) | bulk-set-price-refresh failure logging gap | PR #45 (admin stats) | 2026-05-04 | PR #45 exposed: meta_json never passed to finish_run. TASK-606 opened as P1 ready for fix. |

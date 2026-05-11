@@ -262,17 +262,15 @@ Four candidates. Pick one to start; they are independent of each other.
 
 Rough effort for remaining gaps: S each.
 
-#### A-1 Dashboard — needs deeper audit ❓ Unconfirmed
+#### A-1 Dashboard — ✅ Done (design intent met)
 
-Dashboard page renders 7 modules via AJAX/skeleton pattern
-(`site.py:434-549`). Works end-to-end. Whether it matches the v3
-Dashboard restructure target (reordered modules: Top Movers → Recent
-Price Updates → Highest Value Cards → Smart Pool Summary → Daily
-Summary) is not confirmed.
-
-**Task before scoping.** Have Claude Code compare the current dashboard
-structure against §3 A-1 of the original v3 plan and report specific
-gaps. Then decide whether to schedule.
+Audited 2026-05-12 (`docs/audits/2026-05-12-dashboard-signals-audit.md`).
+The Python template was replaced by the React SPA. The v3 spec's
+static multi-module layout (Top Movers / Recent / Highest Value /
+Smart Pool / Daily Summary) is delivered dynamically via sort controls.
+Design intent met. Two deferred items tracked:
+- Smart Pool Summary: admin-only today; Pro surface is a post-launch opportunity.
+- Volume + Recent sort: Pro-gating deferred to TASK-301 (CLAUDE.md §12 TEMP comments).
 
 #### A-5 Human Review UI ⬜ Not started
 
@@ -282,13 +280,18 @@ enhancements.
 
 Rough effort: M.
 
-#### A-3 Signals page — confirmation pass 🚧 Partial
+#### A-3 Signals page — 🚧 Partial (gates needed, tracked in TASK-301)
 
-`signals_page` has 10 `ProGate` callsites. Need to audit whether the
-Free vs Pro visual hierarchy matches the original v3 spec. If it does,
-flip to ✅. If not, scope the gap.
+Audited 2026-05-12 (`docs/audits/2026-05-12-dashboard-signals-audit.md`).
+`signals_page` (Python template) was replaced by the React SPA.
+Three Pro gates are currently open (testing phase per CLAUDE.md §12):
+1. Confidence score — ungated in `CardDetailPage.tsx`
+2. AI analysis — ungated (TEMP comment; CLAUDE.md §12 has restore steps)
+3. Volume + Recent sort — ungated (TEMP comment in `DashboardPage.tsx`)
 
-Rough effort: S audit + unknown remediation.
+All three will be wired during TASK-301. CSV export not implemented —
+add to TASK-301 scope as low-effort Pro feature (operator decision).
+Rough effort: S each gate + S for CSV export.
 
 ### Phase 3 — Data coverage expansion
 
