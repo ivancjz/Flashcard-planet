@@ -6,6 +6,7 @@ import SignalBadge from '../components/SignalBadge'
 import AIAnalysisSection from '../components/AIAnalysisSection'
 import SignalTimeline from '../components/SignalTimeline'
 import PlusUpgradeModal from '../components/PlusUpgradeModal'
+import ProGate from '../components/ProGate'
 import { fetchCard } from '../api/api'
 import { signalToMeta, formatDelta } from '../lib/utils'
 import { useWatchlist } from '../hooks/useWatchlist'
@@ -336,13 +337,22 @@ export default function CardDetailPage() {
                 ['Signal', <SignalBadge signal={card.signal} />],
                 ['Type', card.card_type ?? '—'],
                 ['Rarity', card.rarity ?? '—'],
-                ['Liquidity', card.liquidity_score != null ? `${card.liquidity_score}/100` : '—'],
               ].map(([label, value]) => (
                 <tr key={String(label)} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                   <td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>{label}</td>
                   <td style={{ padding: '8px 0', textAlign: 'right' }}>{value}</td>
                 </tr>
               ))}
+              <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                <td colSpan={2} style={{ padding: '8px 0' }}>
+                  <ProGate feature="Confidence score" reason="Signal confidence available on Pro plan">
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Liquidity</span>
+                      <span>{card.liquidity_score != null ? `${card.liquidity_score}/100` : '—'}</span>
+                    </div>
+                  </ProGate>
+                </td>
+              </tr>
             </table>
             <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>Set Alert</button>
