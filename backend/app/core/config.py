@@ -96,6 +96,13 @@ class Settings(BaseSettings):
     app_url: str = Field(default="http://localhost:8000")
     # Alerting / observability
     discord_alert_webhook_url: str | None = None
+    # LemonSqueezy
+    lemonsqueezy_api_key: str = ""
+    lemonsqueezy_store_id: str = ""
+    lemonsqueezy_product_id_pro: str = ""
+    lemonsqueezy_variant_id_standard: str = ""
+    lemonsqueezy_variant_id_founders: str = ""
+    lemonsqueezy_webhook_secret: str = ""
     signal_sweep_enabled: bool = True          # kill switch: set False to pause sweeps
     retry_pass_enabled: bool = True            # kill switch: set False to pause retry-pass
     alert_heartbeat_enabled: bool = True
