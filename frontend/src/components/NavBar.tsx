@@ -73,6 +73,15 @@ export default function NavBar() {
                   fontFamily: 'var(--font-mono)', fontWeight: 700,
                 }}>{badge.label}</span>
               )}
+              {tier === 'free' && (
+                <a
+                  href="/pricing"
+                  className="btn btn-gold-soft btn-sm"
+                  style={{ textDecoration: 'none', padding: '4px 12px', fontSize: 12 }}
+                >
+                  Upgrade
+                </a>
+              )}
               <span
                 className="nav-link"
                 {...activate(() => { window.location.href = '/auth/logout' })}
