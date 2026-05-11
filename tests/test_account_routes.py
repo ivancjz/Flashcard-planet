@@ -60,3 +60,13 @@ class TestDigestPreferences:
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.get("/api/v1/account/digest-preferences")
         assert resp.status_code in (401, 403)
+
+
+class TestCheckoutUrl:
+    def test_unauthenticated_returns_401(self):
+        app = FastAPI()
+        app.include_router(account_router, prefix="/api/v1")
+        app.dependency_overrides[get_optional_user] = lambda: None
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/v1/account/checkout-url")
+        assert resp.status_code in (401, 403)
