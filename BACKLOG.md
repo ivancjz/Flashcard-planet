@@ -519,6 +519,48 @@ Plus AI Analysis is a convenience feature — it saves the user from pasting dat
 - Response time: 15–30s acceptable (stream to frontend)
 - Precondition: `llm_request_log` table must exist (TASK-604 or equivalent)
 
+#### TASK-T04 — Create DESIGN.md (design system source of truth)
+**Proposed:** 2026-05-12 (plan-design-review finding)
+**Status:** needs_triage
+**Why:** The gold token system, component class hierarchy (.badge-*, .btn-*, .surface-*), dark-only decision, and the tierBadge pattern are scattered across `theme.css`, plan files, and audit notes. No single document exists for future design decisions to calibrate against. Every design review starts by grepping `theme.css` to reconstruct the system.
+**What:** Write `DESIGN.md` covering: colour semantics (signal palette vs severity palette vs gold/plus accent), typography scale, component class hierarchy with when-to-use guidance, dark-only rationale, tierBadge pattern and its planned evolution to CSS classes.
+**Effort:** S (1–2h to write). Zero code changes.
+**Depends on:** Nothing. Can be written anytime.
+
+#### TASK-T06 — Delete stale /admin/diag/ingestion-history endpoint
+**Proposed:** 2026-05-12 (plan-devex-review finding)
+**Status:** needs_triage
+**Why:** `backend/app/backstage/routes.py` `admin_diag_ingestion_history()` has hardcoded timestamps `BETWEEN '2026-04-23 11:30'::timestamptz AND '2026-04-23 14:30'::timestamptz` from the 2026-04-23 crash loop incident. The incident is resolved; the endpoint silently returns empty/stale results for any current diagnostic query. Per CLAUDE.md §4, diagnostic endpoints must have a removal condition — this one's condition passed months ago.
+**What:** Delete the `@router.get("/diag/ingestion-history")` route and its function body from `backend/app/backstage/routes.py`. No other code references it.
+**Effort:** XS (delete ~30 lines). Zero risk.
+**Depends on:** Nothing.
+
+#### TASK-T07 — Add health_warnings to /admin/stats + /admin/diagnostics/json endpoint
+**Proposed:** 2026-05-12 (plan-devex-review finding)
+**Status:** needs_triage
+**Why:** (1) `/admin/stats` shows `records_written: 0, status: success` for zero-output jobs with no explicit warning. The only signal is Discord webhook — if Discord is down, Ivan has no API-accessible health warning. (2) `/admin/diagnostics` returns HTML only, blocking `railway run curl ... | jq` workflows. Both gaps make production diagnosis slower.
+**What:**
+- In `admin_stats()`: call `get_zero_output_jobs(db, ...)` (already exists in `scheduler.py`) and append results to a `health_warnings: list[str]` field. Omit the field when empty.
+- Add `@router.get("/diagnostics/json")` that calls `build_standardized_diagnostics_summary(db)` and returns it as JSON (same dict, no HTML render).
+**Effort:** S (1-2h). No schema migration. Uses existing functions.
+**Depends on:** Nothing.
+
+#### TASK-T08 — Add operational quick reference to docs/DEV_NOTES.md
+**Proposed:** 2026-05-12 (plan-devex-review finding)
+**Status:** needs_triage
+**Why:** No documented pattern for "how do I check if production is healthy from the terminal?" CLAUDE.md §2.5 covers Railway CLI generally but doesn't show the specific `railway run bash -c 'curl $APP_URL/admin/stats ...'` pattern that Ivan uses for health checks.
+**What:** Add a 10-15 line "Operational health check" section to `docs/DEV_NOTES.md` with: base URL pattern, the `/admin/stats` curl command, and 3-5 key diagnostic jq paths.
+**Effort:** XS (<30 min).
+**Depends on:** Nothing.
+
+#### TASK-T05 — Migrate tierBadge() to CSS classes (.badge-pro, .badge-plus)
+**Proposed:** 2026-05-12 (plan-design-review finding)
+**Status:** needs_triage
+**Why:** Task 1 of the pattern-promotion plan (`.badge-gold`) deliberately excludes NavBar because the `tierBadge()` helper returns two colour-family variants (gold for PRO, violet for PLUS). Completing the badge-gold migration requires separate CSS classes for each tier so `tierBadge()` can return `className` instead of inline style properties.
+**What:** Add `.badge-pro` (gold palette, same as `.badge-gold`) and `.badge-plus` (violet palette: `var(--plus)`, `var(--plus-glow)`, `var(--border-plus-soft)`) to `theme.css`. Update `tierBadge()` to return `{ className: string; label: string }` instead of `TierBadgeStyle`. Update `NavBar.tsx` to use `className={badge.className}`.
+**Effort:** S (1h). Unblocked once pattern-promotion Task 1 is merged.
+**Depends on:** Pattern-promotion Task 1 (`.badge-gold` class added to `theme.css`).
+
 #### TASK-202b — OP13 data source gap (One Piece)
 **Proposed:** 2026-05-04 (TASK-202 spike finding)
 **Status:** deferred — do not start without operator approval
