@@ -7,7 +7,7 @@ import FilterDrawer from '../components/FilterDrawer'
 import CardGrid from '../components/CardGrid'
 import ProGate from '../components/ProGate'
 import type { FilterState } from '../components/FilterDrawer'
-import { fetchStats, fetchCards, fetchTicker, fetchSetOptions, exportCardsCsv } from '../api/api'
+import { fetchStats, fetchCards, fetchTicker, fetchSetOptions } from '../api/api'
 import type { Signal, CardSummary, MarketStats, TickerItem } from '../types/api'
 
 type SortKey = 'change' | 'price' | 'volume' | 'recent'
@@ -197,23 +197,16 @@ export default function DashboardPage() {
             </span>
           )}
         </button>
-        <button
-          className="btn btn-ghost"
-          onClick={() => exportCardsCsv({
-            game: activeGame,
-            signal,
-            sort,
-            search: debouncedSearch || undefined,
-            set_id: selectedSets.length ? selectedSets : undefined,
-            rarity: selectedRarities.length ? selectedRarities : undefined,
-            price_min: priceMin ?? undefined,
-            price_max: priceMax ?? undefined,
-          })}
-          title="Export current view as CSV"
-          style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
-        >
-          ↓ Export
-        </button>
+        <ProGate feature="CSV export" reason="Export signal data on Pro plan">
+          <a
+            href={`/api/v1/web/cards/export.csv?game=${activeGame}`}
+            className="btn btn-ghost btn-sm"
+            style={{ textDecoration: 'none' }}
+            download
+          >
+            Export CSV
+          </a>
+        </ProGate>
         </div>
 
         {/* Active filter chips */}

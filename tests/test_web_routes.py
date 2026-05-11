@@ -550,3 +550,42 @@ class WebExportCsvGateTests(TestCase):
         app, client = _make_app(db)
         client.get("/api/v1/web/cards/export")
         db.execute.assert_not_called()
+
+
+# ── TASK-301 D4: /cards/export.csv alias ─────────────────────────────────────
+
+class ExportCsvTests(TestCase):
+    """D4: /cards/export.csv is a browser-friendly alias for /cards/export."""
+
+    def _make_db(self):
+        db = MagicMock()
+        db.execute.return_value.fetchall.return_value = []
+        return db
+
+    def test_csv_export_requires_auth(self):
+        # Unauthenticated / free-tier request should return 403
+        db = self._make_db()
+        app, client = _make_app(db)  # defaults to free tier
+        resp = client.get("/api/v1/web/cards/export.csv")
+        self.assertIn(resp.status_code, [401, 403])
+
+    def test_plus_tier_returns_200_csv(self):
+        db = self._make_db()
+        app, client = _make_tier_app(db, "plus")
+        resp = client.get("/api/v1/web/cards/export.csv")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("text/csv", resp.headers.get("content-type", ""))
+
+    def test_pro_tier_returns_200_csv(self):
+        db = self._make_db()
+        app, client = _make_tier_app(db, "pro")
+        resp = client.get("/api/v1/web/cards/export.csv")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("text/csv", resp.headers.get("content-type", ""))
+
+    def test_free_tier_blocked_before_db_query(self):
+        """Tier gate fires before any DB query."""
+        db = self._make_db()
+        app, client = _make_app(db)
+        client.get("/api/v1/web/cards/export.csv")
+        db.execute.assert_not_called()

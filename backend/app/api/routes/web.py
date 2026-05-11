@@ -680,6 +680,36 @@ def export_cards(
     )
 
 
+@router.get("/cards/export.csv")
+def export_cards_csv_alias(
+    signal: str = Query(default="ALL"),
+    sort: str = Query(default="change"),
+    game: str = Query(default="pokemon"),
+    search: str | None = Query(default=None),
+    set_id: str | None = Query(default=None),
+    rarity: str | None = Query(default=None),
+    price_min: float | None = Query(default=None),
+    price_max: float | None = Query(default=None),
+    asset_ids: str | None = Query(default=None),
+    db: Session = Depends(get_database),
+    tier: str = Depends(_get_effective_tier),
+) -> StreamingResponse:
+    """Browser-friendly alias for /cards/export — .csv extension triggers native download dialog."""
+    return export_cards(
+        signal=signal,
+        sort=sort,
+        game=game,
+        search=search,
+        set_id=set_id,
+        rarity=rarity,
+        price_min=price_min,
+        price_max=price_max,
+        asset_ids=asset_ids,
+        db=db,
+        tier=tier,
+    )
+
+
 class CardsBatchRequest(BaseModel):
     asset_ids: list[str] = Field(max_length=500)
     signal: str = "ALL"
