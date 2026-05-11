@@ -32,12 +32,11 @@ export default function AIAnalysisSection({ aiAnalysis }: Props) {
 
       <a
         href="/#pricing"
+        className="btn btn-gold-soft"
         style={{
           display: 'inline-flex', alignItems: 'center', gap: 6,
           fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12,
-          color: 'var(--gold)', textDecoration: 'none',
-          border: '1px solid var(--border-gold-soft)', borderRadius: 6,
-          padding: '7px 16px', background: 'var(--gold-glow)',
+          textDecoration: 'none', borderRadius: 6, padding: '7px 16px',
           transition: 'opacity 0.15s',
         }}
       >

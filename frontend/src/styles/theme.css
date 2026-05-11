@@ -143,6 +143,16 @@ a { color: inherit; text-decoration: none; }
   color: var(--text-primary);
 }
 
+/* Tertiary button: gold-tinted bg, gold text. Between .btn-primary and .btn-ghost. */
+.btn-gold-soft {
+  background: var(--gold-glow);
+  color: var(--gold);
+  border: 1px solid var(--border-gold-strong);
+}
+.btn-gold-soft:hover {
+  background: var(--gold-dim);
+}
+
 .btn-sm {
   padding: 5px 12px;
   font-size: 12px;

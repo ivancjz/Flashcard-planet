@@ -49,12 +49,11 @@ export default function PlusUpgradeModal({ onClose }: Props) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <a
             href="/#plus"
+            className="btn btn-gold-soft"
             style={{
               display: 'block', textAlign: 'center', padding: '11px 20px',
               borderRadius: 6, fontFamily: 'var(--font-display)', fontWeight: 700,
               fontSize: 14, textDecoration: 'none',
-              background: 'var(--gold-glow)', border: '1px solid var(--border-gold-strong)',
-              color: 'var(--gold)',
             }}
           >
             View Plus plans →

@@ -201,7 +201,7 @@ export default function LandingPage() {
                     onChange={e => setWaitlistEmail(e.target.value)}
                     style={{
                       width: '100%', boxSizing: 'border-box', padding: '9px 12px',
-                      borderRadius: 6, border: '1px solid rgba(240,180,41,0.4)',
+                      borderRadius: 6, border: '1px solid var(--border-gold-strong)',
                       background: '#1a1a1a', color: '#f0f0f0', fontSize: 13,
                       marginBottom: 8, outline: 'none',
                     }}
@@ -209,10 +209,10 @@ export default function LandingPage() {
                   <button
                     type="submit"
                     disabled={waitlistState === 'loading'}
+                    className="btn btn-gold-soft"
                     style={{
                       width: '100%', padding: '10px 16px', borderRadius: 6,
-                      background: 'var(--gold-glow)', border: '1px solid rgba(240,180,41,0.4)',
-                      color: 'var(--gold)', fontWeight: 700, fontSize: 13,
+                      fontWeight: 700, fontSize: 13,
                       cursor: waitlistState === 'loading' ? 'wait' : 'pointer',
                       fontFamily: 'var(--font-display)',
                     }}
