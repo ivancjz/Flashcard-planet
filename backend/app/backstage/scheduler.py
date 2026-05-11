@@ -18,6 +18,7 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_INGESTION,
     JOB_RETRY,
     JOB_SIGNALS,
+    JOB_TRIAL_EXPIRY,
     JOB_YGO,
     JOB_EXPLANATION,
     finish_run,
@@ -100,6 +101,7 @@ _STARTUP_DELAY: dict[str, int] = {
     "explanation-sweep":      960,   # 16 min — after signal-sweep so new signals get explanations fast
     "market-digest-send":     1200,  # 20 min — after all other jobs have warmed up
     "signal-history-prune":   1500,  # 25 min — last; pure DB DELETE, no upstream dependency (TASK-105)
+    "trial-expiry-sweep":     900,   # 15 min — subscription maintenance, no upstream dependency
     # "retry-pass" intentionally omitted — resume separately when confidence is high
 }
 
@@ -386,7 +388,7 @@ def _send_heartbeat() -> None:
 
         # Zero-output alert: jobs that ran completed runs but wrote zero records.
         # Detects the eBay-outage pattern: API calls consumed, status=success, 0 rows written.
-        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION, JOB_DIGEST]
+        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,
@@ -1205,6 +1207,21 @@ def build_scheduler() -> BackgroundScheduler:
         _STARTUP_DELAY.get("signal-history-prune", 1500),
     )
 
+    scheduler.add_job(
+        _scheduled_trial_expiry_sweep,
+        "interval",
+        hours=6,
+        id="trial-expiry-sweep",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=None,
+    )
+    logger.info(
+        "trial-expiry-sweep registered. trigger=interval/6h first_run=startup+%ds",
+        _STARTUP_DELAY.get("trial-expiry-sweep", 900),
+    )
+
     return scheduler
 
 
@@ -1323,6 +1340,85 @@ def _send_market_digests() -> None:
             logger.exception("market-digest-send job failed: %s", e)
         finally:
             prune_old_runs(db, JOB_DIGEST)
+
+
+def _run_trial_expiry_sweep(session: Session) -> int:
+    """Downgrade users whose 7-day trial has expired.
+
+    Pure function: takes a session, returns the count of users downgraded.
+    Sets subscription_status='expired' and access_tier='free' for every user
+    whose subscription_status is 'trialing' and trial_ends_at is in the past.
+    """
+    from backend.app.models.user import User
+    now = datetime.now(UTC)
+    expired_users = session.execute(
+        select(User).where(
+            User.subscription_status == "trialing",
+            User.trial_ends_at.isnot(None),
+            User.trial_ends_at < now,
+        )
+    ).scalars().all()
+    count = 0
+    for user in expired_users:
+        user.subscription_status = "expired"
+        user.access_tier = "free"
+        count += 1
+    if count > 0:
+        session.flush()
+    return count
+
+
+def _scheduled_trial_expiry_sweep() -> None:
+    """Scheduled wrapper for _run_trial_expiry_sweep.
+
+    Runs every 6 hours. Downgrades users whose trial has expired,
+    writing a scheduler_run_log row on every exit path.
+    """
+    try:
+        with SessionLocal() as _log_session:
+            _run_id = start_run(_log_session, JOB_TRIAL_EXPIRY)
+    except Exception as exc:
+        logger.exception("start_run_failed job=%s", JOB_TRIAL_EXPIRY)
+        send_discord_alert(
+            "error",
+            f"CRITICAL: start_run 失败 — {JOB_TRIAL_EXPIRY}",
+            f"error={exc}\nJob 已跳过，本次无 run_log 记录",
+        )
+        return
+
+    _exc: BaseException | None = None
+    _log_meta: dict | None = None
+
+    try:
+        with SessionLocal() as session:
+            count = _run_trial_expiry_sweep(session)
+            session.commit()
+
+        _log_meta = {"users_downgraded": count}
+        logger.info(
+            "trial-expiry-sweep complete: users_downgraded=%d",
+            count,
+        )
+    except BaseException as exc:
+        _exc = exc
+        raise
+    finally:
+        log_status = "error" if _exc is not None else "success"
+        try:
+            with SessionLocal() as _log_session:
+                finish_run(
+                    _log_session, _run_id,
+                    status=log_status,
+                    records_written=_log_meta["users_downgraded"] if _log_meta else 0,
+                    meta_json=_log_meta,
+                    error_message=str(_exc) if _exc is not None else None,
+                )
+                prune_old_runs(_log_session, JOB_TRIAL_EXPIRY)
+        except Exception:
+            logger.exception(
+                "finish_run_failed job=%s run_id=%s",
+                JOB_TRIAL_EXPIRY, _run_id,
+            )
 
 
 def _run_signal_history_prune() -> None:

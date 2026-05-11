@@ -37,6 +37,7 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_INGESTION,
     JOB_RETRY,
     JOB_SIGNALS,
+    JOB_TRIAL_EXPIRY,
     JOB_YGO,
 )
 from backend.app.services.diagnostics_summary_service import build_standardized_diagnostics_summary
@@ -578,6 +579,7 @@ def admin_stats(
         JOB_BULK_REFRESH,
         JOB_EXPLANATION,
         JOB_HISTORY_PRUNE,
+        JOB_TRIAL_EXPIRY,
     ]
     scheduler = {
         "jobs": {job: _job_stats(db, job) for job in _tracked_jobs},
