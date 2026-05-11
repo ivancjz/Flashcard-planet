@@ -10,6 +10,7 @@ import WatchlistPage from './pages/WatchlistPage'
 import ComparePage from './pages/ComparePage'
 import AccountPage from './pages/AccountPage'
 import DigestPreferencesPage from './pages/DigestPreferencesPage'
+import PricingPage from './pages/PricingPage'
 import DevTierSwitcher from './components/DevTierSwitcher'
 import { UserProvider } from './contexts/UserContext'
 
@@ -26,6 +27,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/compare" element={<ComparePage />} />
         <Route path="/account" element={<AccountPage />} />
         <Route path="/account/digest-preferences" element={<DigestPreferencesPage />} />
+        <Route path="/pricing" element={<PricingPage />} />
       </Routes>
       <DevTierSwitcher />
     </BrowserRouter>
