@@ -12,6 +12,38 @@
 
 ---
 
+## Component Hierarchy
+
+The new classes layer onto the existing system. Knowing the full map prevents
+confusion when choosing which class to use.
+
+```
+Badge system:
+  .badge (base) ─┬─ .badge-breakout    signal labels
+                 ├─ .badge-move
+                 ├─ .badge-watch
+                 ├─ .badge-idle
+                 ├─ .badge-nodata
+                 └─ .badge-gold  ← NEW (tier accent, CTA, status pills)
+
+Button system:
+  .btn (base) ──┬─ .btn-primary     solid gold fill, highest emphasis
+                ├─ .btn-ghost       transparent, lowest emphasis
+                └─ .btn-gold-soft  ← NEW (gold-tinted bg, medium emphasis)
+
+Not a class (stays as JS helper — two colour variants, cannot share a single class):
+  tierBadge()  → returns inline styles
+                  PRO  tier → gold palette (var(--gold), var(--gold-glow))
+                  PLUS tier → violet palette (var(--plus), var(--plus-glow))
+```
+
+The `tierBadge()` helper is **intentionally excluded** from `.badge-gold` migration.
+Reason: the PLUS badge uses the violet token family, not gold. Merging both into
+`.badge-gold` would require a colour-modifier prop or two classes (`.badge-gold`,
+`.badge-plus`) — adding complexity that isn't justified yet. The helper stays.
+
+---
+
 ## Self-review findings (already addressed inline)
 
 - The original audit said "~4 sites" for Pattern A. The actual inventory found 12 sites split across **three sub-patterns** (badge pill, gold button, emphasis card). Splitting these is the difference between a clean refactor and a bad over-abstraction.
@@ -34,7 +66,7 @@
 **Class API:**
 
 ```css
-/* Pill-shaped gold-tinted accent. Use for tier labels, status pills, "coming soon", filter chips. */
+/* Pill-shaped gold-tinted accent. Use for tier labels, status pills, "coming soon". */
 .badge-gold {
   display: inline-flex;
   align-items: center;
@@ -49,23 +81,82 @@
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
+
+/* Compact chip variant with dismiss button. Same gold palette, slightly smaller radius.
+   Use for interactive filter chips with × dismiss buttons (DashboardPage active filters).
+   Note: the dismiss button goes inside as a sibling; this class does not control it. */
+.badge-gold-chip {
+  background: var(--gold-glow);
+  color: var(--gold);
+  border: 1px solid var(--border-gold-soft);
+  border-radius: 12px;           /* vs 20px for .badge-gold pill — both pill-like at this size */
+  padding: 2px 8px 2px 10px;     /* asymmetric: extra left space for label, tighter right */
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);     /* 11px; current inline uses 12px — minor change acceptable */
+  max-width: 220px;
+  overflow: hidden;
+}
 ```
+
+**Interaction states:**
+- `.badge-gold`: no hover state needed — these are non-interactive display elements (PRO label, COMING SOON, GameSwitcher pill).
+- `.badge-gold-chip`: no hover needed on the chip itself; the nested `×` dismiss button inherits `.btn:disabled` focus ring via PR #4's global `:focus-visible` rule.
+- `.btn-gold-soft`: hover defined (uses `var(--gold-dim)`, which is `rgba(240,180,41,0.25)` — slightly darker than `var(--gold-glow)` default). Disabled state intentionally inherits from `.btn:disabled` (opacity: 0.4, cursor: not-allowed) — no extra CSS required.
+
+**Site scope correction for Task 1:** DashboardPage active filter chip (`DashboardPage.tsx:309–317`, the `Chip` component) migrates to `.badge-gold-chip`, not `.badge-gold`. The sort control buttons at `DashboardPage.tsx:252–268` are NOT in scope — they are `.btn.btn-ghost.btn-sm` buttons with active states, and must remain as-is.
+
+**A11y fix bundled with Task 1:** While migrating the `Chip` component, fix the dismiss `×` button's touch target:
+```tsx
+// DashboardPage.tsx:317 — change padding: 0 to padding: '4px'
+<button onClick={onRemove} style={{ background: 'none', border: 'none',
+  color: 'var(--gold)', cursor: 'pointer', padding: '4px',
+  fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
+```
+This approximately doubles the tap target from ~16px to ~24px. Not 44px but significantly better. Full 44px touch target would require a larger font-size or min-height on the button — defer as a polish item.
 
 - [ ] **Step 1: Add `.badge-gold` to theme.css**
 
 Insert after `.badge-nodata` block (theme.css:167).
 
+**Scope clarifications (design review 2026-05-12):**
+- **AIAnalysisSection.tsx** — migrates to `.badge-gold` with `fontSize: 9` inline override
+- **LandingPage.tsx "COMING SOON"** — migrates to `.badge-gold`
+- **DashboardPage.tsx `Chip` component** — migrates to `.badge-gold-chip` (NOT `.badge-gold` — see class definitions above)
+- **`NavBar.tsx` tier badge** — DEFERRED. PR #4 already extracted inline styles into `tierBadge()` helper. The PRO (gold) and PLUS (violet) paths have different colour families; a full migration requires adding `.badge-plus` class first. No change in this task.
+- **`GameSwitcher.tsx` active pill** — EXCLUDED. This is a navigation tab (display font, 13px, cursor: pointer), not a static label. Cannot share `.badge-gold`'s mono/11px typography without a visual regression. Leave as-is; raw `rgba(0.35)` border value deferred to PR #5.
+
+**Revised scope: 3 sites (AIAnalysisSection, LandingPage:171, DashboardPage Chip)**
+
 - [ ] **Step 2: Migrate `AIAnalysisSection.tsx` PRO_BADGE**
 
-Replace the 9-prop inline style object with `className="badge-gold"`. Since `PRO_BADGE` is exported as a JSX element, change it from a styled `<span>` to `<span className="badge-gold">PRO</span>`.
+Delete the `PRO_BADGE: React.CSSProperties` const. Replace both `<span style={PRO_BADGE}>` usages with:
+```tsx
+<span className="badge-gold" style={{ fontSize: 9 }}>PRO</span>
+```
+The `fontSize: 9` override stays inline — no token exists below `--text-xs` (11px), and 9px is the intentional small size for this contextual badge.
 
-- [ ] **Step 3: Migrate `NavBar.tsx` tier badge**
+- [ ] **Step 3: Migrate `LandingPage.tsx:171` "COMING SOON"**
 
-Replace inline style block at line 50-55 with `className="badge-gold"`. Keep the `fontSize: 9` override inline for now (smaller than the default `var(--text-xs)` 11px) — token doesn't have a smaller size and one-off override is fine.
+Replace the 100% inline style span with `className="badge-gold"`. The current `borderRadius: 10` rounds to a pill at this element height — effectively same visual as `border-radius: 20px`.
 
-- [ ] **Step 4: Migrate remaining 3 sites**
+- [ ] **Step 4: Migrate `DashboardPage.tsx` `Chip` component + fix touch target**
 
-GameSwitcher active pill, LandingPage "COMING SOON", DashboardPage filter chips. Each should have `className="badge-gold"` plus only the props that legitimately differ (e.g. font-size on the dashboard chip is 12, not 11).
+Replace inline styles in the `Chip` component at line 309 with `.badge-gold-chip`. **Also fix the dismiss button touch target** (see a11y note above):
+```tsx
+// The Chip function (line 307–319) becomes:
+function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="badge-gold-chip">
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      <button onClick={onRemove} style={{ background: 'none', border: 'none',
+        color: 'var(--gold)', cursor: 'pointer', padding: '4px',
+        fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
+    </span>
+  )
+}
+```
 
 - [ ] **Step 5: Build + visual diff**
 
@@ -73,13 +164,13 @@ GameSwitcher active pill, LandingPage "COMING SOON", DashboardPage filter chips.
 npm run build
 ```
 
-Expected: bundle size shrinks slightly (CSS up by ~250 bytes, JS down by ~600 bytes after minified inline styles drop). Run `preview_start` and visually inspect each site. They should look identical.
+Expected: bundle size shrinks (CSS up by ~350 bytes for two classes, JS down by inline style removal). Run `npm run preview` and visually inspect AIAnalysisSection (badge next to "AI Analysis" header), LandingPage Pro card section (COMING SOON pill), and DashboardPage with active filters (filter chips). They should look visually identical.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add frontend/src/styles/theme.css frontend/src/components/AIAnalysisSection.tsx frontend/src/components/NavBar.tsx frontend/src/components/GameSwitcher.tsx frontend/src/pages/LandingPage.tsx frontend/src/pages/DashboardPage.tsx
-git commit -m "refactor(theme): extract .badge-gold class (5 sites)"
+git add frontend/src/styles/theme.css frontend/src/components/AIAnalysisSection.tsx frontend/src/pages/LandingPage.tsx frontend/src/pages/DashboardPage.tsx
+git commit -m "refactor(theme): extract .badge-gold + .badge-gold-chip classes (3 sites)"
 ```
 
 ---
@@ -112,9 +203,17 @@ git commit -m "refactor(theme): extract .badge-gold class (5 sites)"
 
 Each site already uses `<a>` or `<button>` — just add `className="btn btn-gold-soft"`. Drop the inline style props that the class now covers (background, border, color). Keep one-off props (padding deltas, fontSize) only when they're already different from the default `.btn`.
 
+- [ ] **Step 2.5: Fix raw rgba border values in LandingPage.tsx**
+
+While already touching `LandingPage.tsx`, replace the two raw rgba border values with the token:
+- `LandingPage.tsx:204`: `border: '1px solid rgba(240,180,41,0.4)'` → `border: '1px solid var(--border-gold-strong)'`
+- `LandingPage.tsx:214`: same substitution
+
+Zero visual change (values are identical), eliminates the last raw gold-border literals in the file.
+
 - [ ] **Step 3: Build + visual diff** (same pattern as Task 1).
 
-- [ ] **Step 4: Commit** as `refactor(theme): extract .btn-gold-soft class (4 sites)`.
+- [ ] **Step 4: Commit** as `refactor(theme): extract .btn-gold-soft class + fix raw gold-border tokens (4 sites)`.
 
 ---
 
@@ -198,22 +297,55 @@ This task is documented for completeness; the executor should NOT do it.
 
 ---
 
-## Order
+## Order (updated 2026-05-12)
 
-1. Task 1 (`.badge-gold`) — easiest, biggest win (5 sites → 1 class).
-2. Task 2 (`.btn-gold-soft`) — easy, 4 sites.
+1. Task 1 (`.badge-gold` + `.badge-gold-chip`) — 3 sites (AIAnalysisSection, LandingPage:171, DashboardPage Chip). Includes a11y dismiss-button fix.
+2. Task 2 (`.btn-gold-soft`) — 4 sites. Includes raw rgba token fixup in LandingPage.
 3. Task 3 (`.surface-emphasis`) — judgment call; ship only if operator agrees with debt-prevention rationale.
-4. Task 4 (`.modal-*`) — paired with TASK-T03 §1, do not ship standalone.
+4. Task 4 (`.modal-*`) — **DONE** in PR #3/4. Skip.
 5. Task 5 (`.drawer-*`) — DEFERRED.
 
-## Out of scope
+---
 
-- Tokenising the inline `--gold` opacity values that don't fit `--border-gold-soft/-strong` (e.g. `0.35`). Leave those alone unless they become the third variant.
-- Refactoring the existing `.badge-*` classes (badge-breakout, badge-move, etc.). They're separate semantics (signal labels) from `.badge-gold` (tier/CTA accent).
-- Migrating any inline style that uses CSS variables directly (e.g. `boxShadow: '0 0 32px var(--gold-glow)'`) but doesn't match a pattern at ≥3 sites.
+## NOT in scope (design review decisions, 2026-05-12)
+
+| Excluded item | Reason |
+|---|---|
+| `NavBar.tsx` tier badge | `tierBadge()` helper abstracts it; PLUS needs a separate `.badge-plus` class (TASK-T05). Deferred. |
+| `GameSwitcher.tsx` active pill | It's a navigation tab, not a static badge. Different font-family (display vs mono), size (13px vs 11px), weight (600 vs 700), and cursor (pointer). `rgba(0.35)` border deferred to PR #5. |
+| Sort control buttons `DashboardPage.tsx:252–268` | `.btn.btn-ghost.btn-sm` with active states. Not badge candidates. |
+| PR #5 inline styles to tokens (163 remaining sites) | Separate PR. Not blocked on this plan. |
+| `--text-2xs` token for 9px font | Single callsite override; a token for 9px adds machinery for a one-off. |
+
+---
+
+## What already exists (leverage in the codebase)
+
+- **Token system** — `--gold`, `--gold-glow`, `--gold-dim`, `--border-gold-soft`, `--border-gold-strong`, `--plus`, `--plus-glow`, `--border-plus-soft` all in `theme.css`
+- **Base classes** — `.badge` (base), `.btn` (base) with disabled treatment, `.btn-ghost`, `.btn-primary`, `.btn-sm`
+- **Signal badges** — `.badge-breakout`, `.badge-move`, `.badge-watch`, `.badge-idle`, `.badge-nodata` — separate semantics, do not touch
+- **Surface system** — `.surface`, `.surface-emphasis`, `.surface-emphasis-firm` already extracted (PR #3)
+- **Modal/drawer** — `.modal-backdrop`, `.modal`, `.modal-header`, `.modal-section`, `.drawer-*` already extracted (PR #3/4)
+- **Focus ring** — global `:focus-visible` rule already covers all new interactive elements (PR #4)
+- **`tierBadge.ts`** — abstracts the NavBar PRO/PLUS badge inline styles. Not touched in this plan; will be the target of TASK-T05.
+
+---
 
 ## Verified by
 
 - Pattern inventory: Explore subagent grep across all 25 .tsx files in `frontend/src/`, 2026-05-08.
 - Token availability: read of theme.css after items 1+2 ship.
 - Tradeoff for Task 3 (single-use extraction): documented in task body.
+- Design review: plan-design-review 2026-05-12 (5/10 → 8/10 overall).
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | clean | 6 issues, 0 critical gaps (SCOPE_REDUCED mode) |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 | clean | score: 5/10 → 8/10, 8 decisions |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
+
+**VERDICT: ENG + DESIGN CLEARED — ready to implement.**
