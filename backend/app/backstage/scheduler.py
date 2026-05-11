@@ -1348,9 +1348,34 @@ def _run_trial_expiry_sweep(session: Session) -> int:
     Pure function: takes a session, returns the count of users downgraded.
     Sets subscription_status='expired' and access_tier='free' for every user
     whose subscription_status is 'trialing' and trial_ends_at is in the past.
+    Also sends a day-6 conversion email to users whose trial expires within 48h.
     """
     from backend.app.models.user import User
     now = datetime.now(UTC)
+
+    # Send day-6 conversion emails to trials expiring within 48h (sweep runs every 6h)
+    settings = get_settings()
+    app_url = settings.app_url or "https://flashcard-planet.up.railway.app"
+    warning_candidates = session.execute(
+        select(User).where(
+            User.subscription_status == "trialing",
+            User.trial_ends_at.isnot(None),
+            User.trial_ends_at > now,
+            User.trial_ends_at <= now + timedelta(hours=48),
+        )
+    ).scalars().all()
+    for user in warning_candidates:
+        try:
+            from backend.app.email.resend_client import send_trial_expiring_soon_email
+            send_trial_expiring_soon_email(
+                user.email,
+                user.trial_ends_at.strftime("%B %d, %Y"),
+                app_url=app_url,
+            )
+        except Exception:
+            logger.warning("trial_expiry_email_failed user_id=%s", user.id)
+
+    # Downgrade expired trials
     expired_users = session.execute(
         select(User).where(
             User.subscription_status == "trialing",
