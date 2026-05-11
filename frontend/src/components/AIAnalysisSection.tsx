@@ -2,24 +2,13 @@ interface Props {
   aiAnalysis: string | null
 }
 
-const PRO_BADGE: React.CSSProperties = {
-  fontSize: 9, padding: '3px 8px',
-  background: 'var(--gold-glow)',
-  color: 'var(--gold)',
-  border: '1px solid var(--border-gold-soft)',
-  borderRadius: 20,
-  fontFamily: 'var(--font-mono)',
-  fontWeight: 700,
-  letterSpacing: '0.04em',
-}
-
 export default function AIAnalysisSection({ aiAnalysis }: Props) {
   if (aiAnalysis) {
     return (
       <div className="surface" style={{ padding: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14 }}>🤖 AI Analysis</div>
-          <span style={PRO_BADGE}>PRO</span>
+          <span className="badge-gold" style={{ fontSize: 9 }}>PRO</span>
         </div>
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.65, margin: 0 }}>{aiAnalysis}</p>
       </div>
@@ -30,7 +19,7 @@ export default function AIAnalysisSection({ aiAnalysis }: Props) {
     <div className="surface" style={{ padding: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14 }}>🤖 AI Analysis</div>
-        <span style={PRO_BADGE}>PRO</span>
+        <span className="badge-gold" style={{ fontSize: 9 }}>PRO</span>
       </div>
 
       <div className="skeleton" style={{ height: 12, width: '90%', marginBottom: 8 }} />

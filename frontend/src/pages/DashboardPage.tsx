@@ -306,15 +306,9 @@ export default function DashboardPage() {
 
 function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 6,
-      background: 'var(--gold-glow)', color: 'var(--gold)',
-      border: '1px solid var(--border-gold-soft)',
-      borderRadius: 12, padding: '2px 8px 2px 10px', fontSize: 12,
-      maxWidth: 220, overflow: 'hidden',
-    }}>
+    <span className="badge-gold-chip">
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-      <button onClick={onRemove} style={{ background: 'none', border: 'none', color: 'var(--gold)', cursor: 'pointer', padding: 0, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
+      <button onClick={onRemove} style={{ background: 'none', border: 'none', color: 'var(--gold)', cursor: 'pointer', padding: '4px', fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
     </span>
   )
 }

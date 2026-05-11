@@ -168,7 +168,7 @@ export default function LandingPage() {
             <div className="surface" style={{ padding: 28, border: '1px solid var(--gold)', boxShadow: '0 0 32px var(--gold-glow)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
                 <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Pro</div>
-                <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--gold)', background: 'var(--gold-glow)', border: '1px solid var(--border-gold-soft)', borderRadius: 10, padding: '2px 7px' }}>COMING SOON</span>
+                <span className="badge-gold" style={{ fontSize: 9 }}>COMING SOON</span>
               </div>
               <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>For serious TCG investors.</div>
               {[
