@@ -40,5 +40,16 @@ def start_trial(
     started = _start_trial_for_user(current_user)
     if started:
         db.commit()
+        try:
+            from backend.app.email.resend_client import send_trial_started_email
+            send_trial_started_email(
+                current_user.email,
+                current_user.trial_ends_at.strftime("%B %d, %Y"),
+            )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "trial_welcome_email_failed user_id=%s", current_user.id
+            )
         return {"status": "started", "trial_ends_at": current_user.trial_ends_at.isoformat()}
     return {"status": "already_active", "subscription_status": current_user.subscription_status}
