@@ -26,6 +26,7 @@ from backend.app.models.price_history import PriceHistory
 from backend.app.models.scheduler_run_log import SchedulerRunLog
 from backend.app.models.pro_waitlist import ProWaitlist
 from backend.app.models.user import User
+from backend.app.backstage.scheduler import get_zero_output_jobs
 from backend.app.services.scheduler_run_log_service import (
     JOB_BULK_REFRESH,
     JOB_DIGEST,
@@ -336,6 +337,15 @@ def diagnostics_page(
     return HTMLResponse(_render_diagnostics_html(summary))
 
 
+@router.get("/diagnostics/json")
+def diagnostics_json(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    """JSON variant of /diagnostics — scriptable via `railway run curl ... | jq`."""
+    return build_standardized_diagnostics_summary(db)
+
+
 @router.patch("/users/{discord_user_id}/tier")
 def admin_set_user_tier(
     discord_user_id: str,
@@ -573,7 +583,21 @@ def admin_stats(
         "jobs": {job: _job_stats(db, job) for job in _tracked_jobs},
     }
 
-    return {
+    settings = get_settings()
+    _zero_output_monitored = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION, JOB_DIGEST]
+    zero_output = get_zero_output_jobs(
+        db,
+        job_names=_zero_output_monitored,
+        window_hours=settings.zero_output_alert_window_hours,
+        now=now,
+    )
+    window_h = settings.zero_output_alert_window_hours
+    health_warnings = [
+        f"{job}: 0 records written in last {window_h}h (ran successfully but produced no data)"
+        for job in zero_output
+    ]
+
+    result: dict[str, Any] = {
         "snapshot_at": now.isoformat(),
         "assets": {
             "total": total_assets,
@@ -598,33 +622,9 @@ def admin_stats(
         },
         "scheduler": scheduler,
     }
-
-
-@router.get("/diag/ingestion-history")
-def admin_diag_ingestion_history(
-    _: None = Depends(require_admin_key),
-    db: Session = Depends(get_database),
-) -> dict[str, Any]:
-    """Historical ingestion activity to diagnose crash loop onset."""
-    window = db.execute(text("""
-        SELECT job_name, status, started_at, finished_at, records_written, errors, error_message
-        FROM scheduler_run_log
-        WHERE started_at BETWEEN '2026-04-23 11:30'::timestamptz AND '2026-04-23 14:30'::timestamptz
-        ORDER BY started_at ASC
-    """)).fetchall()
-
-    last_success = db.execute(text("""
-        SELECT started_at, finished_at, records_written
-        FROM scheduler_run_log
-        WHERE job_name = 'ingestion' AND status = 'success'
-        ORDER BY started_at DESC
-        LIMIT 3
-    """)).fetchall()
-
-    return {
-        "window_11:30_to_14:30": [dict(r._mapping) for r in window],
-        "ingestion_last_success": [dict(r._mapping) for r in last_success],
-    }
+    if health_warnings:
+        result["health_warnings"] = health_warnings
+    return result
 
 
 @router.get("/diag/ygo-verify")

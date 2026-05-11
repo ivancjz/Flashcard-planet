@@ -164,3 +164,36 @@ When you are looking for a better movement source, compare these pool metrics af
 - assets whose latest two prices are unchanged
 
 `python -m scripts.price_history_summary` now ends with a short `Operator conclusion` block that tells you whether `High-Activity Trial` is actually outperforming the other two pools and whether that points toward smarter pool selection or provider #2 preparation.
+
+## Operational health check
+
+Quick reference for checking production health from the terminal.
+
+```bash
+# Get the admin key and base URL from Railway env
+railway variables | grep -E "ADMIN_KEY|APP_URL"
+
+# Full health snapshot — pipe to jq for readability
+railway run bash -c 'curl -s "$APP_URL/admin/stats" -H "X-Admin-Key: $ADMIN_KEY" | jq'
+
+# Signal distribution only
+railway run bash -c 'curl -s "$APP_URL/admin/stats" -H "X-Admin-Key: $ADMIN_KEY" | jq .signals'
+
+# Scheduler job health (last run, records written, status)
+railway run bash -c 'curl -s "$APP_URL/admin/stats" -H "X-Admin-Key: $ADMIN_KEY" | jq .scheduler.jobs'
+
+# Zero-output warnings (field only appears when present)
+railway run bash -c 'curl -s "$APP_URL/admin/stats" -H "X-Admin-Key: $ADMIN_KEY" | jq .health_warnings'
+
+# Full structured diagnostic summary (JSON — pipe to jq)
+railway run bash -c 'curl -s "$APP_URL/admin/diagnostics/json" -H "X-Admin-Key: $ADMIN_KEY" | jq'
+
+# Tail live production logs
+railway logs --service backend
+```
+
+**Key endpoints:**
+- `GET /admin/stats` — operational snapshot (assets, price history, signals, scheduler jobs, health warnings)
+- `GET /admin/diagnostics/json` — full structured diagnostic summary
+- `GET /admin/diagnostics` — HTML version of the above (browser-friendly)
+- `GET /health` — DB reachability check (no auth required)
