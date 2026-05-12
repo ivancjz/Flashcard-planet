@@ -282,3 +282,86 @@ def test_fetch_failure_increments_fail_count_and_skips_snapshot():
 
         snapshots = db.scalars(select(ListingSnapshot)).all()
         assert len(snapshots) == 0
+
+
+def test_failures_captured_in_meta_json():
+    """Per-product failure details appear in meta_json["failures"] (Codex P1).
+
+    Two products fail; the result must contain a "failures" list with two entries,
+    each carrying product_id, error_type, and a non-empty message. Successful
+    runs must NOT include a "failures" key.
+    """
+    import httpx
+    from backend.app.ingestion.sealed_browse_client import run_sealed_ingest
+
+    two_products = [
+        ProductConfig(name="Alpha ETB", set_name="Set A", ebay_search_query="q1", product_type="etb", game="pokemon"),
+        ProductConfig(name="Beta Box", set_name="Set B", ebay_search_query="q2", product_type="booster_box", game="pokemon"),
+    ]
+
+    mock_settings = MagicMock()
+    mock_settings.ebay_app_id = "fake_app_id"
+    mock_settings.ebay_cert_id = "fake_cert_id"
+
+    mock_client_instance = MagicMock()
+    mock_client_cls = MagicMock()
+    mock_client_cls.return_value.__enter__ = MagicMock(return_value=mock_client_instance)
+    mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+    with _session() as db:
+        with (
+            patch("backend.app.ingestion.sealed_browse_client.get_settings", return_value=mock_settings),
+            patch("backend.app.ingestion.sealed_browse_client.load_sealed_products", return_value=two_products),
+            patch("backend.app.ingestion.sealed_browse_client.httpx.Client", mock_client_cls),
+            patch("backend.app.ingestion.sealed_browse_client._get_oauth_token", return_value="fake_token"),
+            patch(
+                "backend.app.ingestion.sealed_browse_client._fetch_listings_for_product",
+                side_effect=httpx.HTTPStatusError("503 Service Unavailable", request=MagicMock(), response=MagicMock()),
+            ),
+        ):
+            result = run_sealed_ingest(db)
+
+        assert result["products_failed"] == 2
+        assert "failures" in result
+        assert len(result["failures"]) == 2
+
+        product_ids = {f["product_id"] for f in result["failures"]}
+        assert product_ids == {"Alpha ETB", "Beta Box"}
+
+        for entry in result["failures"]:
+            assert entry["error_type"] == "HTTPStatusError"
+            assert entry["message"]  # non-empty
+
+
+def test_no_failures_key_when_all_succeed():
+    """meta_json must NOT include a 'failures' key when every product succeeds."""
+    from backend.app.ingestion.sealed_browse_client import run_sealed_ingest
+
+    one_product = [ProductConfig(
+        name="Good ETB", set_name="Set G", ebay_search_query="q", product_type="etb", game="pokemon",
+    )]
+
+    mock_settings = MagicMock()
+    mock_settings.ebay_app_id = "fake_app_id"
+    mock_settings.ebay_cert_id = "fake_cert_id"
+
+    mock_client_cls = MagicMock()
+    mock_client_cls.return_value.__enter__ = MagicMock(return_value=MagicMock())
+    mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+    with _session() as db:
+        with (
+            patch("backend.app.ingestion.sealed_browse_client.get_settings", return_value=mock_settings),
+            patch("backend.app.ingestion.sealed_browse_client.load_sealed_products", return_value=one_product),
+            patch("backend.app.ingestion.sealed_browse_client.httpx.Client", mock_client_cls),
+            patch("backend.app.ingestion.sealed_browse_client._get_oauth_token", return_value="fake_token"),
+            patch(
+                "backend.app.ingestion.sealed_browse_client._fetch_listings_for_product",
+                return_value=(None, 2, False, []),  # valid "not enough listings" result
+            ),
+            patch("backend.app.ingestion.sealed_browse_client.time.sleep"),
+        ):
+            result = run_sealed_ingest(db)
+
+        assert result["products_failed"] == 0
+        assert "failures" not in result
