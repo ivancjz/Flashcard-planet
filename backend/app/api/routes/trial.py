@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from backend.app.api.deps import get_database, get_current_user
 from backend.app.models.user import User
 
-TRIAL_DURATION_DAYS = 7
+TRIAL_DURATION_DAYS = 14
 _ACTIVE_STATUSES = {"active", "trialing", "past_due", "cancelled"}
 
 router = APIRouter(prefix="/trial", tags=["trial"])
@@ -36,7 +36,7 @@ def start_trial(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_database),
 ) -> dict[str, str]:
-    """Start a 7-day Pro trial for a free-tier user. No-op if already active."""
+    """Start a 14-day Pro trial for a free-tier user. No-op if already active."""
     started = _start_trial_for_user(current_user)
     if started:
         db.commit()

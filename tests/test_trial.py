@@ -19,7 +19,7 @@ def test_trial_sets_trialing_status():
     assert user.subscription_status == "trialing"
     assert user.access_tier == "pro"
     assert user.trial_started_at is not None
-    expected_end = now + timedelta(days=7)
+    expected_end = now + timedelta(days=14)
     assert abs((user.trial_ends_at - expected_end).total_seconds()) < 5
 
 
