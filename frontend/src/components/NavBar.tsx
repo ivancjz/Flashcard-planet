@@ -122,8 +122,8 @@ export default function NavBar() {
         )}
       </div>
 
-      {/* Right side: spacer · PRO badge · Avatar dropdown */}
-      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+      {/* Right side: PRO badge · Avatar dropdown (sits right because nav-links has flex:1) */}
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
         {/* Auth state — show nothing while loading */}
         {!loading && (
           email ? (

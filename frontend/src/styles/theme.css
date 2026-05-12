@@ -7,10 +7,13 @@
 
 /* ── Reset ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-/* Prevent horizontal scroll on all pages. Root cause: landing hero floating cards with
+/* Prevent page-level horizontal scroll. Root cause: landing hero floating cards with
    position:absolute + rotation (float-anim-2 rotate(3deg)) escape their 320px grid
-   column at certain viewport widths. overflow-x:hidden is the guard; the root cause
-   is also fixed below via .landing-hero-grid > div:last-child { overflow:hidden }. */
+   column. Root cause also fixed below via .landing-hero-grid > div:last-child { overflow:hidden }.
+   Guard must be on BOTH html and body: position:sticky elements (the nav) escape
+   body's overflow clipping and require html-level containment. The nav-links container
+   uses overflow-x:auto (see below) to allow swipeable inner scroll without breaking
+   the page-level guard. */
 html, body { overflow-x: hidden; max-width: 100vw; }
 body { background: var(--bg-base); color: var(--text-primary); font-family: var(--font-body); }
 button { font-family: inherit; cursor: pointer; border: none; background: none; }
@@ -206,6 +209,17 @@ a { color: inherit; text-decoration: none; }
   cursor: pointer;
   flex-shrink: 0;
 }
+
+/* On narrow viewports, compress nav spacing so nav-links gets positive width for scrolling.
+   At 375px with defaults: logo(219)+auth(70)+gaps(48)=337 > 327 inner → 0px for nav-links.
+   Tiered compression gives nav-links positive scrollable space at all widths ≥320px.
+   Hamburger drawer replaces this approach in PR #15 (TASK-509). */
+@media (max-width: 480px) {
+  .nav { gap: 8px; padding: 0 12px; }
+}
+@media (max-width: 340px) {
+  .nav { gap: 4px; padding: 0 6px; }
+}
 .nav-logo-sub {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -219,7 +233,18 @@ a { color: inherit; text-decoration: none; }
   align-items: center;
   gap: 4px;
   flex: 1;
-  justify-content: center;
+  min-width: 0; /* allow flex:1 to shrink below content size */
+  justify-content: flex-start;
+  /* Option C mobile nav: allow horizontal scroll within this container so all
+     nav items remain reachable by swipe on narrow viewports. The page body+html
+     do NOT scroll — overflow-x:hidden on both contains the page. The nav strip
+     scrolls within its own bounds. Hamburger drawer replaces this in PR #15. */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
+}
+.nav-links::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Edge */
 }
 
 .nav-link {
