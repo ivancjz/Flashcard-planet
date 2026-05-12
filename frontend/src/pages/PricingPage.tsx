@@ -44,21 +44,39 @@ export default function PricingPage() {
   const { tier } = useUser()
   const [loading, setLoading] = useState(false)
 
-  async function handleUpgrade() {
+  async function handleStartTrial() {
     setLoading(true)
     try {
-      const resp = await fetch('/api/v1/account/checkout-url?variant=standard', {
+      const resp = await fetch('/api/v1/trial/start', {
+        method: 'POST',
         credentials: 'include',
       })
       if (!resp.ok) {
-        window.location.href = '/?upgrade=1'
+        window.location.href = '/login'
         return
       }
-      const { checkout_url } = await resp.json()
-      window.location.href = checkout_url
+      const data = await resp.json()
+      if (data.status === 'started') {
+        window.location.href = '/market'
+      } else {
+        // Already on an active subscription — go to checkout for payment
+        await handleCheckout()
+      }
     } finally {
       setLoading(false)
     }
+  }
+
+  async function handleCheckout() {
+    const resp = await fetch('/api/v1/account/checkout-url?variant=standard', {
+      credentials: 'include',
+    })
+    if (!resp.ok) {
+      window.location.href = '/?upgrade=1'
+      return
+    }
+    const { checkout_url } = await resp.json()
+    window.location.href = checkout_url
   }
 
   return (
@@ -136,7 +154,7 @@ export default function PricingPage() {
                 className="btn btn-primary"
                 style={{ width: '100%', justifyContent: 'center' }}
                 disabled={loading}
-                onClick={handleUpgrade}
+                onClick={handleStartTrial}
               >
                 {loading ? 'Loading…' : 'Start 14-day free trial →'}
               </button>

@@ -66,6 +66,19 @@ def test_pricing_page_contains_14_day():
     assert "7-day" not in content, "Found stale '7-day' string in PricingPage.tsx"
 
 
+def test_pricing_page_cta_calls_trial_start_not_checkout():
+    """Pricing CTA must call /trial/start, not /account/checkout-url directly (Codex P1).
+
+    With TRIAL_AUTO_START=False at registration, the CTA is the only way
+    a free user can start their trial.
+    """
+    from pathlib import Path
+    content = (Path(__file__).parent.parent / "frontend" / "src" / "pages" / "PricingPage.tsx").read_text(encoding="utf-8")
+    assert "handleStartTrial" in content, "CTA must call handleStartTrial"
+    assert "/api/v1/trial/start" in content, "Must call trial/start endpoint"
+    assert "handleCheckout" in content, "handleCheckout must exist as paid-upgrade fallback"
+
+
 # ---------------------------------------------------------------------------
 # TASK-506: trial auto-start gate
 # ---------------------------------------------------------------------------
