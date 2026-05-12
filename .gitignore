@@ -5,8 +5,17 @@ __pycache__/
 logs/
 .worktrees/
 *.log
-.claude/
+# Ignore .claude/ contents by default, but track specs and playbooks
+.claude/*
+!.claude/specs/
+!.claude/playbooks/
 .codexhome/
 frontend/dist/
 .pytest_cache/
 .pytest-cache-local/
+
+# ¡Kbut DO track Phase 1 specs and playbooks (handoffs stay ignored)
+!.claude/specs/
+!.claude/specs/**
+!.claude/playbooks/
+!.claude/playbooks/**
