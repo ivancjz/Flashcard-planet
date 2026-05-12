@@ -4,8 +4,34 @@
 >
 > **This file is for Claude Code to consume autonomously.** When picking up a session and there is no specific operator instruction, read this file and start the highest-priority task you have evidence to safely execute. See §0 below.
 
-**Last updated:** 2026-05-08 (v6 — TASK-103b duplicate removed, TASK-105 promoted from CLAUDE.md §7 Issue D for Phase 2)
+**Last updated:** 2026-05-13 (v7 — PR #14 split decision added; TASK-509 mobile nav)
 **Maintained by:** Ivan (operator) with proposed updates from Claude Code via PR
+
+---
+
+## Decision log
+
+### Decision (2026-05-13): PR #14 split into PR #14a / #14b / #14c
+
+**Authority:** Ivan + claude.ai (strategy session 2026-05-13).
+
+The spec's single PR #14 bundled six items: backups, PgBouncer, rate limiting, audit log, Sentry+PostHog, structlog. Split into three PRs:
+
+- **PR #14a** (this PR): Postgres backups to R2 + restore drill + Discord alert on failure
+- **PR #14b** (future): Rate limiting (slowapi) + audit log + Sentry + PostHog + structlog
+- **PR #14c** (future): PgBouncer connection pooling — after prepared-statement audit
+
+**Rationale:**
+1. Backups (14a) are the only true P0 and carry a 7-day verification window ("7 consecutive days of backup logs" per acceptance criteria). That window should not gate the observability cluster.
+2. PgBouncer (14c) carries prepared-statement compatibility risk requiring a codebase audit before any code lands — different release profile from the rest.
+3. The observability cluster (14b: rate limiting, audit log, Sentry, PostHog, structlog) is internally cohesive and ships independently of both backups and PgBouncer.
+
+**Scope mapping** (spec PR #14 items → split PRs):
+- Scope item 1 (backups) → PR #14a
+- Scope items 3, 4, 5, 6 (rate limiting, audit log, Sentry+PostHog, structlog) → PR #14b
+- Scope item 2 (PgBouncer) → PR #14c
+
+**The spec section "PR #14"** remains the merged source of truth for scope requirements. This split is a sequencing decision, not a scope reduction.
 
 ---
 

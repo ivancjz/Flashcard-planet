@@ -27,9 +27,10 @@ JOB_HEARTBEAT    = "alert-heartbeat"
 JOB_YGO          = "yugioh-ingestion"
 JOB_EXPLANATION  = "explanation-sweep"
 JOB_DIGEST       = "market-digest-send"
-JOB_HISTORY_PRUNE = "signal-history-prune"
-JOB_TRIAL_EXPIRY  = "trial-expiry-sweep"
-JOB_SEALED_INGEST = "sealed-ingest"
+JOB_HISTORY_PRUNE   = "signal-history-prune"
+JOB_TRIAL_EXPIRY    = "trial-expiry-sweep"
+JOB_SEALED_INGEST   = "sealed-ingest"
+JOB_POSTGRES_BACKUP = "postgres-backup"   # PR #14a
 
 _KEEP_RUNS = 50
 
