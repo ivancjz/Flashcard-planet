@@ -47,23 +47,27 @@ function CardItem({ card, watched, onClick, onToggleWatch }: {
         '--card-glow-color': `${meta.color}20`,
       } as React.CSSProperties}
     >
-      <button
-        className="icon-button"
-        onClick={e => { e.stopPropagation(); onToggleWatch() }}
-        style={{
-          position: 'absolute', top: 8, right: 8, zIndex: 2,
-          background: 'rgba(12,12,16,0.7)', border: 'none', borderRadius: '50%',
-          width: 28, height: 28, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 16, color: watched ? 'var(--gold)' : 'var(--text-muted)',
-        }}
-        aria-label={watched ? 'Remove from watchlist' : 'Add to watchlist'}
-        title={watched ? 'Remove from watchlist' : 'Add to watchlist'}
-      >
-        {watched ? '⭐' : '☆'}
-      </button>
-
-      <CardArt name={card.name} type={card.card_type} rarity={card.rarity} imageUrl={card.image_url} size="sm" />
+      {/* Star is positioned over the CardArt thumbnail so it never overlaps the SignalBadge in the header row */}
+      <div style={{ position: 'relative', flexShrink: 0 }}>
+        <CardArt name={card.name} type={card.card_type} rarity={card.rarity} imageUrl={card.image_url} size="sm" />
+        <button
+          className="icon-button"
+          onClick={e => { e.stopPropagation(); onToggleWatch() }}
+          style={{
+            position: 'absolute', top: 6, left: 6, zIndex: 2,
+            background: 'rgba(12,12,16,0.7)',
+            backdropFilter: 'blur(4px)',
+            border: 'none', borderRadius: '50%',
+            width: 26, height: 26, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 14, color: watched ? 'var(--gold)' : 'rgba(255,255,255,0.7)',
+          }}
+          aria-label={watched ? 'Remove from watchlist' : 'Add to watchlist'}
+          title={watched ? 'Remove from watchlist' : 'Add to watchlist'}
+        >
+          {watched ? '⭐' : '☆'}
+        </button>
+      </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 4 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
