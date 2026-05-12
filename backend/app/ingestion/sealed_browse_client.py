@@ -237,6 +237,7 @@ def run_sealed_ingest(db: Session) -> dict[str, Any]:
     success_count = 0
     fail_count = 0
     snapshots_written = 0
+    failures: list[dict[str, str]] = []
 
     with httpx.Client() as client:
         try:
@@ -282,14 +283,22 @@ def run_sealed_ingest(db: Session) -> dict[str, Any]:
 
             except Exception as exc:
                 fail_count += 1
+                failures.append({
+                    "product_id": product.name,
+                    "error_type": type(exc).__name__,
+                    "message": str(exc)[:200],
+                })
                 logger.error("sealed_ingest_product_failed product=%s error=%s", product.name, exc)
 
     db.commit()
 
-    return {
+    summary: dict[str, Any] = {
         "products_total": len(products),
         "products_with_from_price": success_count,
         "products_insufficient_listings": len(products) - success_count - fail_count,
         "products_failed": fail_count,
         "snapshots_written": snapshots_written,
     }
+    if failures:
+        summary["failures"] = failures
+    return summary
