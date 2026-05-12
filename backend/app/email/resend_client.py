@@ -51,7 +51,7 @@ def send_trial_started_email(to_email: str, trial_ends_at: str) -> None:
     resend.Emails.send({
         "from": FROM_ADDRESS,
         "to": [to_email],
-        "subject": "Your 7-day Pro trial has started",
+        "subject": "Your 14-day Pro trial has started",
         "html": html,
     })
 

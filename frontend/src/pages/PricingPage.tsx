@@ -7,7 +7,7 @@ const FREE_FEATURES = [
   'Up to 10 cards on your watchlist',
   'Up to 5 price alerts',
   'Card detail pages with full price history',
-  '7-day free Pro trial — no credit card required',
+  '14-day free Pro trial — no credit card required',
 ]
 
 const PRO_FEATURES = [
@@ -24,7 +24,7 @@ const PRO_FEATURES = [
 const FAQ: { q: string; a: string }[] = [
   {
     q: 'Is there a free trial?',
-    a: '7 days of full Pro access, no credit card required. When your trial ends you automatically drop to the free tier. Upgrade any time during or after.',
+    a: '14 days of full Pro access, no credit card required. When your trial ends you automatically drop to the free tier. Upgrade any time during or after.',
   },
   {
     q: 'What happens if I cancel?',
@@ -44,21 +44,39 @@ export default function PricingPage() {
   const { tier } = useUser()
   const [loading, setLoading] = useState(false)
 
-  async function handleUpgrade() {
+  async function handleStartTrial() {
     setLoading(true)
     try {
-      const resp = await fetch('/api/v1/account/checkout-url?variant=standard', {
+      const resp = await fetch('/api/v1/trial/start', {
+        method: 'POST',
         credentials: 'include',
       })
       if (!resp.ok) {
-        window.location.href = '/?upgrade=1'
+        window.location.href = '/login'
         return
       }
-      const { checkout_url } = await resp.json()
-      window.location.href = checkout_url
+      const data = await resp.json()
+      if (data.status === 'started') {
+        window.location.href = '/market'
+      } else {
+        // Already on an active subscription — go to checkout for payment
+        await handleCheckout()
+      }
     } finally {
       setLoading(false)
     }
+  }
+
+  async function handleCheckout() {
+    const resp = await fetch('/api/v1/account/checkout-url?variant=standard', {
+      credentials: 'include',
+    })
+    if (!resp.ok) {
+      window.location.href = '/?upgrade=1'
+      return
+    }
+    const { checkout_url } = await resp.json()
+    window.location.href = checkout_url
   }
 
   return (
@@ -136,9 +154,9 @@ export default function PricingPage() {
                 className="btn btn-primary"
                 style={{ width: '100%', justifyContent: 'center' }}
                 disabled={loading}
-                onClick={handleUpgrade}
+                onClick={handleStartTrial}
               >
-                {loading ? 'Loading…' : 'Start 7-day free trial →'}
+                {loading ? 'Loading…' : 'Start 14-day free trial →'}
               </button>
             )}
           </div>

@@ -1360,17 +1360,17 @@ def _send_market_digests() -> None:
 
 
 def _run_trial_expiry_sweep(session: Session) -> int:
-    """Downgrade users whose 7-day trial has expired.
+    """Downgrade users whose 14-day trial has expired.
 
     Pure function: takes a session, returns the count of users downgraded.
     Sets subscription_status='expired' and access_tier='free' for every user
     whose subscription_status is 'trialing' and trial_ends_at is in the past.
-    Also sends a day-6 conversion email to users whose trial expires within 48h.
+    Also sends a conversion email to users whose trial expires within 48h.
     """
     from backend.app.models.user import User
     now = datetime.now(UTC)
 
-    # Send day-6 conversion emails to trials expiring within 48h (sweep runs every 6h)
+    # Send conversion emails to users whose trial expires within 48h (sweep runs every 6h)
     settings = get_settings()
     app_url = settings.app_url or "https://flashcard-planet.up.railway.app"
     warning_candidates = session.execute(

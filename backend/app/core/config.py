@@ -103,6 +103,7 @@ class Settings(BaseSettings):
     lemonsqueezy_variant_id_standard: str = ""
     lemonsqueezy_variant_id_founders: str = ""
     lemonsqueezy_webhook_secret: str = ""
+    trial_auto_start: bool = False  # set True (TRIAL_AUTO_START=1) once LemonSqueezy is wired
     signal_sweep_enabled: bool = True          # kill switch: set False to pause sweeps
     retry_pass_enabled: bool = True            # kill switch: set False to pause retry-pass
     alert_heartbeat_enabled: bool = True

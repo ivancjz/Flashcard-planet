@@ -61,11 +61,13 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
 
     from backend.app.api.routes.trial import _start_trial_for_user
 
+    settings = get_settings()
     user = db.scalars(select(User).where(User.email == email)).first()
     if not user:
         user = User(email=email, google_id=google_id, access_tier="free")
         db.add(user)
-        _start_trial_for_user(user)
+        if settings.trial_auto_start:
+            _start_trial_for_user(user)
     else:
         if not user.google_id:
             user.google_id = google_id

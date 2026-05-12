@@ -47,11 +47,13 @@ def verify_magic_token(token: str, max_age: int = _TOKEN_MAX_AGE) -> str:
 def _get_or_create_user_by_email(db: Session, email: str) -> User:
     from backend.app.api.routes.trial import _start_trial_for_user
 
+    settings = get_settings()
     user = db.scalars(select(User).where(User.email == email)).first()
     if not user:
         user = User(email=email, access_tier="free")
         db.add(user)
-        _start_trial_for_user(user)
+        if settings.trial_auto_start:
+            _start_trial_for_user(user)
     user.last_login_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
     db.refresh(user)
