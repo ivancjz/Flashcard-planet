@@ -4,6 +4,7 @@ from backend.app.models.asset import Asset
 from backend.app.models.asset_signal import AssetSignal
 from backend.app.models.failed_backfill_queue import FailedBackfillQueue
 from backend.app.models.graded_observation_audit import GradedObservationAudit
+from backend.app.models.listing_snapshot import ListingSnapshot
 from backend.app.models.scheduler_run_log import SchedulerRunLog
 from backend.app.models.observation_match_log import ObservationMatchLog
 from backend.app.models.price_history import PriceHistory
@@ -13,4 +14,4 @@ from backend.app.models.upgrade_request import UpgradeRequest
 from backend.app.models.user import User
 from backend.app.models.watchlist import Watchlist
 
-__all__ = ["Alert", "AlertHistory", "Asset", "AssetSignal", "FailedBackfillQueue", "GradedObservationAudit", "ObservationMatchLog", "PriceHistory", "ProWaitlist", "SchedulerRunLog", "SubscriptionEvent", "UpgradeRequest", "User", "Watchlist"]
+__all__ = ["Alert", "AlertHistory", "Asset", "AssetSignal", "FailedBackfillQueue", "GradedObservationAudit", "ListingSnapshot", "ObservationMatchLog", "PriceHistory", "ProWaitlist", "SchedulerRunLog", "SubscriptionEvent", "UpgradeRequest", "User", "Watchlist"]

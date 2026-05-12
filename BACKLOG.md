@@ -445,6 +445,88 @@ Code PR (≤2 files, ~10 lines):
 
 ---
 
+#### TASK-502 — Sealed product data model + ingest job
+
+**Priority:** P1
+**Status:** needs_decision (waiting on data source inventory + EBAY_APP_ID confirmation)
+**Owner:** Claude Code + Ivan
+**Preconditions:**
+- Ivan runs `railway variables` to confirm `EBAY_APP_ID` and `EBAY_CERT_ID` are non-empty
+- Ivan completes data source inventory (due 2026-05-17) confirming eBay Browse API as viable source
+**Definition of Done:**
+- `listing_snapshot` table created (migration)
+- `AssetClass.SEALED` added to `enums.py` + all handling sites audited per CLAUDE.md §3 Lesson 13
+- `product_type` nullable column on `Asset`
+- `sealed_products.json` contains 20 manually curated products (name, ebay_search_query, product_type)
+- `sealed_browse_client.py` fetches from-price for each product (NO reuse of `_is_single_card()` or `noise_filter.py`)
+- New scheduler job writes to `listing_snapshot` + `scheduler_run_log` + `_monitored_jobs`
+**Estimated effort:** S
+**Reference:** CEO plan 2026-05-12, design doc sealed-pivot-design-20260510
+
+---
+
+#### TASK-503 — /sealed page (SealedPage.tsx)
+
+**Priority:** P1
+**Status:** blocked
+**Blocked by:** TASK-502 (data model + ingest must exist first)
+**Owner:** Claude Code
+**Definition of Done:**
+- New `/sealed` route in `main.tsx`
+- `SealedPage.tsx` shows table: product name, from-price, 7-day change %, last-updated timestamp
+- Reads from new `GET /api/v1/sealed/products` endpoint
+- No signal badge in v1 (signal thresholds calibrated after 14 days of real data in TASK-504)
+**Estimated effort:** S
+**Reference:** CEO plan 2026-05-12, D11 decision
+
+---
+
+#### TASK-504 — sealed signal computation + threshold calibration
+
+**Priority:** P2
+**Status:** blocked
+**Blocked by:** TASK-502 must be running for ≥14 days to collect from-price baseline
+**Owner:** Claude Code
+**Definition of Done:**
+- `signal_service_sealed.py` computes from-price trend signal (BREAKOUT/MOVE/WATCH/IDLE/INSUFFICIENT_DATA)
+- Thresholds calibrated against real from-price variance on 20 products
+- `sweep_signals()` modified to filter `WHERE asset_class != 'SEALED'` (prevents overwrite)
+- Sealed signals visible in `asset_signals` table
+**Estimated effort:** S
+**Reference:** CEO plan 2026-05-12, D13 decision (defer thresholds until real data)
+
+---
+
+#### TASK-505 — Extend trial duration to 14 days
+
+**Priority:** P1
+**Status:** ready
+**Owner:** Claude Code
+**Definition of Done:** ALL 5 propagation sites updated atomically in one PR:
+- `backend/app/api/routes/trial.py:12` → `TRIAL_DURATION_DAYS = 14`
+- `backend/app/email/resend_client.py` → email subject line
+- `backend/app/email/templates/trial_started.html` → body text
+- `frontend/src/pages/PricingPage.tsx` → 3 user-facing strings
+- Review scheduler log comments for "day-6" references
+**Estimated effort:** XS
+**Reference:** CEO plan 2026-05-12, D3 decision
+
+---
+
+#### TASK-506 — Disable trial auto-start until LemonSqueezy is wired
+
+**Priority:** P1
+**Status:** ready
+**Owner:** Claude Code
+**Definition of Done:**
+- `TRIAL_AUTO_START` bool field added to `Settings` in `config.py` (default `False`)
+- `google_oauth.py:68` and `magic_link.py:54` gated: `if settings.trial_auto_start: _start_trial_for_user(user)`
+- `TRIAL_AUTO_START=1` Railway env var set by Ivan when LemonSqueezy is wired
+**Estimated effort:** XS
+**Reference:** CEO plan 2026-05-12, D1 decision
+
+---
+
 ### needs_triage (proposed by Claude Code or operator, not yet prioritized)
 
 #### TASK-T01 — YGO image retry path

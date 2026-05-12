@@ -21,6 +21,7 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_TRIAL_EXPIRY,
     JOB_YGO,
     JOB_EXPLANATION,
+    JOB_SEALED_INGEST,
     finish_run,
     get_last_run,
     prune_old_runs,
@@ -102,6 +103,7 @@ _STARTUP_DELAY: dict[str, int] = {
     "market-digest-send":     1200,  # 20 min — after all other jobs have warmed up
     "signal-history-prune":   1500,  # 25 min — last; pure DB DELETE, no upstream dependency (TASK-105)
     "trial-expiry-sweep":     900,   # 15 min — subscription maintenance, no upstream dependency
+    "sealed-ingest":          840,   # 14 min — eBay Browse API, after heartbeat registered
     # "retry-pass" intentionally omitted — resume separately when confidence is high
 }
 
@@ -388,7 +390,7 @@ def _send_heartbeat() -> None:
 
         # Zero-output alert: jobs that ran completed runs but wrote zero records.
         # Detects the eBay-outage pattern: API calls consumed, status=success, 0 rows written.
-        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY]
+        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,
@@ -1222,6 +1224,21 @@ def build_scheduler() -> BackgroundScheduler:
         _STARTUP_DELAY.get("trial-expiry-sweep", 900),
     )
 
+    scheduler.add_job(
+        _scheduled_sealed_ingest,
+        "interval",
+        hours=6,
+        id="sealed-ingest",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=None,
+    )
+    logger.info(
+        "sealed-ingest registered. trigger=interval/6h first_run=startup+%ds",
+        _STARTUP_DELAY.get("sealed-ingest", 840),
+    )
+
     return scheduler
 
 
@@ -1443,6 +1460,63 @@ def _scheduled_trial_expiry_sweep() -> None:
             logger.exception(
                 "finish_run_failed job=%s run_id=%s",
                 JOB_TRIAL_EXPIRY, _run_id,
+            )
+
+
+def _scheduled_sealed_ingest() -> None:
+    """Sealed product from-price ingest via eBay Browse API (every 6h).
+
+    Polls 20 manually curated sealed products defined in sealed_products.json.
+    Writes listing_snapshot rows (ask prices — NOT price_history per CLAUDE.md).
+    Upserts Asset rows with asset_class=SEALED on first run.
+    """
+    try:
+        with SessionLocal() as _log_session:
+            _run_id = start_run(_log_session, JOB_SEALED_INGEST)
+    except Exception as exc:
+        logger.exception("start_run_failed job=%s", JOB_SEALED_INGEST)
+        send_discord_alert(
+            "error",
+            f"CRITICAL: start_run 失败 — {JOB_SEALED_INGEST}",
+            f"error={exc}\nJob 已跳过，本次无 run_log 记录",
+        )
+        return
+
+    _exc: BaseException | None = None
+    _log_meta: dict | None = None
+
+    try:
+        from backend.app.ingestion.sealed_browse_client import run_sealed_ingest
+        with SessionLocal() as session:
+            _log_meta = run_sealed_ingest(session)
+        snapshots = _log_meta.get("snapshots_written", 0)
+        failed = _log_meta.get("products_failed", 0)
+        logger.info(
+            "sealed-ingest complete: snapshots=%d failed=%d",
+            snapshots, failed,
+        )
+    except BaseException as exc:
+        _exc = exc
+        raise
+    finally:
+        log_status = "error" if _exc is not None else (
+            "partial" if (_log_meta or {}).get("products_failed", 0) > 0 else "success"
+        )
+        records = (_log_meta or {}).get("snapshots_written", 0)
+        try:
+            with SessionLocal() as _log_session:
+                finish_run(
+                    _log_session, _run_id,
+                    status=log_status,
+                    records_written=records,
+                    meta_json=_log_meta,
+                    error_message=str(_exc) if _exc is not None else None,
+                )
+                prune_old_runs(_log_session, JOB_SEALED_INGEST)
+        except Exception:
+            logger.exception(
+                "finish_run_failed job=%s run_id=%s",
+                JOB_SEALED_INGEST, _run_id,
             )
 
 

@@ -29,6 +29,7 @@ JOB_EXPLANATION  = "explanation-sweep"
 JOB_DIGEST       = "market-digest-send"
 JOB_HISTORY_PRUNE = "signal-history-prune"
 JOB_TRIAL_EXPIRY  = "trial-expiry-sweep"
+JOB_SEALED_INGEST = "sealed-ingest"
 
 _KEEP_RUNS = 50
 

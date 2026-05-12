@@ -3,6 +3,7 @@ from enum import Enum
 
 class AssetClass(str, Enum):
     TCG = "TCG"
+    SEALED = "SEALED"
     SPORTS = "SPORTS"
     OTHER = "OTHER"
 
