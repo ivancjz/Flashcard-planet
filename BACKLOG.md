@@ -527,6 +527,43 @@ Code PR (≤2 files, ~10 lines):
 
 ---
 
+#### TASK-507 — Sealed ingest scheduler observability
+
+**Priority:** P1
+**Status:** ready
+**Owner:** Claude Code
+**Preconditions:** TASK-502 (sealed ingest job) merged to main ✅
+**Definition of Done:**
+- Confirm `scheduler_run_log` entries are written on every sealed ingest run (already implemented in `_scheduled_sealed_ingest` — verify with SQL after first run)
+- Expose sealed ingest run history via existing `/admin/stats` diagnostics or a new `/admin/diag/sealed-ingest` endpoint
+- SQL verification: `SELECT job_name, status, records_written, started_at FROM scheduler_run_log WHERE job_name = 'sealed-ingest' ORDER BY started_at DESC LIMIT 10` returns rows on the expected 6-hour cadence
+- Confirm `_monitored_jobs` includes `JOB_SEALED_INGEST` (already added — verify heartbeat alert fires if job goes silent >25h)
+**Estimated effort:** XS
+**Reference:** CEO plan 2026-05-12, CLAUDE.md Lesson 9
+**Notes:** Must be done before declaring sealed feature "shipped" to paying users. `scheduler_run_log` + `_monitored_jobs` are already wired in the implementation; this task is verification + diagnostics exposure.
+
+---
+
+#### TASK-508 — Sealed listings count display
+
+**Priority:** P2
+**Status:** needs_decision
+**Owner:** Claude Code (implementation) + Ivan (product call)
+**Preconditions:** TASK-502 merged; first sealed ingest run completed
+**Context:** Current implementation shows "50" in the listings column for products that saturate eBay Browse API's 50-result cap. 19/20 products are expected to hit this cap, making the column uniformly uninformative and misleading (implies exactly 50 listings when the true count is ≥50).
+**Options:**
+- (a) Raise Browse API `limit` to 200 — more data, minor cost in API latency per product
+- (b) Show "50+" for capped products (`listing_count >= 50`) — one-line UI change, honest about saturation
+- (c) Remove the column — cleanest, loses any liquidity signal
+- (d) Replace with tiered liquidity indicator: "Deep" (≥50), "Moderate" (10–49), "Shallow" (<10)
+**Recommendation:** Option (b) as immediate one-line fix while gathering real data, revisit with option (d) after 30 days of ingest data.
+**Definition of Done (option b):** `SealedPage.tsx` renders "50+" when `listing_count >= 50`, plain number otherwise.
+**Estimated effort:** XS
+**Reference:** PR #13 review (scoped out — sealed-feature decision, not Phase 1 rebuild scope)
+**Notes:** Not in scope for PR #13. Decision depends on product direction for liquidity display.
+
+---
+
 ### needs_triage (proposed by Claude Code or operator, not yet prioritized)
 
 #### TASK-T01 — YGO image retry path
