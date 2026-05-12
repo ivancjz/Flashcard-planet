@@ -495,14 +495,7 @@ Code PR (≤2 files, ~10 lines):
 **Estimated effort:** S
 **Reference:** CEO plan 2026-05-12, D13 decision (defer thresholds until real data)
 
-**Data source update (2026-05-13):** PriceCharting API is a viable paid source for sealed market-value reference prices.
-- API: `GET /api/product?t=TOKEN&q=scarlet+violet+151+booster+box` returns `new-price` (market value for sealed/new condition)
-- `new-price` field = "Price for item with original packaging and original seal" — correct for booster boxes and ETBs
-- Limitation: current market value only, no historic prices/sold transactions
-- Rate limit: 1 call/second; cost: paid subscription (amount TBD)
-- **Pre-purchase verification required:** run `/api/products?q=scarlet+violet+151+booster+box` with demo token to confirm Pokémon sealed is in catalogue before subscribing
-- If coverage confirmed: enables spread signal = `pricecharting_new_price - ebay_from_price` (market value above ask = buy opportunity)
-- This is Approach C data path — still blocked until subscription obtained and coverage verified
+**Data source decision (2026-05-13): Approach C scrapped.** All external sold-price sources evaluated (eBay Marketplace Insights — business gate; TCGPlayer — closed; 130point — no API; PriceCharting — paid, no historic sales). Approach B (eBay Browse API from-price trend) is the ceiling. No sold-price reference will be added. TASK-504 scope revised accordingly.
 
 ---
 
