@@ -568,6 +568,19 @@ Code PR (≤2 files, ~10 lines):
 
 ### needs_triage (proposed by Claude Code or operator, not yet prioritized)
 
+#### TASK-509 — Mobile hamburger nav drawer (PR #15 scope)
+
+**Priority:** P1 within PR #15
+**Status:** deferred — implement in PR #15, not before
+**Proposed:** 2026-05-13 (PR #13 diagnostic finding)
+**Context:** At viewports ≤640px the NavBar overflows its visible area. PR #13 chose Option C — allow horizontal scroll within the nav-links container (`overflow-x: auto`, hidden scrollbar) while keeping the page body non-scrolling. This is functional but suboptimal UX: mobile users must discover horizontal swipe to reach Watchlist and Alerts. A hamburger drawer is the correct pattern.
+**Trigger for PR #15:** The shadcn `Sheet` or `Dialog` primitive (required for a proper drawer) lands in PR #15's shadcn/ui adoption. Implement this task immediately after that primitive is available.
+**Scope:** Below a ~640px breakpoint, replace the scrollable nav-links strip with a hamburger icon button. Tap opens a shadcn Sheet anchored left/right containing all nav items (Market, Sealed, Watchlist, Alerts + auth). Hamburger replaces the current `overflow-x: auto` on `.nav-links` at that breakpoint.
+**Design note:** Option B (shrink nav items to fit via smaller font/tighter padding) was considered and rejected — it would pollute the design system's type scale and padding tokens before the Tailwind migration in PR #15 establishes them as the source of truth. Option C was chosen as the interim solution.
+**Reference:** PR #13 (feat/pr-13-critical-bug-fixes) — commit documenting decision; PR #15 spec §2.1 (shadcn adoption).
+
+---
+
 #### TASK-T01 — YGO image retry path
 **Proposed:** 2026-05-02 (TASK-204 audit finding)
 `_query_missing_image()` only covers `game='pokemon'`. YGO assets that lack images have no retry path. ~20 LOC fix in `pokemon_tcg.py` + `ygo.py`. Not urgent (67 YGO assets today), but needed before YGO expansion to 300+ assets (TASK-201).
