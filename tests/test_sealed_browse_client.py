@@ -229,3 +229,56 @@ def test_sealed_asset_excluded_from_active_ids_even_with_price_history():
 
         active_ids = _get_active_asset_ids(db)
         assert sealed.id not in active_ids
+
+
+# ---------------------------------------------------------------------------
+# run_sealed_ingest — fetch failure path (Codex P0 regression guard)
+# ---------------------------------------------------------------------------
+
+def test_fetch_failure_increments_fail_count_and_skips_snapshot():
+    """When _fetch_listings_for_product raises, fail_count increments and no snapshot is written.
+
+    Regression guard for Codex P0: the old code swallowed exceptions and returned
+    (None, 0, False, []), causing run_sealed_ingest to write a snapshot and record
+    status="success" even during an API outage (CLAUDE.md Lesson 9 violation).
+    """
+    import httpx
+    from backend.app.ingestion.sealed_browse_client import run_sealed_ingest
+
+    one_product = [ProductConfig(
+        name="Test ETB",
+        set_name="Test Set",
+        ebay_search_query="test query",
+        product_type="etb",
+        game="pokemon",
+    )]
+
+    mock_settings = MagicMock()
+    mock_settings.ebay_app_id = "fake_app_id"
+    mock_settings.ebay_cert_id = "fake_cert_id"
+
+    # httpx.Client must work as a context manager
+    mock_client_instance = MagicMock()
+    mock_client_cls = MagicMock()
+    mock_client_cls.return_value.__enter__ = MagicMock(return_value=mock_client_instance)
+    mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+    with _session() as db:
+        with (
+            patch("backend.app.ingestion.sealed_browse_client.get_settings", return_value=mock_settings),
+            patch("backend.app.ingestion.sealed_browse_client.load_sealed_products", return_value=one_product),
+            patch("backend.app.ingestion.sealed_browse_client.httpx.Client", mock_client_cls),
+            patch("backend.app.ingestion.sealed_browse_client._get_oauth_token", return_value="fake_token"),
+            patch(
+                "backend.app.ingestion.sealed_browse_client._fetch_listings_for_product",
+                side_effect=httpx.ConnectError("connection refused"),
+            ),
+        ):
+            result = run_sealed_ingest(db)
+
+        assert result["products_failed"] == 1
+        assert result["snapshots_written"] == 0
+        assert result["products_total"] == 1
+
+        snapshots = db.scalars(select(ListingSnapshot)).all()
+        assert len(snapshots) == 0

@@ -155,13 +155,31 @@ def _fetch_listings_for_product(
     token: str,
     product: ProductConfig,
 ) -> tuple[Decimal | None, int, bool, list[dict]]:
-    """Call Browse API for one sealed product. Returns (from_price, listing_count, min_count_met, raw_snapshot)."""
+    """Call Browse API for one sealed product. Returns (from_price, listing_count, min_count_met, raw_snapshot).
+
+    Raises on network errors, HTTP failures, or parse errors.
+    Caller (run_sealed_ingest) is responsible for per-product exception handling.
+    A "no listings" result (min_count_met=False) is a valid return; an exception means the API failed.
+    """
     params = {
         "q": product.ebay_search_query,
         "limit": "50",
         "filter": "conditionIds:{1000}",  # New condition only
     }
-    try:
+    resp = client.get(
+        _BROWSE_API_URL,
+        params=params,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+            "X-EBAY-C-ENDUSERCTX": f"contextualLocation=country%3DUS%2Czip%3D{_REFERENCE_ZIP}",
+        },
+        timeout=15.0,
+    )
+    if resp.status_code == 429:
+        retry_after = int(resp.headers.get("Retry-After", "30"))
+        logger.warning("sealed_browse_429 product=%s sleeping=%ds", product.name, retry_after)
+        time.sleep(min(retry_after, 60))
         resp = client.get(
             _BROWSE_API_URL,
             params=params,
@@ -172,26 +190,9 @@ def _fetch_listings_for_product(
             },
             timeout=15.0,
         )
-        if resp.status_code == 429:
-            retry_after = int(resp.headers.get("Retry-After", "30"))
-            logger.warning("sealed_browse_429 product=%s sleeping=%ds", product.name, retry_after)
-            time.sleep(min(retry_after, 60))
-            resp = client.get(
-                _BROWSE_API_URL,
-                params=params,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
-                    "X-EBAY-C-ENDUSERCTX": f"contextualLocation=country%3DUS%2Czip%3D{_REFERENCE_ZIP}",
-                },
-                timeout=15.0,
-            )
-        resp.raise_for_status()
-        items = resp.json().get("itemSummaries", [])
-        return _compute_from_price(items)
-    except Exception as exc:
-        logger.error("sealed_browse_error product=%s error=%s", product.name, exc)
-        return None, 0, False, []
+    resp.raise_for_status()
+    items = resp.json().get("itemSummaries", [])
+    return _compute_from_price(items)
 
 
 def _upsert_asset(db: Session, product: ProductConfig) -> uuid.UUID:
