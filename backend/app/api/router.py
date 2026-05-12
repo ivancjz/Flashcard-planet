@@ -15,6 +15,7 @@ from backend.app.api.routes.account import router as account_router
 from backend.app.api.routes.web import router as web_router
 from backend.app.api.routes.webhooks import router as webhooks_router
 from backend.app.api.routes.trial import router as trial_router
+from backend.app.api.routes.sealed import router as sealed_router
 from backend.app.core.config import get_settings
 
 settings = get_settings()
@@ -34,4 +35,5 @@ api_router.include_router(waitlist_router, prefix=settings.api_prefix)
 api_router.include_router(account_router, prefix=settings.api_prefix)
 api_router.include_router(webhooks_router, prefix=settings.api_prefix)
 api_router.include_router(trial_router, prefix=settings.api_prefix)
+api_router.include_router(sealed_router)  # prefix already in router definition
 api_router.include_router(web_router)
