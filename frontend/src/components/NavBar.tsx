@@ -58,6 +58,7 @@ export default function NavBar() {
       </div>
       <div className="nav-links">
         {link('/market', '🎴 Market')}
+        {link('/sealed', '📦 Sealed')}
 
         {/* Auth state — show skeleton while loading */}
         {!loading && (

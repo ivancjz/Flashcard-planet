@@ -11,6 +11,7 @@ import ComparePage from './pages/ComparePage'
 import AccountPage from './pages/AccountPage'
 import DigestPreferencesPage from './pages/DigestPreferencesPage'
 import PricingPage from './pages/PricingPage'
+import SealedPage from './pages/SealedPage'
 import DevTierSwitcher from './components/DevTierSwitcher'
 import { UserProvider } from './contexts/UserContext'
 
@@ -28,6 +29,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/account" element={<AccountPage />} />
         <Route path="/account/digest-preferences" element={<DigestPreferencesPage />} />
         <Route path="/pricing" element={<PricingPage />} />
+        <Route path="/sealed" element={<SealedPage />} />
       </Routes>
       <DevTierSwitcher />
     </BrowserRouter>
