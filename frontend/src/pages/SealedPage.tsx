@@ -56,7 +56,7 @@ export default function SealedPage() {
         setProducts(data.products || [])
         setLoading(false)
       })
-      .catch(err => {
+      .catch(_err => {
         setError('Failed to load sealed products.')
         setLoading(false)
       })
