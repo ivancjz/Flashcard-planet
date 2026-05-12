@@ -42,6 +42,7 @@ class Asset(Base):
     grade_company: Mapped[str | None] = mapped_column(String(32))
     grade_score: Mapped[float | None] = mapped_column(Numeric(4, 1))
     game: Mapped[str] = mapped_column(String(32), nullable=False, default="pokemon")
+    product_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(128), unique=True)
     metadata_json: Mapped[dict | None] = mapped_column("metadata", JSONB)
     notes: Mapped[str | None] = mapped_column(Text)
@@ -57,5 +58,8 @@ class Asset(Base):
         back_populates="asset", cascade="all, delete-orphan"
     )
     alerts: Mapped[list["Alert"]] = relationship(
+        back_populates="asset", cascade="all, delete-orphan"
+    )
+    listing_snapshots: Mapped[list["ListingSnapshot"]] = relationship(  # type: ignore[name-defined]
         back_populates="asset", cascade="all, delete-orphan"
     )

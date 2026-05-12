@@ -26,9 +26,10 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import settings
+from backend.app.models.asset import Asset
 from backend.app.models.asset_signal_history import AssetSignalHistory
 from backend.app.models.asset_signal import AssetSignal
-from backend.app.models.enums import SignalLabel
+from backend.app.models.enums import AssetClass, SignalLabel
 from backend.app.models.price_history import PriceHistory
 from backend.app.services.liquidity_service import get_asset_signal_snapshots
 from backend.app.services.price_service import compute_prediction_from_recent_points
@@ -217,14 +218,19 @@ def _apply_signal_downgrade(
 def _get_active_asset_ids(db: Session, *, limit: int | None = None) -> list[Any]:
     """All asset_ids with at least one real price point in the last 30 days.
 
+    Excludes SEALED assets — they have no price_history rows by design and are
+    computed by signal_service_sealed.py instead.
+
     When limit is set, returns the top-N by price-point count (most active first).
     """
     cutoff = datetime.now(UTC) - timedelta(days=ACTIVE_WINDOW_DAYS)
     stmt = (
         select(PriceHistory.asset_id, func.count().label("pts"))
+        .join(Asset, Asset.id == PriceHistory.asset_id)
         .where(
             PriceHistory.captured_at >= cutoff,
             PriceHistory.market_segment == 'raw',
+            Asset.asset_class != AssetClass.SEALED.value,
         )
         .group_by(PriceHistory.asset_id)
         .order_by(func.count().desc())
