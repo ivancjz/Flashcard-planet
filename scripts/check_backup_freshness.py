@@ -117,17 +117,20 @@ def check_backup_freshness() -> tuple[int, dict]:
         with urllib.request.urlopen(req, timeout=30) as resp:
             releases = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        log.error("github_api_http_error", extra={"http_status": exc.code, "url": url})
-        return 1, {"status": "error", "latest_tag": None, "latest_size_mb": None,
-                   "latest_age_hours": None, "releases_fetched": 0}
+        reason = f"HTTP {exc.code}: {exc.reason}"
+        log.error("github_api_http_error", extra={"http_status": exc.code, "reason": exc.reason, "url": url})
+        return 1, {"status": "error", "error_reason": reason, "latest_tag": None,
+                   "latest_size_mb": None, "latest_age_hours": None, "releases_fetched": 0}
     except urllib.error.URLError as exc:
+        reason = f"URLError: {exc.reason}"
         log.error("github_api_url_error", extra={"reason": str(exc.reason), "url": url})
-        return 1, {"status": "error", "latest_tag": None, "latest_size_mb": None,
-                   "latest_age_hours": None, "releases_fetched": 0}
+        return 1, {"status": "error", "error_reason": reason, "latest_tag": None,
+                   "latest_size_mb": None, "latest_age_hours": None, "releases_fetched": 0}
     except Exception as exc:
+        reason = f"unexpected: {exc}"
         log.error("github_api_unexpected_error", extra={"error": str(exc), "url": url})
-        return 1, {"status": "error", "latest_tag": None, "latest_size_mb": None,
-                   "latest_age_hours": None, "releases_fetched": 0}
+        return 1, {"status": "error", "error_reason": reason, "latest_tag": None,
+                   "latest_size_mb": None, "latest_age_hours": None, "releases_fetched": 0}
 
     if not releases:
         log.error("no_releases_found", extra={"repo": repo,
@@ -142,9 +145,28 @@ def check_backup_freshness() -> tuple[int, dict]:
     latest_tag: str = latest.get("tag_name", "")
     published_at_str: str = latest.get("published_at", "")
 
-    # Parse asset size (first asset if present)
+    # Validate backup asset exists and is non-empty.
+    # A release can be created but the asset upload may fail (e.g. Actions transient error),
+    # leaving a valid release timestamp with no downloadable backup. Without this check the
+    # watchdog would report "fresh" even though there is no restorable backup.
+    _MIN_BACKUP_BYTES = 1_048_576  # 1 MB — a real backup is ~450 MB; anything smaller is corrupt/missing
     assets = latest.get("assets", [])
-    size_bytes: int = assets[0].get("size", 0) if assets else 0
+    backup_asset = next(
+        (a for a in assets if a.get("name", "").endswith(".sql.gz") and a.get("size", 0) >= _MIN_BACKUP_BYTES),
+        None,
+    )
+    if backup_asset is None:
+        asset_names = [a.get("name", "") for a in assets]
+        log.error("backup_asset_missing_or_empty", extra={
+            "latest_tag": latest_tag,
+            "asset_names": asset_names,
+            "hint": "Release exists but backup.sql.gz is absent or too small — asset upload may have failed",
+        })
+        return 1, {"status": "error",
+                   "error_reason": f"no valid backup asset in release {latest_tag} (assets: {asset_names})",
+                   "latest_tag": latest_tag, "latest_size_mb": 0,
+                   "latest_age_hours": None, "releases_fetched": len(releases)}
+    size_bytes: int = backup_asset.get("size", 0)
     size_mb = round(size_bytes / 1024 / 1024, 2)
 
     try:

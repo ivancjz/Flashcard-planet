@@ -395,7 +395,7 @@ def _send_heartbeat() -> None:
 
         # Zero-output alert: jobs that ran completed runs but wrote zero records.
         # Detects the eBay-outage pattern: API calls consumed, status=success, 0 rows written.
-        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_BACKUP_FRESHNESS]
+        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,
@@ -1594,7 +1594,8 @@ def _run_backup_freshness_check() -> None:
                     status=log_status,
                     records_written=0,
                     error_message=str(_exc) if _exc is not None else (
-                        f"exit_code={_exit_code}" if _exit_code != 0 else None
+                        _meta.get("error_reason") or f"exit_code={_exit_code}"
+                        if _exit_code != 0 else None
                     ),
                     meta_json=_meta if _meta else None,
                 )

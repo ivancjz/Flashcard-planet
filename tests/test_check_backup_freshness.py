@@ -25,13 +25,14 @@ from unittest.mock import MagicMock, patch
 # Helpers to build mock GitHub API responses
 # ---------------------------------------------------------------------------
 
-def _make_release(age_hours: float, tag: str = "backup-14", size_bytes: int = 5_242_880) -> dict:
+def _make_release(age_hours: float, tag: str = "backup-14", size_bytes: int = 5_242_880,
+                  asset_name: str = "backup.sql.gz") -> dict:
     """Return a dict shaped like one GitHub release object."""
     published_at = datetime.now(UTC) - timedelta(hours=age_hours)
     return {
         "tag_name": tag,
         "published_at": published_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "assets": [{"size": size_bytes}],
+        "assets": [{"name": asset_name, "size": size_bytes}],
     }
 
 
@@ -156,6 +157,40 @@ class TestCheckBackupFreshness(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(meta["status"], "fresh")
         self.assertEqual(meta["latest_tag"], "backup-14")
+
+    # ------------------------------------------------------------------
+    # 7. Release has no backup.sql.gz asset (Codex P1-1: asset validation)
+    # ------------------------------------------------------------------
+    def test_missing_asset_returns_error(self):
+        # Release exists with correct timestamp but asset upload failed
+        release = _make_release(age_hours=6.0, tag="backup-14", size_bytes=0, asset_name="backup.sql.gz")
+        # zero-byte asset should fail the 1MB minimum check
+        with patch("urllib.request.urlopen", return_value=_mock_urlopen([release])):
+            from scripts.check_backup_freshness import check_backup_freshness
+            exit_code, meta = check_backup_freshness()
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(meta["status"], "error")
+        self.assertIn("backup-14", meta["error_reason"])
+
+    # ------------------------------------------------------------------
+    # 8. HTTP error includes reason in meta (Codex P1-2: error detail)
+    # ------------------------------------------------------------------
+    def test_http_error_includes_reason_in_meta(self):
+        http_err = urllib.error.HTTPError(
+            url="https://api.github.com/repos/x/y/releases?per_page=10",
+            code=403,
+            msg="Forbidden",
+            hdrs=None,  # type: ignore[arg-type]
+            fp=None,
+        )
+        with patch("urllib.request.urlopen", side_effect=http_err):
+            from scripts.check_backup_freshness import check_backup_freshness
+            exit_code, meta = check_backup_freshness()
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(meta["status"], "error")
+        self.assertIn("403", meta["error_reason"])
 
 
 if __name__ == "__main__":
