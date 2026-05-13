@@ -30,7 +30,8 @@ JOB_DIGEST       = "market-digest-send"
 JOB_HISTORY_PRUNE   = "signal-history-prune"
 JOB_TRIAL_EXPIRY    = "trial-expiry-sweep"
 JOB_SEALED_INGEST   = "sealed-ingest"
-JOB_POSTGRES_BACKUP = "postgres-backup"   # PR #14a
+JOB_POSTGRES_BACKUP    = "postgres-backup"   # PR #14a — superseded by JOB_BACKUP_FRESHNESS (D1)
+JOB_BACKUP_FRESHNESS   = "backup-freshness-check"  # PR #14a D1 — GitHub watchdog
 
 _KEEP_RUNS = 50
 

@@ -22,6 +22,7 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_YGO,
     JOB_EXPLANATION,
     JOB_POSTGRES_BACKUP,
+    JOB_BACKUP_FRESHNESS,
     JOB_SEALED_INGEST,
     finish_run,
     get_last_run,
@@ -105,12 +106,10 @@ _STARTUP_DELAY: dict[str, int] = {
     "signal-history-prune":   1500,  # 25 min — last; pure DB DELETE, no upstream dependency (TASK-105)
     "trial-expiry-sweep":     900,   # 15 min — subscription maintenance, no upstream dependency
     "sealed-ingest":          840,   # 14 min — eBay Browse API, after heartbeat registered
-    "postgres-backup":        1800,  # 30 min — daily backup; runs once per 24h interval.
-                                     # Actual wall-clock time depends on deploy time + 30m offset.
-                                     # Target: low-traffic window; typically runs mid-morning UTC
-                                     # given Railway deploy patterns. Exact time is less important
-                                     # than guaranteed daily execution (hence interval, not cron —
-                                     # cron × frequent deploys = perpetual miss; see CLAUDE.md Lesson 2).
+    "backup-freshness-check": 7800,  # 2h 10min — daily watchdog fires at ~06:00 UTC when deploy
+                                     # happens around 03:50 UTC. Verifies the 04:00 UTC GitHub
+                                     # Actions backup ran. Exact time less important than guaranteed
+                                     # daily execution (interval, not cron — see CLAUDE.md Lesson 2).
     # "retry-pass" intentionally omitted — resume separately when confidence is high
 }
 
@@ -397,7 +396,7 @@ def _send_heartbeat() -> None:
 
         # Zero-output alert: jobs that ran completed runs but wrote zero records.
         # Detects the eBay-outage pattern: API calls consumed, status=success, 0 rows written.
-        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_POSTGRES_BACKUP]
+        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_BACKUP_FRESHNESS]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,
@@ -1247,18 +1246,18 @@ def build_scheduler() -> BackgroundScheduler:
     )
 
     scheduler.add_job(
-        _run_postgres_backup,
+        _run_backup_freshness_check,
         "interval",
         hours=24,
-        id="postgres-backup",
+        id="backup-freshness-check",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
         next_run_time=None,
     )
     logger.info(
-        "postgres-backup registered. trigger=interval/24h first_run=startup+%ds",
-        _STARTUP_DELAY.get("postgres-backup", 1800),
+        "backup-freshness-check registered. trigger=interval/24h first_run=startup+%ds",
+        _STARTUP_DELAY.get("backup-freshness-check", 7800),
     )
 
     return scheduler
@@ -1542,47 +1541,48 @@ def _scheduled_sealed_ingest() -> None:
             )
 
 
-def _run_postgres_backup() -> None:
-    """Daily Postgres backup to Cloudflare R2 (PR #14a).
+def _run_backup_freshness_check() -> None:
+    """Daily watchdog: verifies the GitHub Actions backup ran within the last 30h.
 
-    Calls scripts/backup_postgres.py::run_backup() which pg_dumps the database
-    and uploads to R2 at key daily/YYYY-MM-DD.dump.
+    Fires at 06:00 UTC (after the 04:00 UTC GitHub Actions backup window).
+    Alerts Discord if the latest backup is stale.
 
-    Fires every 24h. Actual wall-clock time drifts with deploy cadence (interval
-    trigger, not cron — cron × frequent deploys = perpetual miss per CLAUDE.md Lesson 2).
-    A Discord alert fires on any non-zero exit code or exception.
+    Calls scripts/check_backup_freshness.py::check_backup_freshness() which
+    hits the GitHub Releases API for ivancjz/flashcard-planet-backups and
+    verifies the most recent release is younger than BACKUP_MAX_AGE_HOURS.
 
-    Reads DATABASE_URL_DIRECT (bypasses PgBouncer once it arrives in PR #14c).
+    # PR #14b: migrate this module to structlog once structlog is adopted in the codebase.
     """
     try:
         with SessionLocal() as _log_session:
-            _run_id = start_run(_log_session, JOB_POSTGRES_BACKUP)
+            _run_id = start_run(_log_session, JOB_BACKUP_FRESHNESS)
     except Exception as exc:
-        logger.exception("start_run_failed job=%s", JOB_POSTGRES_BACKUP)
+        logger.exception("start_run_failed job=%s", JOB_BACKUP_FRESHNESS)
         send_discord_alert(
             "error",
-            f"CRITICAL: start_run 失败 — {JOB_POSTGRES_BACKUP}",
+            f"CRITICAL: start_run 失败 — {JOB_BACKUP_FRESHNESS}",
             f"error={exc}\nJob 已跳过，本次无 run_log 记录",
         )
         return
 
     _exc: BaseException | None = None
     _exit_code: int = 0
+    _meta: dict = {}
 
     try:
-        from scripts.backup_postgres import run_backup
-        _exit_code = run_backup()
+        from scripts.check_backup_freshness import check_backup_freshness
+        _exit_code, _meta = check_backup_freshness()
         if _exit_code != 0:
             send_discord_alert(
                 "error",
-                "⚠️ Postgres backup 失败",
-                f"exit_code={_exit_code}\n检查 Railway 日志获取 pg_dump / R2 上传详情。",
+                "⚠️ Backup freshness check FAILED",
+                f"latest backup is stale or check errored\nmeta={_meta}",
             )
     except BaseException as exc:
         _exc = exc
         send_discord_alert(
             "error",
-            "⚠️ Postgres backup 崩溃",
+            "⚠️ Backup freshness check 崩溃",
             f"error={exc}\n需要立即调查。",
         )
         raise
@@ -1597,12 +1597,13 @@ def _run_postgres_backup() -> None:
                     error_message=str(_exc) if _exc is not None else (
                         f"exit_code={_exit_code}" if _exit_code != 0 else None
                     ),
+                    meta_json=_meta if _meta else None,
                 )
-                prune_old_runs(_log_session, JOB_POSTGRES_BACKUP)
+                prune_old_runs(_log_session, JOB_BACKUP_FRESHNESS)
         except Exception:
             logger.exception(
                 "finish_run_failed job=%s run_id=%s",
-                JOB_POSTGRES_BACKUP, _run_id,
+                JOB_BACKUP_FRESHNESS, _run_id,
             )
 
 
