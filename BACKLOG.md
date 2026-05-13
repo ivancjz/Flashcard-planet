@@ -17,7 +17,7 @@
 
 The spec's single PR #14 bundled six items: backups, PgBouncer, rate limiting, audit log, Sentry+PostHog, structlog. Split into three PRs:
 
-- **PR #14a** (this PR): Postgres backups to R2 + restore drill + Discord alert on failure
+- **PR #14a** (this PR): Reconcile docs with live GitHub Actions backup system + execute first restore drill. R2 path retired (Cloudflare card binding unavailable). See PR #14a description for full scope.
 - **PR #14b** (future): Rate limiting (slowapi) + audit log + Sentry + PostHog + structlog
 - **PR #14c** (future): PgBouncer connection pooling — after prepared-statement audit
 
@@ -771,7 +771,7 @@ When a task ships, move it here with PR number and merge date. Keep this section
 | TASK-401 | OpenAI as third LLM provider | commit 9dafe11 | 2026-05-02 | OpenAIProvider + task-type router + FallbackLLMProvider + IP tagging experiment. 861 tests pass. |
 | TASK-203 | Pro tier payment integration design doc | commit f1ee749 | 2026-05-02 | Design doc + 6-decision ADR. LemonSqueezy MoR, USD $12/$9 Founders, card-free 7d trial. TASK-301 now blocked only on TASK-102 (backups). |
 | TASK-204 | Image backfill retry audit | (audit only) | 2026-05-02 | Two-layer retry exists (backfill_pass + retry_pass). ~0% imageless rate for Pokemon. Gap: YGO has no image retry path. See docs/audits/2026-05-02-image-backfill.md |
-| TASK-102a | Daily pg_dump backup via GitHub Actions | commit a9c5cfb | 2026-05-02 | Workflow + disaster-recovery runbook. Operator must: create backup repo, add 3 secrets, run workflow_dispatch, perform restore drill. |
+| TASK-102a | Daily pg_dump backup via GitHub Actions | commit a9c5cfb | 2026-05-02 | Workflow live, 11+ consecutive daily runs. Restore runbook rewritten against GitHub Releases (PR #14a). First restore drill: PR #14a D4. |
 | TASK-102b | Quarterly local backup download script | commit c1dc319 | 2026-05-02 | backend/scripts/backup_to_local.sh + quarterly-backup.md. Add quarterly reminder to Google Calendar. |
 
 ---

@@ -8,12 +8,7 @@ NIXPACKS_PYTHON_VERSION = "3.13"
 # 51ad838 commit message: "nodejs_22: 22.12.0 -> 22.13.1" (2025-01-22).
 nixpkgsArchive = "51ad838b03a05b1de6f9f2a0fffecee64a9788ee"
 # "..." is required to EXTEND provider-generated packages; without it, the array replaces them.
-# postgresql_17: provides pg_dump/pg_restore client tools for scripts/backup_postgres.py (PR #14a).
-# IMPORTANT: pg_dump client version must be >= Postgres server version.
-# If Railway Postgres is version 18, this will fail with a version mismatch error during the
-# restore drill (Step 4.2). In that case: update nixpkgsArchive to a snapshot that includes
-# postgresql_18 and replace postgresql_17 with postgresql_18 here. The restore drill catches this.
-nixPkgs = ["...", "nodejs_22", "postgresql_17"]
+nixPkgs = ["...", "nodejs_22"]
 
 [phases.build]
 # Python projects have no auto-generated build commands, so overriding [phases.build]
