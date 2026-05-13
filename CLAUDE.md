@@ -78,6 +78,16 @@ The official meaning of errorId 10001 is "rate limit exceeded." However: this er
 
 **TASK-201 (YGO set expansion) is NOT a known unlock.** Do not add sets before the discovery test. Expanding to 300+ assets that also return static prices wastes ingest budget and DB space. **Required first:** poll 10 high-velocity 2024–2025 YGO sets (e.g., LEDE, PHNI, AGOV, DUNE, INFO) for 7 days, query `/admin/diag/price-variance?source=ygoprodeck_api`. Decision rule: if ≥30% of sampled assets show ≥2 distinct prices in 7 days → TASK-201 viable. Otherwise → YGO is blocked on an alternative price source (PriceCharting, Marketplace Insights, or other).
 
+### CardMarket data source — YGO price signal input
+
+**What it is:** CardMarket is the dominant EU trading card marketplace. They publish a public price guide daily at `https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_3.json` (~16 MB). The file contains `avg1` (1-day), `avg7` (7-day), `avg30` (30-day), and `trend` price averages per product in EUR, with no authentication wall. CardMarket's public announcement language states prices may be "used however you see fit."
+
+**Use posture (decided 2026-05-14):** backend signal input only. CardMarket prices are not displayed directly to users in alerts, dashboards, or any user-facing surface. Discord alerts say "YGO signal detected" without quoting CardMarket figures. Due diligence basis: public announcement language ("use however you see fit"), public S3 file with no auth wall, no commercial redistribution of raw prices. ToS clarification email path was considered and declined — accepted residual grey-area risk with mitigations above.
+
+**Source values in `price_history`:** `cardmarket_avg1`, `cardmarket_avg7`, `cardmarket_avg30`, `cardmarket_trend`. Do NOT blend these — each tracked independently. Signal engine uses `avg7` as primary, `avg30` as baseline.
+
+**Known limitations:** EUR-denominated only (signal delta uses relative % so currency unit is irrelevant for classification, but display features must never show raw CardMarket prices to avoid currency confusion). EU/US price gap is non-trivial for vintage cards — seed list should avoid cards where EU/US gap exceeds 30%.
+
 ### Scheduler jobs
 All 5 use `interval` trigger + startup resume via `prepare_scheduler_for_startup`. **No cron triggers** (removed 2026-04-22 after discovering cron × frequent deploys = perpetual miss).
 
@@ -579,16 +589,34 @@ This backlog item is a "someday / Sunday decision" — do not implement without 
 
 ## 13. Active experiments
 
-### YGO Phase 2 — sold-price source identification (third reframe of this gate)
+### YGO Phase 2 unblock — final criteria (2026-05-14)
 
-eBay sold-price is dead. Pokemon TCG API does not cover YGO. YGO Phase 2 cannot produce non-IDLE signals without a sold-price (or reliable ask-price) source. Candidate sources for evaluation — no timeline, triggered by Ivan's next attention to YGO:
+Source resolved: CardMarket public price guide (see §2 CardMarket data source). No further reframes expected.
 
-- **TCGPlayer YGO endpoint** — verify coverage and API access terms. TCGPlayer has YGO singles data; unclear if their API exposes it at the same access tier as Pokémon.
-- **PriceCharting API** — trading card aggregator, has graded variants, covers YGO. Pricing and rate limits unknown.
-- **130point aggregator** — third-party, has YGO market data. Terms-of-service risk not yet assessed.
-- **Defer: accept no YGO sold-price** — ship Phase 2 with YGOPRODeck ask-price proxy only, document the signal-quality caveat explicitly in the product UI. Revisit when a clean source emerges.
+**1. CardMarket JSON ingest job**
+- Fetch `https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_3.json` daily ~04:00 AEST (after CET ~02:43 daily refresh)
+- Store `avg1`, `avg7`, `avg30`, `trend` as four separate sources: `cardmarket_avg1`, `cardmarket_avg7`, `cardmarket_avg30`, `cardmarket_trend`
+- Do NOT blend. Each source independently tracked.
+- Budget: single ~16 MB download, negligible cost.
 
-Do not evaluate or prototype any of these without explicit operator direction. This is a tracking entry, not a task.
+**2. Signal engine source-awareness**
+- Per-source thresholds (`cardmarket_avg7` will be primary, `cardmarket_avg30` baseline)
+- Volume-proxy quality flag: high dispersion between `avg1`/`avg7`/`avg30` → `insufficient_data`
+- Documented in code, not just CLAUDE.md
+
+**3. YGO seed cards**
+- 50–100 cards drawn from CardMarket high-coverage modern sets
+- Avoid vintage tier where EU/US gap > 30%
+- Avoid cards with <10 entries in `avg30` (proxy for liquidity)
+
+**4. 7-day CardMarket data accumulation before signal sweep enabled**
+
+**5. Discord alert format**
+- Source-agnostic alerts: "YGO breakout detected on Card X"
+- No CardMarket price figures displayed
+- Link to Flashcard Planet card page for detail
+
+Estimated 3–5 days solo dev work. No external dependencies blocking. Triggerable whenever Pokémon baseline is stable (depends on Issue B resolution).
 
 ---
 
@@ -606,6 +634,10 @@ Existing `/admin/diag` endpoints expose aggregates only (`/diag/scheduler-histor
 ### CLAUDE.md statistical claims not systematically dated
 
 Carryover-from-old-revision risk verified 2026-05-14 (ebay_sold count was stale by ~4x). Future statistical claims should be tagged with verification date inline. Backlog item: audit existing claims, no time pressure.
+
+### User-facing source attribution policy (pending)
+
+When external sources contribute to a signal but data is not displayed directly to users, the about page should list contributing sources for transparency (Pokemon TCG API, CardMarket public price guide, etc.) without quoting prices. Pending UX/legal hygiene item, deferred until YGO Phase 2 ships.
 
 ### Sample tiering by sold-count over-indexes on query-fuzzy matches
 
