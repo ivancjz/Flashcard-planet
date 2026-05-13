@@ -145,8 +145,13 @@ This is irreversible. Coordinate with Ivan before proceeding.
 
 # 2. Verify the backup is good: Steps 1-6 must pass first.
 
-# 3. Restore over production
+# 3. Wipe production schema and restore
+#    The backup uses plain pg_dump (no --clean), so psql -f against an existing DB
+#    will hit "relation already exists" errors mid-restore and leave a partial state.
+#    Drop and recreate the public schema first, then restore.
+#
 #    DATABASE_PUBLIC_URL is the public TCP proxy URL (junction.proxy.rlwy.net:19115)
+psql "$DATABASE_PUBLIC_URL" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
 psql "$DATABASE_PUBLIC_URL" -f /tmp/restore-drill/backup.sql
 
 # 4. Verify row counts against your pre-disaster snapshot
