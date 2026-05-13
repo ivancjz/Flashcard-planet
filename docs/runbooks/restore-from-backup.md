@@ -1,6 +1,6 @@
 # Restore from Backup — Runbook
 
-**Last drill:** [filled in by D4 execution]
+**Last drill:** 2026-05-13 — backup-14, ~115s RTO, row counts match within expected drift
 **Backup location:** GitHub Releases → `ivancjz/flashcard-planet-backups` → asset `backup.sql.gz`
 **Format:** Plain SQL dump (gzip compressed)
 **Schedule:** GitHub Actions daily at 04:00 UTC
@@ -170,7 +170,7 @@ Run quarterly. Record results here.
 
 | Date | Author | Tag | Download + gunzip (s) | psql restore (s) | Total RTO (s) | Row counts match? | Notes |
 |---|---|---|---|---|---|---|---|
-| _(first drill — to be filled in by D4)_ | | | | | | | |
+| 2026-05-13 | ivancjz / Claude Code | backup-14 | 53.9 + 11.3 = 65.2 | 49.3 | ~115s (~1.9 min) | Yes (within expected drift) | assets 4371 (prod: 4391, +20 drift since 04:00 UTC); price_history 2,343,894 (prod: 2,452,969, +109k drift = ~1 day ingest); asset_signals 4,033 (exact match); users 1 (exact match). sealed_products table absent from backup — migration added after 2026-05-12. Drill done on Windows with Docker Desktop; gunzip ran inside container via docker cp. |
 
 ---
 
