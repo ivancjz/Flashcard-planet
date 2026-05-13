@@ -21,7 +21,6 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_TRIAL_EXPIRY,
     JOB_YGO,
     JOB_EXPLANATION,
-    JOB_POSTGRES_BACKUP,
     JOB_BACKUP_FRESHNESS,
     JOB_SEALED_INGEST,
     finish_run,
