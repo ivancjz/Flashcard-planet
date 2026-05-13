@@ -1,192 +1,182 @@
-# Restore from R2 Backup — Runbook
+# Restore from Backup — Runbook
 
-**Last drill:** see Drill log below
-**Backup location:** Cloudflare R2 → `flashcard-planet-backups` bucket → `daily/YYYY-MM-DD.dump`
-**Format:** pg_dump custom format (--format=custom --compress=9)
-**Schedule:** Daily at startup+30min offset (interval/24h via APScheduler)
+**Last drill:** [filled in by D4 execution]
+**Backup location:** GitHub Releases → `ivancjz/flashcard-planet-backups` → asset `backup.sql.gz`
+**Format:** Plain SQL dump (gzip compressed)
+**Schedule:** GitHub Actions daily at 04:00 UTC
 
 ---
 
 ## When to use this
 
-- Accidental `DROP TABLE` / `DROP DATABASE`
-- Corrupted data (suspected or confirmed)
-- Disaster recovery (Railway region failure, data centre incident)
-- Routine drill (run quarterly per policy)
+- Accidental `DROP TABLE` or data corruption
+- Disaster recovery (Railway region failure)
+- Routine restore drill (run quarterly)
 
 ---
 
 ## Prerequisites
 
 ```bash
-# Set these in your shell before running commands:
-export CF_ACCOUNT="<your Cloudflare account ID>"
-export R2_ACCESS_KEY="<R2 API key>"
-export R2_SECRET_KEY="<R2 API secret>"
-export BUCKET="flashcard-planet-backups"
+# Tools needed:
+gh --version   # GitHub CLI, authenticated as ivancjz
+psql --version # Postgres client (brew install postgresql or apt-get postgresql-client)
+docker --version  # Docker (for scratch DB) — or use Railway scratch service if unavailable
+```
 
-# AWS CLI must be installed and configured to use the R2 endpoint.
-# No region-based AWS creds needed — Cloudflare uses its own auth.
+The `gh` CLI must be authenticated with read access to `ivancjz/flashcard-planet-backups`.
+
+---
+
+## Step 1 — List recent backups
+
+```bash
+gh release list --repo ivancjz/flashcard-planet-backups --limit 30
+```
+
+Output shows: tag name, release name, date. Pick the backup you want to restore (usually the latest).
+Note the tag (e.g., `backup-14`).
+
+---
+
+## Step 2 — Download chosen backup
+
+```bash
+BACKUP_TAG="backup-14"   # replace with actual tag
+mkdir -p /tmp/restore-drill
+
+gh release download "$BACKUP_TAG" \
+  --repo ivancjz/flashcard-planet-backups \
+  --pattern "backup.sql.gz" \
+  --dir /tmp/restore-drill/
+```
+
+Verify the download:
+```bash
+ls -lh /tmp/restore-drill/backup.sql.gz
+# Expected: ~450 MB for a recent backup
 ```
 
 ---
 
-## Procedure
-
-### Step 1 — Identify the backup to restore
-
-List the last 20 daily backups:
+## Step 3 — Decompress
 
 ```bash
-aws --endpoint-url="https://${CF_ACCOUNT}.r2.cloudflarestorage.com" \
-    s3 ls "s3://${BUCKET}/daily/" \
-    --no-sign-request \
-    2>&1 | tail -20
-```
-
-> Note: `--no-sign-request` does NOT work for private R2 buckets.
-> Use these env vars for auth instead:
-
-```bash
-AWS_ACCESS_KEY_ID=$R2_ACCESS_KEY \
-AWS_SECRET_ACCESS_KEY=$R2_SECRET_KEY \
-aws --endpoint-url="https://${CF_ACCOUNT}.r2.cloudflarestorage.com" \
-    s3 ls "s3://${BUCKET}/daily/" | tail -20
-```
-
-Pick the desired date (usually today's or yesterday's). Record the key, e.g. `daily/2026-05-13.dump`.
-
----
-
-### Step 2 — Download the chosen backup
-
-```bash
-BACKUP_DATE="2026-05-13"  # replace with actual date
-RESTORE_FILE="/tmp/restore-${BACKUP_DATE}.dump"
-
-AWS_ACCESS_KEY_ID=$R2_ACCESS_KEY \
-AWS_SECRET_ACCESS_KEY=$R2_SECRET_KEY \
-aws --endpoint-url="https://${CF_ACCOUNT}.r2.cloudflarestorage.com" \
-    s3 cp "s3://${BUCKET}/daily/${BACKUP_DATE}.dump" \
-    "$RESTORE_FILE"
-
-ls -lh "$RESTORE_FILE"
+cd /tmp/restore-drill
+time gunzip backup.sql.gz
+ls -lh backup.sql
+# Expected: ~3-4 GB uncompressed
 ```
 
 ---
 
-### Step 3 — Stand up a scratch database
+## Step 4 — Stand up scratch Postgres 18
 
 **NEVER restore directly into production.** Always verify in a scratch DB first.
 
-Option A — Local Docker (preferred for drills):
+Option A — Local Docker (preferred):
 ```bash
 docker run -d \
-    --name fp-restore-test \
-    -e POSTGRES_PASSWORD=test \
-    -e POSTGRES_DB=flashcard_planet_restore_test \
-    -p 5433:5432 \
-    postgres:18
+  --name fp-restore-drill \
+  -e POSTGRES_PASSWORD=test \
+  -e POSTGRES_DB=flashcard_planet_restore \
+  -p 5433:5432 \
+  postgres:18
 
-# Wait ~5s for Postgres to start
-sleep 5
-SCRATCH_URL="postgresql://postgres:test@localhost:5433/flashcard_planet_restore_test"
+sleep 5  # wait for postgres to be ready
+SCRATCH_URL="postgresql://postgres:test@localhost:5433/flashcard_planet_restore"
 ```
 
-Option B — Railway scratch service (use if Docker unavailable):
-- Create a temporary Postgres service in Railway
-- Set `SCRATCH_URL` to the connection string
+Option B — Railway scratch service (if Docker unavailable):
+- Create a new Postgres service in Railway
+- Grab the public connection URL
+- Set `SCRATCH_URL` to that connection string
+
+Verify the scratch DB is up:
+```bash
+psql "$SCRATCH_URL" -c "SELECT 1;"
+```
 
 ---
 
-### Step 4 — Restore to scratch database
+## Step 5 — Restore
 
 ```bash
-pg_restore \
-    --dbname="$SCRATCH_URL" \
-    --no-owner \
-    --no-privileges \
-    --jobs=4 \
-    "$RESTORE_FILE"
+time psql "$SCRATCH_URL" -f /tmp/restore-drill/backup.sql
 ```
 
-Expected: no errors, possibly some warnings about extensions (safe to ignore).
+Expected: many `SET`, `CREATE TABLE`, `INSERT`, `CREATE INDEX` lines. Some `ERROR: role "..." does not exist` warnings are safe to ignore (they come from the `--no-owner` flag in the dump).
 
 ---
 
-### Step 5 — Verify the restore
+## Step 6 — Verify row counts
+
+Run these against the scratch DB and compare to production (run the same queries against `DATABASE_PUBLIC_URL`):
 
 ```bash
 psql "$SCRATCH_URL" -c "SELECT COUNT(*) AS assets FROM assets;"
-psql "$SCRATCH_URL" -c "SELECT COUNT(*) AS signals FROM asset_signals;"
-psql "$SCRATCH_URL" -c "SELECT MAX(captured_at) AS latest_price FROM price_history;"
 psql "$SCRATCH_URL" -c "SELECT COUNT(*) AS price_rows FROM price_history;"
+psql "$SCRATCH_URL" -c "SELECT MAX(captured_at) AS latest_price FROM price_history;"
+psql "$SCRATCH_URL" -c "SELECT COUNT(*) AS signals FROM asset_signals;"
+psql "$SCRATCH_URL" -c "SELECT COUNT(*) AS sealed_products FROM sealed_products;"
+psql "$SCRATCH_URL" -c "SELECT COUNT(*) AS users FROM users;"
 ```
 
-Compare against production (ask Ivan or run against `DATABASE_URL_DIRECT`):
-```bash
-psql "$DATABASE_URL_DIRECT" -c "SELECT COUNT(*) FROM assets;"
-psql "$DATABASE_URL_DIRECT" -c "SELECT COUNT(*) FROM asset_signals;"
-```
-
-Counts must match within expected point-in-time delta (a few rows of drift is fine — the dump is a snapshot before the restore was initiated).
+Counts should match the backup's point-in-time snapshot (expect minor drift for any tables written to after the backup ran at 04:00 UTC).
 
 ---
 
-### Step 6 — Tear down the scratch database
+## Step 7 — Tear down scratch DB
 
 ```bash
-docker stop fp-restore-test && docker rm fp-restore-test
-rm -f "$RESTORE_FILE"
+docker stop fp-restore-drill && docker rm fp-restore-drill
+rm -f /tmp/restore-drill/backup.sql
 ```
 
 ---
 
-### Step 7 — If production restore is needed (ONLY if disaster confirmed)
+## Step 8 — Production restore (ONLY if disaster confirmed)
 
-This step is irreversible. Coordinate with Ivan before proceeding.
+This is irreversible. Coordinate with Ivan before proceeding.
 
 ```bash
-# 1. Pause all writes — stop the scheduler to prevent further writes
-#    (Railway → backend service → disable or redeploy with INGEST_SCHEDULE_ENABLED=false)
+# 1. Pause all writes — Railway dashboard → backend service → redeploy with:
+#    SCHEDULER_POLL_SECONDS=999999  (or stop the service)
 
-# 2. Verify the backup is good (Steps 1–5 above must pass first)
+# 2. Verify the backup is good: Steps 1-6 must pass first.
 
-# 3. Restore over production — the --clean flag drops and recreates objects
-pg_restore \
-    --dbname="$DATABASE_URL_DIRECT" \
-    --clean \
-    --no-owner \
-    --no-privileges \
-    "$RESTORE_FILE"
+# 3. Restore over production
+#    DATABASE_PUBLIC_URL is the public TCP proxy URL (junction.proxy.rlwy.net:19115)
+psql "$DATABASE_PUBLIC_URL" -f /tmp/restore-drill/backup.sql
 
-# 4. Verify row counts against expected
+# 4. Verify row counts against your pre-disaster snapshot
 
-# 5. Re-enable writes (redeploy with normal env vars)
+# 5. Re-enable writes: redeploy with normal env vars
 ```
 
 ---
 
 ## What NOT to do
 
-- Never restore directly into production without a scratch verification first (Step 5 row counts must pass)
-- Never delete a backup — if R2 lifecycle policies archive to cold storage, that's intentional
-- Never commit `CLOUDFLARE_R2_*` credentials to the repo; they live in Railway env vars only
+- Never restore directly into production without completing Steps 1–6 first
+- Never delete a backup release manually — the 30-day prune policy handles retention
+- Never commit credentials to the repo
 
 ---
 
 ## Drill log
 
-Run a drill quarterly and record results here.
+Run quarterly. Record results here.
 
-| Date | Author | Backup key | Download time | pg_restore time | Row count match | Notes |
-|---|---|---|---|---|---|---|
-| _(first drill — fill in after Phase 4 of PR #14a)_ | | | | | | |
+| Date | Author | Tag | Download + gunzip (s) | psql restore (s) | Total RTO (s) | Row counts match? | Notes |
+|---|---|---|---|---|---|---|---|
+| _(first drill — to be filled in by D4)_ | | | | | | | |
 
 ---
 
-## Backup script reference
+## References
 
-Script: `scripts/backup_postgres.py`
-Scheduler job: `postgres-backup` (interval/24h, registered in `backend/app/backstage/scheduler.py`)
-Scheduler run log: query `SELECT * FROM scheduler_run_log WHERE job_name='postgres-backup' ORDER BY started_at DESC LIMIT 10;`
+- Live backup workflow: `.github/workflows/daily-backup.yml`
+- APScheduler watchdog: `backup-freshness-check` job in `backend/app/backstage/scheduler.py`
+- Watchdog script: `scripts/check_backup_freshness.py`
+- Quarterly local download: `backend/scripts/backup_to_local.sh`
