@@ -43,7 +43,7 @@ If Claude Code, Codex, and Ivan disagree, the resolution is: one round of positi
 - Backend: Python 3.13 + FastAPI + SQLAlchemy 2 + APScheduler + httpx + PostgreSQL 18
 - Frontend: Vite + React 18 + TypeScript + plain CSS (Tailwind not yet adopted — that's Phase 1)
 - Hosted on Railway Hobby plan
-- No automatic backups (P0 risk — fixed in PR #14)
+- Daily automated backups live since 2026-05-02 (GitHub Actions → GitHub Releases). Restore runbook: docs/runbooks/restore-from-backup.md. First restore drill: PR #14a.
 
 **Architecture invariants:**
 - Branching: `feat/*` branches → PR → merge to main → Railway auto-deploys from main only

@@ -4,8 +4,34 @@
 >
 > **This file is for Claude Code to consume autonomously.** When picking up a session and there is no specific operator instruction, read this file and start the highest-priority task you have evidence to safely execute. See §0 below.
 
-**Last updated:** 2026-05-08 (v6 — TASK-103b duplicate removed, TASK-105 promoted from CLAUDE.md §7 Issue D for Phase 2)
+**Last updated:** 2026-05-13 (v7 — PR #14 split decision added; TASK-509 mobile nav)
 **Maintained by:** Ivan (operator) with proposed updates from Claude Code via PR
+
+---
+
+## Decision log
+
+### Decision (2026-05-13): PR #14 split into PR #14a / #14b / #14c
+
+**Authority:** Ivan + claude.ai (strategy session 2026-05-13).
+
+The spec's single PR #14 bundled six items: backups, PgBouncer, rate limiting, audit log, Sentry+PostHog, structlog. Split into three PRs:
+
+- **PR #14a** (this PR): Reconcile docs with live GitHub Actions backup system + execute first restore drill. R2 path retired (Cloudflare card binding unavailable). See PR #14a description for full scope.
+- **PR #14b** (future): Rate limiting (slowapi) + audit log + Sentry + PostHog + structlog
+- **PR #14c** (future): PgBouncer connection pooling — after prepared-statement audit
+
+**Rationale:**
+1. Backups (14a) are the only true P0 and carry a 7-day verification window ("7 consecutive days of backup logs" per acceptance criteria). That window should not gate the observability cluster.
+2. PgBouncer (14c) carries prepared-statement compatibility risk requiring a codebase audit before any code lands — different release profile from the rest.
+3. The observability cluster (14b: rate limiting, audit log, Sentry, PostHog, structlog) is internally cohesive and ships independently of both backups and PgBouncer.
+
+**Scope mapping** (spec PR #14 items → split PRs):
+- Scope item 1 (backups) → PR #14a
+- Scope items 3, 4, 5, 6 (rate limiting, audit log, Sentry+PostHog, structlog) → PR #14b
+- Scope item 2 (PgBouncer) → PR #14c
+
+**The spec section "PR #14"** remains the merged source of truth for scope requirements. This split is a sequencing decision, not a scope reduction.
 
 ---
 
@@ -745,7 +771,7 @@ When a task ships, move it here with PR number and merge date. Keep this section
 | TASK-401 | OpenAI as third LLM provider | commit 9dafe11 | 2026-05-02 | OpenAIProvider + task-type router + FallbackLLMProvider + IP tagging experiment. 861 tests pass. |
 | TASK-203 | Pro tier payment integration design doc | commit f1ee749 | 2026-05-02 | Design doc + 6-decision ADR. LemonSqueezy MoR, USD $12/$9 Founders, card-free 7d trial. TASK-301 now blocked only on TASK-102 (backups). |
 | TASK-204 | Image backfill retry audit | (audit only) | 2026-05-02 | Two-layer retry exists (backfill_pass + retry_pass). ~0% imageless rate for Pokemon. Gap: YGO has no image retry path. See docs/audits/2026-05-02-image-backfill.md |
-| TASK-102a | Daily pg_dump backup via GitHub Actions | commit a9c5cfb | 2026-05-02 | Workflow + disaster-recovery runbook. Operator must: create backup repo, add 3 secrets, run workflow_dispatch, perform restore drill. |
+| TASK-102a | Daily pg_dump backup via GitHub Actions | commit a9c5cfb | 2026-05-02 | Workflow live, 11+ consecutive daily runs. Restore runbook rewritten against GitHub Releases (PR #14a). First restore drill: PR #14a D4. |
 | TASK-102b | Quarterly local backup download script | commit c1dc319 | 2026-05-02 | backend/scripts/backup_to_local.sh + quarterly-backup.md. Add quarterly reminder to Google Calendar. |
 
 ---
