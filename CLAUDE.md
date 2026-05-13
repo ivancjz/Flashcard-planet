@@ -44,7 +44,21 @@ This file is the project context for any Claude instance working on this codebas
 
 ### eBay API status — critical, read before touching ebay_sold.py
 
-**eBay Finding API is decommissioned (2025-02-05).** Endpoint: `https://svcs.ebay.com/services/search/FindingService/v1`. Returns HTTP 500 + `errorId=10001, domain=Security` on every call, including the first call of a fresh run. This is not quota exhaustion — it is a permanently rejected legacy endpoint. The Finding API used a legacy auth method (`SECURITY-APPNAME` query param, not Bearer token) on the legacy `svcs.ebay.com` domain. It is gone.
+**eBay Finding API is decommissioned (2025-02-05, date unverified — see note).** Endpoint: `https://svcs.ebay.com/services/search/FindingService/v1`. Returns HTTP 500 + `errorId=10001, domain=Security` on every call, including the first call of a fresh run. This is not quota exhaustion — it is a permanently rejected legacy endpoint. The Finding API used a legacy auth method (`SECURITY-APPNAME` query param, not Bearer token) on the legacy `svcs.ebay.com` domain. It is gone.
+
+**Verification evidence (forensic audit 2026-05-14):** Full HTTP response body confirmed via direct probe:
+```
+HTTP 500 — 485 bytes
+<errorId>10001</errorId><domain>Security</domain><subdomain>RateLimiter</subdomain>
+<message>Service call has exceeded the number of times the operation is allowed to be called</message>
+<parameter name="Param1">findCompletedItems</parameter>
+<parameter name="Param2">FindingService</parameter>
+```
+The official meaning of errorId 10001 is "rate limit exceeded." However: this error fires on the **first call of a fresh session**, with zero prior calls in the window. Genuine quota exhaustion resets daily and succeeds on the first post-reset call. First-call failure is behaviorally inconsistent with real rate limiting — it is consistent with the endpoint permanently rejecting all traffic. **The date 2025-02-05 is from internal notes (commit `9a6e9e6` context); no official eBay developer announcement was located.** The behavioral conclusion (endpoint permanently blocked) is verified. The specific decommission date is not.
+
+**The April 27 13:33 UTC "cliff" explained:** `last_ebay_sold_captured_at = 2026-04-27 13:33:14` is NOT the moment eBay ingest stopped writing. It is the timestamp of the last **valid** (non-future-dated) row. Commit `4d63362` (2026-04-27 13:43 UTC, 10 minutes after that timestamp) deleted 749 future-dated rows (captured_at up to 2026-05-06) and added a filter to reject them going forward. Before this fix, eBay auctions with future end times were being written to `price_history`. The "cliff" is the deletion of those rows, not a stop in eBay activity. The Finding API was already returning 10001 by this date (commit `9a6e9e6`, 2026-04-29, explicitly documents "YGO spike failed with all 14 assets returning ebay_api_error (errorId 10001)").
+
+**Scheduler run gap April 27–May 8:** No `scheduler_run_log` entries exist for `ebay-ingestion` during this 11-day window despite multiple deploys. Root cause not fully confirmed from available data (no direct DB row-level access). Most likely cause: `46af80b` (2026-04-30) introduced a broken budget counter that caused the job to crash before `start_run()`, fixed by `f4bcd8d` (2026-05-01). April 28–29 gap cause undetermined. Runs resumed May 9 after a scheduler restart from the `signal-history-prune` job deploy (`72c0e1c`). All runs since May 9 write 0 records because the Finding API returns 10001 immediately.
 
 **eBay Browse API (`api.ebay.com/buy/browse/v1`) returns active listings, not sold prices.** Browse API data is ask/listing price. It must NOT be written to `price_history`. If Browse API data is ever ingested, it goes to a separate `listing_snapshot` table (not yet built) with explicit labelling as ask price.
 
@@ -53,6 +67,11 @@ This file is the project context for any Claude instance working on this codebas
 **eBay sold-price channel does not exist** with current API access. Restoring it requires either: (a) eBay Marketplace Insights API approval (business gate, separate OAuth scope `api_scope/buy.marketplace.insights`), or (b) a third-party source (PriceCharting, TCGPlayer Partner). Both require architecture review — not solo agent decisions.
 
 **Consequence:** Any gate, plan, or memory entry that references "eBay recovery" as a precondition must be re-evaluated. The eBay sold-price channel cannot resume without a new data source approval.
+
+**YGO Phase 2 unblock criterion — reframed (2026-05-14):** The previous gate was "eBay recovery + 1 week Pokémon signal health." "eBay recovery" is no longer a waiting condition — it is a product decision. eBay sold-price ingestion is permanently blocked (Finding API decommissioned, verified 2026-05-14). The YGO Phase 2 unblock now depends on a product decision about whether to ingest Browse API ask prices as a substitute signal source. Open questions for Ivan (product calls, not technical decisions):
+- **Signal quality:** Is ask price (active listings) reliable enough for breakout detection? Ask prices reflect seller expectations, not cleared transactions — the existing signal thresholds were calibrated on sold data.
+- **Engine compatibility:** If ask data is mixed into `price_history`, do the existing signal thresholds (`MIN_CURRENT_N_FOR_SIGNAL`, baseline windows, `SWEEP_BATCH_SIZE` guards) need recalibration?
+- **Source segregation:** Should Browse API ingestion use `source='ebay_ask'` as a distinct value kept separate from `source='ebay_sold'`? The current engine treats all sources equally; mixing ask and sold prices in the same table without segregation would silently change what the engine is measuring.
 
 ### YGO data source semantics — critical, read before any YGO expansion work
 
@@ -560,6 +579,19 @@ Current policy ("Operator trusts you to push to main directly") is correct for v
 Consider requiring feature-branch + Codex-review-before-merge specifically for changes to: retry budgets, backoff delays, rate-limit guards, and circuit-breaker logic. Not blocking velocity for other change types.
 
 This backlog item is a "someday / Sunday decision" — do not implement without explicit operator decision. It is recorded here so the next session has the context.
+
+---
+
+## 14. Operational tooling gaps
+
+### scheduler_run_log per-row queries unavailable in production
+
+Existing `/admin/diag` endpoints expose aggregates only (`/diag/scheduler-history` groups by `(job_name, day)`). Forensic investigations requiring per-row inter-run spacing — e.g. the May 11 2026 anomaly where `ebay-ingestion` logged 30 runs vs 6–8 for other jobs — cannot be completed without either:
+
+- **(a)** Railway Postgres TCP proxy + `railway run` access to `psql` or a Python DB connection (currently blocked: `postgres.railway.internal` is not resolvable from local; no public TCP proxy configured), or
+- **(b)** A generic `/admin/diag/scheduler-runs?job_name=<name>&date=<YYYY-MM-DD>` endpoint returning per-row `started_at`, `finished_at`, `status`, `records_written`, `meta_json`.
+
+**Deferred.** Do not implement (b) until the next forensic investigation also stalls on this same gap. At that point, the accumulated cost justifies the endpoint.
 
 ---
 
