@@ -106,6 +106,7 @@ class TestCheckBackupFreshness(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertEqual(meta["status"], "error")
         self.assertIsNone(meta["latest_tag"])
+        self.assertIn("BACKUP_REPO_READ_TOKEN", meta["error_reason"])
 
     # ------------------------------------------------------------------
     # 4. Empty releases list
@@ -118,6 +119,7 @@ class TestCheckBackupFreshness(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertEqual(meta["status"], "error")
         self.assertEqual(meta["releases_fetched"], 0)
+        self.assertIn("no releases found", meta["error_reason"])
 
     # ------------------------------------------------------------------
     # 5. HTTP error (403, 404)

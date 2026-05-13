@@ -97,7 +97,8 @@ def check_backup_freshness() -> tuple[int, dict]:
     if not token:
         log.error("missing_env_var", extra={"var": "BACKUP_REPO_READ_TOKEN",
                   "hint": "Set BACKUP_REPO_READ_TOKEN to a GitHub PAT with repo read access"})
-        return 1, {"status": "error", "latest_tag": None, "latest_size_mb": None,
+        return 1, {"status": "error", "error_reason": "BACKUP_REPO_READ_TOKEN not set",
+                   "latest_tag": None, "latest_size_mb": None,
                    "latest_age_hours": None, "releases_fetched": 0}
 
     repo = os.environ.get("BACKUP_REPO", "ivancjz/flashcard-planet-backups")
@@ -135,7 +136,8 @@ def check_backup_freshness() -> tuple[int, dict]:
     if not releases:
         log.error("no_releases_found", extra={"repo": repo,
                   "hint": "No GitHub releases found — backup workflow may not have run yet"})
-        return 1, {"status": "error", "latest_tag": None, "latest_size_mb": None,
+        return 1, {"status": "error", "error_reason": f"no releases found in {repo}",
+                   "latest_tag": None, "latest_size_mb": None,
                    "latest_age_hours": None, "releases_fetched": 0}
 
     # GitHub API sorts by created_at (creation date of the release record), not published_at
@@ -173,7 +175,9 @@ def check_backup_freshness() -> tuple[int, dict]:
         published_at = datetime.fromisoformat(published_at_str.replace("Z", "+00:00"))
     except (ValueError, AttributeError) as exc:
         log.error("published_at_parse_error", extra={"published_at": published_at_str, "error": str(exc)})
-        return 1, {"status": "error", "latest_tag": latest_tag, "latest_size_mb": size_mb,
+        return 1, {"status": "error",
+                   "error_reason": f"could not parse published_at={published_at_str!r}: {exc}",
+                   "latest_tag": latest_tag, "latest_size_mb": size_mb,
                    "latest_age_hours": None, "releases_fetched": len(releases)}
 
     now_utc = datetime.now(UTC)

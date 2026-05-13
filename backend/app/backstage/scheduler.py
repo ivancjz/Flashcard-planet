@@ -105,10 +105,11 @@ _STARTUP_DELAY: dict[str, int] = {
     "signal-history-prune":   1500,  # 25 min — last; pure DB DELETE, no upstream dependency (TASK-105)
     "trial-expiry-sweep":     900,   # 15 min — subscription maintenance, no upstream dependency
     "sealed-ingest":          840,   # 14 min — eBay Browse API, after heartbeat registered
-    "backup-freshness-check": 7800,  # 2h 10min — daily watchdog fires at ~06:00 UTC when deploy
-                                     # happens around 03:50 UTC. Verifies the 04:00 UTC GitHub
-                                     # Actions backup ran. Exact time less important than guaranteed
-                                     # daily execution (interval, not cron — see CLAUDE.md Lesson 2).
+    "backup-freshness-check": 15000, # 4h 10min — runs every 4h so detection latency is ≤4h
+                                     # regardless of deploy time. A fixed 24h startup delay would
+                                     # allow the watchdog to fire before the 04:00 UTC backup if
+                                     # deploys happen between 00:00-01:50 UTC, delaying detection
+                                     # to the second day (~46h). 4h interval closes that gap.
     # "retry-pass" intentionally omitted — resume separately when confidence is high
 }
 
@@ -1247,7 +1248,7 @@ def build_scheduler() -> BackgroundScheduler:
     scheduler.add_job(
         _run_backup_freshness_check,
         "interval",
-        hours=24,
+        hours=4,
         id="backup-freshness-check",
         replace_existing=True,
         max_instances=1,
@@ -1255,8 +1256,8 @@ def build_scheduler() -> BackgroundScheduler:
         next_run_time=None,
     )
     logger.info(
-        "backup-freshness-check registered. trigger=interval/24h first_run=startup+%ds",
-        _STARTUP_DELAY.get("backup-freshness-check", 7800),
+        "backup-freshness-check registered. trigger=interval/4h first_run=startup+%ds",
+        _STARTUP_DELAY.get("backup-freshness-check", 15000),
     )
 
     return scheduler
@@ -1541,10 +1542,12 @@ def _scheduled_sealed_ingest() -> None:
 
 
 def _run_backup_freshness_check() -> None:
-    """Daily watchdog: verifies the GitHub Actions backup ran within the last 30h.
+    """Backup freshness watchdog: verifies the GitHub Actions backup ran within the last 30h.
 
-    Fires at 06:00 UTC (after the 04:00 UTC GitHub Actions backup window).
-    Alerts Discord if the latest backup is stale.
+    Fires every 4h (interval trigger). 4h cadence caps detection latency regardless
+    of deploy time — a fixed daily delay could fire before the 04:00 UTC backup if
+    Railway deploys during 00:00-01:50 UTC, delaying detection to the second day.
+    Alerts Discord if the latest backup is stale or the check errors.
 
     Calls scripts/check_backup_freshness.py::check_backup_freshness() which
     hits the GitHub Releases API for ivancjz/flashcard-planet-backups and
