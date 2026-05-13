@@ -19,3 +19,4 @@ frontend/dist/
 !.claude/specs/**
 !.claude/playbooks/
 !.claude/playbooks/**
+experiments/data-landscape/

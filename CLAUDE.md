@@ -639,6 +639,10 @@ Carryover-from-old-revision risk verified 2026-05-14 (ebay_sold count was stale 
 
 When external sources contribute to a signal but data is not displayed directly to users, the about page should list contributing sources for transparency (Pokemon TCG API, CardMarket public price guide, etc.) without quoting prices. Pending UX/legal hygiene item, deferred until YGO Phase 2 ships.
 
+### metadata_json as cross-source asset identifier store
+
+`metadata_json` is the current catch-all for cross-source asset identifiers: `set_id` for Pokémon (set by YGOPRODeck ingest), `cm_product_ids` for CardMarket (added by Phase 2 CardMarket ingest), future sources will continue to add keys. Pattern accepted at 2-source scale. Trigger to extract to a dedicated `asset_external_ids` table: when adding a 3rd source, OR when any source needs multi-id per asset (currently all are 1:1 between source and list of IDs).
+
 ### Sample tiering by sold-count over-indexes on query-fuzzy matches
 
 Verified 2026-05-14 during eBay Q1 analysis: "Pokemon Pikachu Base" matched Shadowless, 1st Edition, Unlimited, and Yellow Cheeks Pikachu variants as one card because `_build_search_query` does not include card number. Sold-count-based tier assignment treats multi-variant query matches as one card — the high sold count reflects query fuzziness, not single-card liquidity. Future eBay or market analyses should tier by realized-price tier and collectibility category (e.g. vintage holo / modern rare / modern common), not raw sold-row count.

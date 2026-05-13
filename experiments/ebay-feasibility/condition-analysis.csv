@@ -1,0 +1,31 @@
+card_id,name,tier,distinct_condition_count,condition_strings,max_condition_price_ratio,grade_mixed_flag
+149a2f7a-5bd6-48c3-a8e5-b36b2764e51a,Charizard,H,12,"[""Ungraded"", ""Used"", ""Usato"", ""New"", ""Graded"", ""Unknown"", ""Non gradata"", ""New/Factory Sealed"", ""Non grad\u00e9e"", ""Nicht bewertet"", ""Open Box/Used"", ""Non Sigillato/Usato""]",92.72,True
+045be0c1-44cb-49c7-b585-d81ef64213a9,Blastoise,H,11,"[""Open Box/Used"", ""Used"", ""Ungraded"", ""Neuf/Scell\u00e9"", ""Graded"", ""New/Factory Sealed"", ""Usato"", ""Nicht bewertet"", ""Non Sigillato/Usato"", ""Non gradata"", ""Unknown""]",767.05,True
+0d691a92-7b21-414c-adea-09e6c1c5f90d,Mewtwo,H,11,"[""Ungraded"", ""Valutata"", ""Used"", ""Non grad\u00e9e"", ""Unspecified"", ""Graded"", ""New"", ""Non gradata"", ""New/Factory Sealed"", ""Nicht bewertet"", ""Unknown""]",363.6,True
+a380c4b0-3707-4b34-a1c8-82ffa4d81442,Ninetales,H,6,"[""Ungraded"", ""Used"", ""Non gradata"", ""Unspecified"", ""Graded"", ""Non grad\u00e9e""]",4.61,False
+f37a97f7-1911-4d54-98b9-8ded43351713,Pikachu,H,8,"[""Ungraded"", ""Used"", ""Unknown"", ""Non gradata"", ""Unspecified"", ""Graded"", ""Non grad\u00e9e"", ""Gebraucht""]",255.47,True
+503ce3e5-af3c-4068-935f-d66d0be6fc59,Venusaur,H,15,"[""Used"", ""Ungraded"", ""Open Box/Used"", ""Neuf/Scell\u00e9"", ""New/Factory Sealed"", ""Graded"", ""Usato"", ""Non grad\u00e9"", ""Occasion"", ""Nicht bewertet"", ""Unspecified"", ""Non gradata"", ""Unknown"", ""Clasificada"", ""New""]",66.67,True
+44bc8c21-f28a-4055-9fce-ad8e88083b70,Charmander,H,7,"[""Graded"", ""Ungraded"", ""Used"", ""Non gradata"", ""Sin clasificar"", ""Unknown"", ""New""]",102.48,True
+90d989c4-5276-43c3-bc22-c1af7ae44c8c,Gyarados,H,9,"[""Ungraded"", ""Used"", ""Graded"", ""New/Factory Sealed"", ""Nicht bewertet"", ""Non gradata"", ""Unspecified"", ""New"", ""Non grad\u00e9e""]",6.1,True
+68849b64-c25c-4946-b06c-d4142366739b,Dragonite,H,7,"[""Ungraded"", ""Graded"", ""Used"", ""Non grad\u00e9e"", ""Non gradata"", ""New"", ""Usato""]",35.73,True
+7a263d18-222d-4cce-bc7b-810c1d7e50f8,Aurorus,H,3,"[""Ungraded"", ""Used"", ""Nicht bewertet""]",22.44,True
+9a284113-4b85-4f8a-bdcc-405bcbb72130,Mega Sharpedo ex,M,2,"[""Ungraded"", ""Graded""]",83.32,False
+8a01e711-7fa6-4c76-84c7-1c4c9f4863f5,Salazzle ex,M,4,"[""Ungraded"", ""New"", ""Nicht bewertet"", ""Non grad\u00e9""]",6.38,True
+a0587873-4b3f-411c-adf8-d1b3e18f909a,Arcanine,M,7,"[""Ungraded"", ""Used"", ""Non gradata"", ""New/Factory Sealed"", ""Unknown"", ""New"", ""Graded""]",12.53,True
+10ace5fd-0e4e-46ef-99de-699906ac0b53,Nidoking,M,10,"[""Ungraded"", ""Used"", ""Non gradata"", ""Non grad\u00e9e"", ""Graded"", ""Nicht bewertet"", ""Unspecified"", ""Unknown"", ""Grad\u00e9e"", ""Usato""]",33.26,True
+1ac819bb-a1a1-4461-bae4-2adf7353adcb,Pinsir,M,8,"[""Ungraded"", ""Used"", ""Non gradata"", ""Non grad\u00e9e"", ""Unknown"", ""Unspecified"", ""New"", ""Graded""]",61.55,True
+63b6eb70-e7d1-4b11-a43a-f9474eb8ab33,Haunter,M,8,"[""Ungraded"", ""Used"", ""Nicht bewertet"", ""Non grad\u00e9e"", ""Graded"", ""New"", ""Non gradata"", ""Unknown""]",219.09,True
+6d3e354b-bf69-45c2-a548-7545a733af2f,Pinsir,M,8,"[""Ungraded"", ""Used"", ""Non gradata"", ""Non grad\u00e9e"", ""Unknown"", ""Unspecified"", ""New"", ""Graded""]",61.55,True
+8e03a695-a8e8-4252-81f5-ac3717b31ba7,Magneton,M,9,"[""Ungraded"", ""Used"", ""Usato"", ""Non grad\u00e9e"", ""Non gradata"", ""Graded"", ""Unspecified"", ""New"", ""Nicht bewertet""]",17.82,True
+97400721-54c4-4382-92ef-9c44786eef42,Eevee,M,8,"[""Ungraded"", ""Used"", ""New"", ""Non gradata"", ""Non grad\u00e9e"", ""Nicht bewertet"", ""Non grad\u00e9"", ""Unknown""]",7.54,True
+b5f53cf3-022e-4ced-8de8-604f30b5c511,Spewpa,M,3,"[""Ungraded"", ""Nicht bewertet"", ""Used""]",11.76,True
+06836513-4ab6-4363-80f5-87b496be359f,Murkrow,L,4,"[""Ungraded"", ""Sin clasificar"", ""New"", ""Non grad\u00e9""]",1.21,False
+8a1c4dbc-158d-474f-9b2b-3f369ada6df6,Dragonair,L,7,"[""Used"", ""Ungraded"", ""Non grad\u00e9e"", ""Graded"", ""Unknown"", ""New"", ""Non gradata""]",32.54,True
+5aff3cdd-5364-41b3-93d2-ca6082cd7a25,Switching Cups,L,3,"[""Ungraded"", ""Used"", ""Unspecified""]",1.75,False
+7d4d8651-cb5a-4076-8b5f-706357fe45ce,Hisuian Sneasler,L,5,"[""Ungraded"", ""Non gradata"", ""Nicht bewertet"", ""Used"", ""Unspecified""]",26.49,True
+b14f985b-c7a1-443b-993c-cd1fa37e2ea1,Dark Wartortle,L,7,"[""Ungraded"", ""Used"", ""Unknown"", ""Graded"", ""Unspecified"", ""Nicht bewertet"", ""Non gradata""]",7.0,True
+675e968b-aafb-4dc8-a063-6339440519d3,Bellsprout,L,7,"[""Ungraded"", ""Used"", ""Non gradata"", ""Non grad\u00e9e"", ""Graded"", ""Occasion"", ""Unspecified""]",25.71,True
+633e83e7-70db-4f12-89d8-02a222b37fed,Energy Recycler,L,4,"[""Ungraded"", ""Nicht bewertet"", ""New"", ""Used""]",9.79,True
+5bf55071-93e1-415f-9bce-a33dc4cd571c,Growlithe,L,7,"[""Ungraded"", ""Nicht bewertet"", ""Used"", ""Unspecified"", ""Non grad\u00e9e"", ""Unknown"", ""New""]",60.61,True
+19a9256d-500b-4410-9f26-87e7f4048c54,Garbodor V,L,5,"[""Ungraded"", ""Used"", ""Unspecified"", ""Nicht bewertet"", ""Non gradata""]",2.45,False
+4c669996-ee53-4819-8651-d5097cf9392e,Rapidash,L,8,"[""Ungraded"", ""Used"", ""Unknown"", ""New"", ""Nicht bewertet"", ""Non gradata"", ""Unspecified"", ""Graded""]",11.9,True
