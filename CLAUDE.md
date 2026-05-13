@@ -64,14 +64,9 @@ The official meaning of errorId 10001 is "rate limit exceeded." However: this er
 
 **`_parse_insights_items` in `ebay_sold.py` is dead code** — never called from the ingestion flow. Do not wire it up without architecture approval.
 
-**eBay sold-price channel does not exist** with current API access. Restoring it requires either: (a) eBay Marketplace Insights API approval (business gate, separate OAuth scope `api_scope/buy.marketplace.insights`), or (b) a third-party source (PriceCharting, TCGPlayer Partner). Both require architecture review — not solo agent decisions.
+**eBay sold-price channel permanently deprecated.** Browse API ask-price feasibility tested 2026-05-14 (Q1, n=30 cards, 5,914 listings): 90% of high/mid-tier sample is grade-mixed, median IQR 189%/129%. Ask price is not a viable sold-price substitute on cards that matter for signal output. Going forward: Pokemon TCG API is the sole sold-price source for Pokémon. Yu-Gi-Oh sold-price source remains unresolved — see §13 Active experiments.
 
-**Consequence:** Any gate, plan, or memory entry that references "eBay recovery" as a precondition must be re-evaluated. The eBay sold-price channel cannot resume without a new data source approval.
-
-**YGO Phase 2 unblock criterion — reframed (2026-05-14):** The previous gate was "eBay recovery + 1 week Pokémon signal health." "eBay recovery" is no longer a waiting condition — it is a product decision. eBay sold-price ingestion is permanently blocked (Finding API decommissioned, verified 2026-05-14). The YGO Phase 2 unblock now depends on a product decision about whether to ingest Browse API ask prices as a substitute signal source. Open questions for Ivan (product calls, not technical decisions):
-- **Signal quality:** Is ask price (active listings) reliable enough for breakout detection? Ask prices reflect seller expectations, not cleared transactions — the existing signal thresholds were calibrated on sold data.
-- **Engine compatibility:** If ask data is mixed into `price_history`, do the existing signal thresholds (`MIN_CURRENT_N_FOR_SIGNAL`, baseline windows, `SWEEP_BATCH_SIZE` guards) need recalibration?
-- **Source segregation:** Should Browse API ingestion use `source='ebay_ask'` as a distinct value kept separate from `source='ebay_sold'`? The current engine treats all sources equally; mixing ask and sold prices in the same table without segregation would silently change what the engine is measuring.
+**Historical `ebay_sold` data contamination (verified 2026-05-14):** 1,380 rows, 2026-04-21 to 2026-04-27, are grade-mix contaminated and contain junk prices (verified $11k+ junk outliers, sealed product mixed in, international condition strings unfiltered). Do NOT use as signal threshold calibration baseline. Retain rows for audit trail; exclude from analytical use. Affected analyses: any signal engine threshold derived pre-2026-05-13 may be biased.
 
 ### YGO data source semantics — critical, read before any YGO expansion work
 
@@ -582,6 +577,21 @@ This backlog item is a "someday / Sunday decision" — do not implement without 
 
 ---
 
+## 13. Active experiments
+
+### YGO Phase 2 — sold-price source identification (third reframe of this gate)
+
+eBay sold-price is dead. Pokemon TCG API does not cover YGO. YGO Phase 2 cannot produce non-IDLE signals without a sold-price (or reliable ask-price) source. Candidate sources for evaluation — no timeline, triggered by Ivan's next attention to YGO:
+
+- **TCGPlayer YGO endpoint** — verify coverage and API access terms. TCGPlayer has YGO singles data; unclear if their API exposes it at the same access tier as Pokémon.
+- **PriceCharting API** — trading card aggregator, has graded variants, covers YGO. Pricing and rate limits unknown.
+- **130point aggregator** — third-party, has YGO market data. Terms-of-service risk not yet assessed.
+- **Defer: accept no YGO sold-price** — ship Phase 2 with YGOPRODeck ask-price proxy only, document the signal-quality caveat explicitly in the product UI. Revisit when a clean source emerges.
+
+Do not evaluate or prototype any of these without explicit operator direction. This is a tracking entry, not a task.
+
+---
+
 ## 14. Operational tooling gaps
 
 ### scheduler_run_log per-row queries unavailable in production
@@ -593,13 +603,17 @@ Existing `/admin/diag` endpoints expose aggregates only (`/diag/scheduler-histor
 
 **Deferred.** Do not implement (b) until the next forensic investigation also stalls on this same gap. At that point, the accumulated cost justifies the endpoint.
 
+### CLAUDE.md statistical claims not systematically dated
+
+Carryover-from-old-revision risk verified 2026-05-14 (ebay_sold count was stale by ~4x). Future statistical claims should be tagged with verification date inline. Backlog item: audit existing claims, no time pressure.
+
+### Sample tiering by sold-count over-indexes on query-fuzzy matches
+
+Verified 2026-05-14 during eBay Q1 analysis: "Pokemon Pikachu Base" matched Shadowless, 1st Edition, Unlimited, and Yellow Cheeks Pikachu variants as one card because `_build_search_query` does not include card number. Sold-count-based tier assignment treats multi-variant query matches as one card — the high sold count reflects query fuzziness, not single-card liquidity. Future eBay or market analyses should tier by realized-price tier and collectibility category (e.g. vintage holo / modern rare / modern common), not raw sold-row count.
+
 ---
 
 *This file is living documentation. When you learn something about the project that another Claude instance would benefit from, propose an update to this file in a dedicated commit.*
-
-## 14. Operational tooling gaps
-
-CLAUDE.md statistical claims (row counts, percentages, dates) are not systematically dated. Carryover-from-old-revision risk verified 2026-05-14 (ebay_sold count was stale by ~4x). Future statistical claims should be tagged with verification date inline. Backlog item: audit existing claims, no time pressure.
 
 ## Skill routing
 
