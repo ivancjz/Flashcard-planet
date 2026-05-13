@@ -22,7 +22,7 @@ Return value (from check_backup_freshness()):
         latest_tag      — e.g. "backup-14"
         latest_size_mb  — asset size in MB (from assets[0].size)
         latest_age_hours — age at check time, rounded to 1 decimal
-        total_releases  — total releases returned by the API
+        releases_fetched — count of releases returned by this API call (per_page=10 max)
         status          — "fresh" | "stale" | "error"
 
 Logging:
@@ -98,7 +98,7 @@ def check_backup_freshness() -> tuple[int, dict]:
         log.error("missing_env_var", extra={"var": "BACKUP_REPO_READ_TOKEN",
                   "hint": "Set BACKUP_REPO_READ_TOKEN to a GitHub PAT with repo read access"})
         return 1, {"status": "error", "latest_tag": None, "latest_size_mb": None,
-                   "latest_age_hours": None, "total_releases": 0}
+                   "latest_age_hours": None, "releases_fetched": 0}
 
     repo = os.environ.get("BACKUP_REPO", "ivancjz/flashcard-planet-backups")
     max_age_hours = float(os.environ.get("BACKUP_MAX_AGE_HOURS", "30"))
@@ -119,21 +119,21 @@ def check_backup_freshness() -> tuple[int, dict]:
     except urllib.error.HTTPError as exc:
         log.error("github_api_http_error", extra={"http_status": exc.code, "url": url})
         return 1, {"status": "error", "latest_tag": None, "latest_size_mb": None,
-                   "latest_age_hours": None, "total_releases": 0}
+                   "latest_age_hours": None, "releases_fetched": 0}
     except urllib.error.URLError as exc:
         log.error("github_api_url_error", extra={"reason": str(exc.reason), "url": url})
         return 1, {"status": "error", "latest_tag": None, "latest_size_mb": None,
-                   "latest_age_hours": None, "total_releases": 0}
+                   "latest_age_hours": None, "releases_fetched": 0}
     except Exception as exc:
         log.error("github_api_unexpected_error", extra={"error": str(exc), "url": url})
         return 1, {"status": "error", "latest_tag": None, "latest_size_mb": None,
-                   "latest_age_hours": None, "total_releases": 0}
+                   "latest_age_hours": None, "releases_fetched": 0}
 
     if not releases:
         log.error("no_releases_found", extra={"repo": repo,
                   "hint": "No GitHub releases found — backup workflow may not have run yet"})
         return 1, {"status": "error", "latest_tag": None, "latest_size_mb": None,
-                   "latest_age_hours": None, "total_releases": 0}
+                   "latest_age_hours": None, "releases_fetched": 0}
 
     latest = releases[0]
     latest_tag: str = latest.get("tag_name", "")
@@ -149,7 +149,7 @@ def check_backup_freshness() -> tuple[int, dict]:
     except (ValueError, AttributeError) as exc:
         log.error("published_at_parse_error", extra={"published_at": published_at_str, "error": str(exc)})
         return 1, {"status": "error", "latest_tag": latest_tag, "latest_size_mb": size_mb,
-                   "latest_age_hours": None, "total_releases": len(releases)}
+                   "latest_age_hours": None, "releases_fetched": len(releases)}
 
     now_utc = datetime.now(UTC)
     age_hours = round((now_utc - published_at).total_seconds() / 3600, 1)
@@ -158,7 +158,7 @@ def check_backup_freshness() -> tuple[int, dict]:
         "latest_tag": latest_tag,
         "latest_size_mb": size_mb,
         "latest_age_hours": age_hours,
-        "total_releases": len(releases),
+        "releases_fetched": len(releases),
         "status": "fresh" if age_hours <= max_age_hours else "stale",
     }
 
@@ -175,7 +175,7 @@ def check_backup_freshness() -> tuple[int, dict]:
         "latest_tag": latest_tag,
         "age_hours": age_hours,
         "size_mb": size_mb,
-        "total_releases": len(releases),
+        "releases_fetched": len(releases),
     })
     return 0, meta
 

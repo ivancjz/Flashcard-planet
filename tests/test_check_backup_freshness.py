@@ -76,7 +76,7 @@ class TestCheckBackupFreshness(unittest.TestCase):
         self.assertEqual(meta["latest_tag"], "backup-14")
         self.assertAlmostEqual(meta["latest_age_hours"], 6.0, delta=0.2)
         self.assertAlmostEqual(meta["latest_size_mb"], 5.0, delta=0.01)
-        self.assertEqual(meta["total_releases"], 1)
+        self.assertEqual(meta["releases_fetched"], 1)
 
     # ------------------------------------------------------------------
     # 2. Stale backup
@@ -98,15 +98,8 @@ class TestCheckBackupFreshness(unittest.TestCase):
     # ------------------------------------------------------------------
     def test_missing_token_returns_error(self):
         with patch.dict("os.environ", {}, clear=True):
-            # Remove all env vars (including token set in setUp)
-            import os
-            env_backup = os.environ.copy()
-            os.environ.clear()
-            try:
-                from scripts.check_backup_freshness import check_backup_freshness
-                exit_code, meta = check_backup_freshness()
-            finally:
-                os.environ.update(env_backup)
+            from scripts.check_backup_freshness import check_backup_freshness
+            exit_code, meta = check_backup_freshness()
 
         self.assertEqual(exit_code, 1)
         self.assertEqual(meta["status"], "error")
@@ -122,7 +115,7 @@ class TestCheckBackupFreshness(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertEqual(meta["status"], "error")
-        self.assertEqual(meta["total_releases"], 0)
+        self.assertEqual(meta["releases_fetched"], 0)
 
     # ------------------------------------------------------------------
     # 5. HTTP error (403, 404)
@@ -142,7 +135,7 @@ class TestCheckBackupFreshness(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertEqual(meta["status"], "error")
-        self.assertEqual(meta["total_releases"], 0)
+        self.assertEqual(meta["releases_fetched"], 0)
 
 
 if __name__ == "__main__":
