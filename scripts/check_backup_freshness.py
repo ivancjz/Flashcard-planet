@@ -135,6 +135,9 @@ def check_backup_freshness() -> tuple[int, dict]:
         return 1, {"status": "error", "latest_tag": None, "latest_size_mb": None,
                    "latest_age_hours": None, "releases_fetched": 0}
 
+    # GitHub API sorts by created_at (creation date of the release record), not published_at
+    # (when the asset was last updated). Sort by published_at to find the most recent backup.
+    releases.sort(key=lambda r: r.get("published_at", ""), reverse=True)
     latest = releases[0]
     latest_tag: str = latest.get("tag_name", "")
     published_at_str: str = latest.get("published_at", "")

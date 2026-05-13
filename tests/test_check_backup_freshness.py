@@ -3,12 +3,13 @@ tests/test_check_backup_freshness.py
 
 Tests for scripts/check_backup_freshness.py::check_backup_freshness().
 
-Five scenarios:
-  1. Fresh backup (age < 30h)  → (0, meta with status="fresh")
-  2. Stale backup (age > 30h)  → (1, meta with status="stale")
-  3. Missing token             → (1, meta with status="error")
-  4. Empty releases list       → (1, meta with status="error")
-  5. GitHub API HTTP error     → (1, meta with status="error")
+Six scenarios:
+  1. Fresh backup (age < 30h)                       → (0, meta with status="fresh")
+  2. Stale backup (age > 30h)                       → (1, meta with status="stale")
+  3. Missing token                                  → (1, meta with status="error")
+  4. Empty releases list                            → (1, meta with status="error")
+  5. GitHub API HTTP error                          → (1, meta with status="error")
+  6. API returns releases out of published_at order → selects most recently published
 """
 from __future__ import annotations
 
@@ -136,6 +137,25 @@ class TestCheckBackupFreshness(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertEqual(meta["status"], "error")
         self.assertEqual(meta["releases_fetched"], 0)
+
+
+    # ------------------------------------------------------------------
+    # 6. API returns releases out of published_at order (GitHub sorts by created_at)
+    # ------------------------------------------------------------------
+    def test_selects_most_recently_published_when_order_mixed(self):
+        # Simulate GitHub returning backup-9 (older published_at) before
+        # backup-14 (newer published_at) because created_at ordering differs.
+        old_release = _make_release(age_hours=150.0, tag="backup-9")
+        new_release = _make_release(age_hours=6.0, tag="backup-14")
+        releases_out_of_order = [old_release, new_release]  # old first, as GitHub would return
+
+        with patch("urllib.request.urlopen", return_value=_mock_urlopen(releases_out_of_order)):
+            from scripts.check_backup_freshness import check_backup_freshness
+            exit_code, meta = check_backup_freshness()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(meta["status"], "fresh")
+        self.assertEqual(meta["latest_tag"], "backup-14")
 
 
 if __name__ == "__main__":
