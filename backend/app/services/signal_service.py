@@ -67,7 +67,14 @@ PREDICTION_POINTS = 8
 CM_SOURCE_AVG1 = "cardmarket_avg1"
 CM_SOURCE_AVG7 = "cardmarket_avg7"
 CM_SOURCE_AVG30 = "cardmarket_avg30"
+CM_SOURCE_TREND = "cardmarket_trend"
 CM_SOURCES = {CM_SOURCE_AVG1, CM_SOURCE_AVG7, CM_SOURCE_AVG30}
+# All CardMarket source strings — EUR-denominated, must never enter the standard
+# USD weighted-median path. CM_SOURCES covers the three sources used by
+# compute_cardmarket_delta(); CM_ALL_SOURCES is the broader exclusion set for
+# _compute_delta_batch() WHERE clauses (includes trend, written by ingest but
+# not used in signal computation).
+CM_ALL_SOURCES = frozenset({CM_SOURCE_AVG1, CM_SOURCE_AVG7, CM_SOURCE_AVG30, CM_SOURCE_TREND})
 
 # CardMarket dispersion gate is intentionally fail-open for Phase 2 Task 5.
 # Discarded provisional values: p90=0.960784 from a 67-asset sample and
@@ -472,6 +479,7 @@ def _compute_delta_batch(
             PriceHistory.captured_at <= baseline_cutoff,
             PriceHistory.market_segment == 'raw',
             PriceHistory.source != "ebay_sold",  # deprecated 2026-05-14; code-level guard prevents baseline contamination
+            PriceHistory.source.notin_(CM_ALL_SOURCES),  # EUR-denominated; standard path is USD-only
         )
         .subquery()
     )
@@ -504,6 +512,7 @@ def _compute_delta_batch(
             PriceHistory.captured_at <= now,
             PriceHistory.market_segment == 'raw',
             PriceHistory.source != "ebay_sold",  # deprecated 2026-05-14; defensive — no rows in 24h window but explicit
+            PriceHistory.source.notin_(CM_ALL_SOURCES),  # EUR-denominated; standard path is USD-only
         )
         .subquery()
     )

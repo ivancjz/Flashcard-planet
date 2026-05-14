@@ -117,7 +117,11 @@ class Settings(BaseSettings):
     # ebay_sold deprecated 2026-05-13, see CLAUDE.md §2. Weight removed to prevent latent-trap
     # if rows are accidentally re-inserted. Code-level exclusions in signal_service.py and
     # liquidity_service.py are the enforced contract.
-    signal_delta_source_weights: str = Field(default="pokemon_tcg_api=1.0,ygoprodeck_api=1.0")
+    # Source weights for signal_delta computation. CardMarket weights are provisional
+    # (2026-05-15); revisit alongside dispersion threshold calibration at 2026-06-14.
+    # CM sources are EUR-denominated and excluded from _compute_delta_batch() WHERE
+    # clauses — weights only apply if routing logic changes. See CLAUDE.md §14.
+    signal_delta_source_weights: str = Field(default="pokemon_tcg_api=1.0,ygoprodeck_api=1.0,cardmarket_avg7=1.0,cardmarket_avg30=0.5,cardmarket_avg1=0.0,cardmarket_trend=0.0")
     signal_breakout_min_price_usd: float = Field(default=2.00, ge=0)
     signal_move_min_price_usd: float = Field(default=1.00, ge=0)
     signal_breakout_min_baseline_n: int = Field(default=3, ge=1)

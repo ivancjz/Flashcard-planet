@@ -655,6 +655,10 @@ When deprecating a data source, code-level exclusion + weight removal must accom
 
 Threshold misclassification risk if rate drifts beyond ±10%. Trigger to update: (a) EUR/USD observed outside 0.98–1.20 range, OR (b) adding a third currency-denominated source. Long-term fix: per-source currency configuration + live exchange rate (e.g. ECB daily reference rates).
 
+### CardMarket source weights are provisional
+
+`cardmarket_avg7=1.0, cardmarket_avg30=0.5, cardmarket_avg1=0.0, cardmarket_trend=0.0` in `signal_delta_source_weights` default (set 2026-05-15). Weights are provisional pending production data. avg1 and trend carry 0.0 weight: avg1 is only used in the dispersion gate; trend uses an opaque CardMarket algorithm not suitable for direct signal weighting. Revisit alongside dispersion threshold calibration (Task 8) at 2026-06-14. Note: CM sources are excluded from `_compute_delta_batch()` WHERE clauses (EUR-denominated); current weights only apply if routing logic changes.
+
 ### Sample tiering by sold-count over-indexes on query-fuzzy matches
 
 Verified 2026-05-14 during eBay Q1 analysis: "Pokemon Pikachu Base" matched Shadowless, 1st Edition, Unlimited, and Yellow Cheeks Pikachu variants as one card because `_build_search_query` does not include card number. Sold-count-based tier assignment treats multi-variant query matches as one card — the high sold count reflects query fuzziness, not single-card liquidity. Future eBay or market analyses should tier by realized-price tier and collectibility category (e.g. vintage holo / modern rare / modern common), not raw sold-row count.
