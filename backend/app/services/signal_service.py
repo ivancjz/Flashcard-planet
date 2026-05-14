@@ -366,6 +366,7 @@ def _compute_delta_batch(
             PriceHistory.asset_id.in_(asset_ids),
             PriceHistory.captured_at <= baseline_cutoff,
             PriceHistory.market_segment == 'raw',
+            PriceHistory.source != "ebay_sold",  # deprecated 2026-05-14; code-level guard prevents baseline contamination
         )
         .subquery()
     )
@@ -397,6 +398,7 @@ def _compute_delta_batch(
             PriceHistory.captured_at >= current_start,
             PriceHistory.captured_at <= now,
             PriceHistory.market_segment == 'raw',
+            PriceHistory.source != "ebay_sold",  # deprecated 2026-05-14; defensive — no rows in 24h window but explicit
         )
         .subquery()
     )
