@@ -43,6 +43,7 @@ from backend.app.ingestion.provider_registry import (
 from sqlalchemy import func, select, text as sa_text
 from sqlalchemy.orm import Session
 from backend.app.models.asset import Asset
+from backend.app.models.asset_signal import AssetSignal
 from backend.app.models.scheduler_run_log import SchedulerRunLog
 
 from backend.app.alerting.discord import send_discord_alert
@@ -58,6 +59,10 @@ EBAY_DURATION_CANARY_WINDOW_HOURS: int = 24
 
 _COMPLETED_STATUSES = {"success", "partial", "warning"}
 
+# Maps DB game values to display labels used in the heartbeat message.
+# Unknown game values fall back to the raw DB string (see _send_heartbeat usage).
+_GAME_DISPLAY_LABELS: dict[str, str] = {"pokemon": "Pokemon", "ygo": "YGO"}
+
 
 def get_zero_output_jobs(
     session: Session,
@@ -70,25 +75,30 @@ def get_zero_output_jobs(
 
     A job with no completed runs in the window is excluded — that is the 25h
     absence check's territory, not a zero-output alert.
+
+    304-skipped runs are excluded from the zero-output check: CardMarket writes
+    records_written=0 + meta_json={'not_modified': True} when the upstream S3
+    file is unchanged. These are expected zero-output and must not trigger alerts.
     """
     cutoff = now - timedelta(hours=window_hours)
     flagged: list[str] = []
     for job_name in job_names:
         rows = session.execute(
-            select(
-                func.count().label("total"),
-                func.sum(
-                    SchedulerRunLog.records_written
-                ).label("total_records"),
-            )
+            select(SchedulerRunLog)
             .where(
                 SchedulerRunLog.job_name == job_name,
                 SchedulerRunLog.started_at >= cutoff,
                 SchedulerRunLog.status.in_(list(_COMPLETED_STATUSES)),
             )
-        ).one()
-        total = rows.total or 0
-        total_records = rows.total_records or 0
+        ).scalars().all()
+
+        # Exclude 304-skipped runs: CardMarket writes records_written=0 +
+        # meta_json->>'not_modified'='true' when the upstream file is unchanged.
+        # These are expected zero-output and must not trigger alerts.
+        meaningful_rows = [r for r in rows if not (r.meta_json or {}).get("not_modified")]
+
+        total = len(meaningful_rows)
+        total_records = sum(r.records_written or 0 for r in meaningful_rows)
         if total > 0 and total_records == 0:
             flagged.append(job_name)
     return flagged
@@ -463,7 +473,40 @@ def _send_heartbeat() -> None:
                 "\n\n检查对应 ingest 路径，确认 market_segment='raw' 已设置。",
             )
 
+        # Per-game signal breakdown — query asset_signals joined to assets,
+        # grouped by game and label (INSUFFICIENT_DATA excluded as noise).
+        #
+        # Edge-case decisions:
+        #   1. Game with zero actionable signals (all INSUFFICIENT_DATA): shows
+        #      BREAKOUT=0 MOVE=0 WATCH=0 IDLE=0. Do NOT skip — the game exists.
+        #   2. Game with no assets in DB at all: silently absent from GROUP BY
+        #      result; skipped here too. Expected state for unseeded games.
+        #   3. Unknown game value: included as-is using raw DB string, so no
+        #      data is silently dropped from the breakdown line.
+        per_game: dict[str, dict[str, int]] = {}
+        with SessionLocal() as _sig_session:
+            signal_rows = _sig_session.execute(
+                select(Asset.game, AssetSignal.label, func.count().label("cnt"))
+                .join(Asset, Asset.id == AssetSignal.asset_id)
+                .where(AssetSignal.label != "INSUFFICIENT_DATA")
+                .group_by(Asset.game, AssetSignal.label)
+            ).all()
+        for sig_row in signal_rows:
+            game = sig_row.game
+            if game not in per_game:
+                per_game[game] = {"BREAKOUT": 0, "MOVE": 0, "WATCH": 0, "IDLE": 0}
+            if sig_row.label in per_game[game]:
+                per_game[game][sig_row.label] = sig_row.cnt
+
         lines = [f"{r.status}: {r.cnt} runs, last at {r.last_run}" for r in rows]
+        game_parts = []
+        for game_db, counts in sorted(per_game.items()):
+            label = _GAME_DISPLAY_LABELS.get(game_db, game_db)
+            game_parts.append(
+                f"{label}: BREAKOUT={counts['BREAKOUT']} MOVE={counts['MOVE']} WATCH={counts['WATCH']} IDLE={counts['IDLE']}"
+            )
+        if game_parts:
+            lines.append("Signals: " + " | ".join(game_parts))
         tag = " [观察期]" if in_observation else ""
         send_discord_alert(
             "heartbeat",
