@@ -293,3 +293,19 @@ def test_ingest_skips_non_ygo_assets():
         rows = db.execute(select(PriceHistory).where(PriceHistory.asset_id == pokemon_asset.id)).scalars().all()
         assert len(rows) == 0
         assert result.assets_matched == 0
+
+
+def test_ingest_skips_zero_and_negative_prices():
+    # avg7=0 and avg30=-1.5 must not be written; avg1=5.0 is positive and must be written.
+    with _db() as db:
+        asset = _make_asset(db, "Ash Blossom & Joyous Spring")
+        catalog = _make_catalog_with("Ash Blossom & Joyous Spring", 101788, avg7=0.0, avg30=-1.5, avg1=5.0)
+        result = ingest_cardmarket_ygo(db, catalog=catalog)
+        db.commit()
+
+        rows = db.execute(select(PriceHistory).where(PriceHistory.asset_id == asset.id)).scalars().all()
+        sources = {r.source for r in rows}
+        assert "cardmarket_avg7" not in sources, "avg7=0 must not be written"
+        assert "cardmarket_avg30" not in sources, "avg30=-1.5 must not be written"
+        assert "cardmarket_avg1" in sources, "avg1=5.0 must be written"
+        assert result.price_points_written == 1

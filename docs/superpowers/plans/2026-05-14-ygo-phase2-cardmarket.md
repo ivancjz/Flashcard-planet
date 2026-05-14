@@ -1290,18 +1290,36 @@ game_line = (
 
 Append `game_line` to the heartbeat body string.
 
-- [ ] **Step 6.4: Run heartbeat-related tests**
+- [ ] **Step 6.4: Filter 304-skipped runs from zero-output alert**
+
+The `get_zero_output_jobs()` function in `scheduler.py` watches for jobs that produced `records_written=0` across a 24h window. CardMarket runs that hit HTTP 304 write `records_written=0, meta_json->>'not_modified'='true'` — they would trigger a false-positive zero-output Discord alert.
+
+Find `get_zero_output_jobs()` in `backend/app/backstage/scheduler.py`. In the query that fetches zero-output runs, add a filter to exclude rows where the `not_modified` flag is set:
+
+```python
+# Exclude CardMarket 304-skipped runs from the zero-output check
+SchedulerRunLog.meta_json["not_modified"].astext != "true",
+```
+
+If the function uses a raw SQL string instead of ORM, the equivalent SQL is:
+```sql
+AND (meta_json->>'not_modified' IS NULL OR meta_json->>'not_modified' != 'true')
+```
+
+This ensures a day with all-304 CardMarket runs does not fire the zero-output alert; only genuinely failed-to-write runs do.
+
+- [ ] **Step 6.5: Run heartbeat-related tests**
 
 ```
 cd C:/Flashcard-planet && .venv/Scripts/python -m pytest tests/test_admin_stats_scheduler.py -v
 ```
 Expected: All pass
 
-- [ ] **Step 6.5: Commit**
+- [ ] **Step 6.6: Commit**
 
 ```
 git add backend/app/backstage/scheduler.py
-git commit -m "feat(discord): heartbeat shows per-game BREAKOUT/MOVE counts (Pokemon vs YGO)"
+git commit -m "feat(discord): heartbeat shows per-game BREAKOUT/MOVE counts; exclude 304-skipped CM runs from zero-output alert"
 ```
 
 ---

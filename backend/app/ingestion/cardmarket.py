@@ -83,6 +83,11 @@ def ingest_cardmarket_ygo(
             continue
 
         matched = False
+        # Multiple products can share the same card name (different printings across
+        # sets/editions). All are written; the signal engine takes the most recent row
+        # per source. When all printings share the same captured_at (daily ingest),
+        # tie-breaking is non-deterministic — Phase 2 accepted behavior.
+        # Disambiguation by expansion/rarity deferred to Phase 3; see CLAUDE.md §13.
         for pid in cached_ids:
             prices = catalog.prices_for_product(pid)
             avg7 = prices.get("avg7")
@@ -94,11 +99,13 @@ def ingest_cardmarket_ygo(
 
             matched = True
             rows_to_write: list[tuple[str, float]] = []
-            if avg7 is not None:
+            # Guard: skip zero and negative values — they produce wrong-direction deltas
+            # downstream (e.g. avg30=0 with positive avg7 → spurious -100% signal).
+            if avg7 is not None and avg7 > 0:
                 rows_to_write.append((CM_SOURCE_AVG7, avg7))
-            if avg30 is not None:
+            if avg30 is not None and avg30 > 0:
                 rows_to_write.append((CM_SOURCE_AVG30, avg30))
-            if avg1 is not None:
+            if avg1 is not None and avg1 > 0:
                 rows_to_write.append((CM_SOURCE_AVG1, avg1))
 
             for source, price_val in rows_to_write:
