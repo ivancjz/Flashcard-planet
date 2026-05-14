@@ -68,6 +68,8 @@ The official meaning of errorId 10001 is "rate limit exceeded." However: this er
 
 **Historical `ebay_sold` data contamination (verified 2026-05-14):** 1,380 rows, 2026-04-21 to 2026-04-27, are grade-mix contaminated and contain junk prices (verified $11k+ junk outliers, sealed product mixed in, international condition strings unfiltered). Do NOT use as signal threshold calibration baseline. Retain rows for audit trail; exclude from analytical use. Affected analyses: any signal engine threshold derived pre-2026-05-13 may be biased.
 
+**Code-level exclusion enforced 2026-05-14** in `signal_service._compute_delta_batch` (baseline + current window WHERE clauses) and `liquidity_service.get_liquidity_snapshots` (sales metrics zeroed, `history_depth` excludes ebay_sold rows). Latent contamination of 426 Pokémon assets (baseline computation when `pokemon_tcg_api` data is sparse) is now blocked at code level, not relying on date arithmetic. `signal_delta_source_weights` default updated to remove `ebay_sold=2.0` to prevent latent-trap re-introduction. Related: Issue B (still pending 7-day SQL evidence) may have masked latent contamination risk.
+
 ### YGO data source semantics — critical, read before any YGO expansion work
 
 **Verified 2026-05-07:** YGOPRODeck returned byte-identical prices on all 67 seeded YGO assets (POTE + TOCH, both 2020–22 sets) across 14 days of daily polling. `baseline_price == current_price` on every card, including Destiny HERO at $326.73. Signal engine correctly classifies all 67 as IDLE (`delta=0`). This is not an engine bug.
@@ -642,6 +644,16 @@ When external sources contribute to a signal but data is not displayed directly 
 ### metadata_json as cross-source asset identifier store
 
 `metadata_json` is the current catch-all for cross-source asset identifiers: `set_id` for Pokémon (set by YGOPRODeck ingest), `cm_product_ids` for CardMarket (added by Phase 2 CardMarket ingest), future sources will continue to add keys. Pattern accepted at 2-source scale. Trigger to extract to a dedicated `asset_external_ids` table: when adding a 3rd source, OR when any source needs multi-id per asset (currently all are 1:1 between source and list of IDs).
+
+### Latent-trap audit pattern for source deprecations
+
+When deprecating a data source, code-level exclusion + weight removal must accompany documentation. Documentation alone leaves the door open for accidental re-introduction. Future source deprecations must: (1) add explicit `source != X` to all analytical query WHERE clauses, (2) remove source weight from `signal_delta_source_weights`, (3) update relevant tests to assert the new exclusion behavior, (4) update this doc. Verified necessary 2026-05-14 when `ebay_sold` audit found 1,380 rows reachable by baseline computation for 426 assets despite months of doc-stated deprecation.
+
+### CardMarket EUR/USD hardcoded conversion rate
+
+`CARDMARKET_EUR_TO_USD = Decimal("1.09")` in `signal_service.py` (set 2026-05-14) converts CardMarket EUR prices to USD-equivalent before comparing against `signal_breakout_min_price_usd`, `signal_move_min_price_usd`, and `SIGNAL_BULK_FLOOR_PRICE`. These thresholds are USD-denominated; CardMarket reports in EUR.
+
+Threshold misclassification risk if rate drifts beyond ±10%. Trigger to update: (a) EUR/USD observed outside 0.98–1.20 range, OR (b) adding a third currency-denominated source. Long-term fix: per-source currency configuration + live exchange rate (e.g. ECB daily reference rates).
 
 ### Sample tiering by sold-count over-indexes on query-fuzzy matches
 

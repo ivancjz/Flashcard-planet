@@ -78,6 +78,20 @@ CARDMARKET_DISPERSION_THRESHOLD = Decimal(999)
 
 CM_CURRENT_WINDOW_HOURS = 48
 
+CARDMARKET_EUR_TO_USD = Decimal("1.09")
+# PROVISIONAL — hardcoded as of 2026-05-14. CardMarket reports prices
+# in EUR; signal thresholds (signal_breakout_min_price_usd,
+# signal_move_min_price_usd, SIGNAL_BULK_FLOOR_PRICE) are denominated
+# in USD. This constant converts EUR → USD for threshold comparisons.
+#
+# Drift watch: revisit if EUR/USD moves outside 0.98–1.20 (±10%).
+# Long-term fix: per-source currency config + live exchange rate.
+# Tracked in CLAUDE.md §14.
+
+
+def _eur_to_usd(eur_price: Decimal) -> Decimal:
+    return eur_price * CARDMARKET_EUR_TO_USD
+
 
 # ── Source weight parsing ─────────────────────────────────────────────────────
 
@@ -372,7 +386,7 @@ def compute_cardmarket_delta(
     if avg7 is None:
         return None, {"reason": "no_current", "avg30": float(avg30)}
 
-    if avg30 < SIGNAL_BULK_FLOOR_PRICE:
+    if _eur_to_usd(avg30) < SIGNAL_BULK_FLOOR_PRICE:
         return None, {"reason": "bulk_baseline_price", "avg30": float(avg30)}
 
     if avg30 == 0:
@@ -813,6 +827,9 @@ def _process_batch(
 
         current_price = Decimal(str(ctx.get("current_price", 0)))
         baseline_price = Decimal(str(ctx.get("baseline_price", 0)))
+        if is_cardmarket:
+            current_price = _eur_to_usd(current_price)
+            baseline_price = _eur_to_usd(baseline_price)
         label, downgrade_reason = _apply_signal_downgrade(
             candidate, current_price=current_price, baseline_price=baseline_price, baseline_n=baseline_n
         )
