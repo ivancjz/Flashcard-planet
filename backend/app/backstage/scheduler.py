@@ -11,6 +11,7 @@ from backend.app.ingestion.pokemon_tcg import backfill_single_card, run_backfill
 from backend.app.services.backfill_retry_service import run_retry_pass
 from backend.app.services.scheduler_run_log_service import (
     JOB_BULK_REFRESH,
+    JOB_CARDMARKET,
     JOB_DIGEST,
     JOB_EBAY,
     JOB_HEARTBEAT,
@@ -99,6 +100,7 @@ _STARTUP_DELAY: dict[str, int] = {
     "alert-heartbeat":        720,   # 12 min — receives first sweep result before sending
     "ebay-ingestion":         660,   # 11 min — after signal-sweep, before heartbeat reports it
     "yugioh-ingestion":       780,   # 13 min — after heartbeat, YGO sets are small so runs fast
+    "cardmarket-ingestion":   1050,  # 17.5 min — after explanation-sweep (960s), before digest (1200s); ±60s clear
     "bulk-set-price-refresh": 900,   # 15 min — after ingestion (120s+~5min run) and signal (600s)
     "explanation-sweep":      960,   # 16 min — after signal-sweep so new signals get explanations fast
     "market-digest-send":     1200,  # 20 min — after all other jobs have warmed up
@@ -396,7 +398,7 @@ def _send_heartbeat() -> None:
 
         # Zero-output alert: jobs that ran completed runs but wrote zero records.
         # Detects the eBay-outage pattern: API calls consumed, status=success, 0 rows written.
-        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST]
+        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,
@@ -1016,6 +1018,66 @@ def _run_ygo_ingestion() -> None:
             prune_old_runs(_log_session, JOB_YGO)
 
 
+def _run_cardmarket_ingestion() -> None:
+    from backend.app.ingestion.cardmarket import ingest_cardmarket_ygo
+    from backend.app.models.scheduler_run_log import SchedulerRunLog
+
+    try:
+        with SessionLocal() as _log_session:
+            _run_id = start_run(_log_session, JOB_CARDMARKET)
+    except Exception as exc:
+        logger.exception("start_run_failed job=%s", JOB_CARDMARKET)
+        send_discord_alert("error", f"CRITICAL: start_run 失败 — {JOB_CARDMARKET}", f"error={exc}")
+        return
+
+    _records = 0
+    _errors = 0
+    _error_message: str | None = None
+    _meta: dict = {}
+
+    try:
+        # Read last ETag from most recent successful run to enable 304 conditional fetch
+        with SessionLocal() as _etag_db:
+            last_run = _etag_db.execute(
+                select(SchedulerRunLog)
+                .where(SchedulerRunLog.job_name == JOB_CARDMARKET,
+                       SchedulerRunLog.status == "success")
+                .order_by(SchedulerRunLog.finished_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            last_etag = (last_run.meta_json or {}).get("catalog_etag") if last_run else None
+
+        with SessionLocal() as session:
+            result = ingest_cardmarket_ygo(session, last_etag=last_etag)
+            if not result.skipped_not_modified:
+                session.commit()
+        _records = result.price_points_written
+        _meta = {"catalog_etag": result.catalog_etag, "not_modified": result.skipped_not_modified}
+        if result.skipped_not_modified:
+            logger.info("cardmarket_ingestion_skipped_304 etag=%s", last_etag)
+        else:
+            logger.info(
+                "cardmarket_ingestion_complete matched=%s no_match=%s no_price=%s written=%s",
+                result.assets_matched, result.assets_skipped_no_match,
+                result.assets_skipped_no_price, result.price_points_written,
+            )
+    except Exception as exc:
+        _errors = 1
+        _error_message = str(exc)
+        logger.exception("cardmarket_ingestion_failed")
+    finally:
+        with SessionLocal() as _log_session:
+            finish_run(
+                _log_session, _run_id,
+                status="success" if not _errors else "error",
+                records_written=_records,
+                errors=_errors,
+                error_message=_error_message,
+                meta_json=_meta if _meta else None,
+            )
+            prune_old_runs(_log_session, JOB_CARDMARKET)
+
+
 def _register_ebay_job(scheduler: BackgroundScheduler, settings: object) -> None:
     from backend.app.core.config import Settings
 
@@ -1174,6 +1236,22 @@ def build_scheduler() -> BackgroundScheduler:
         coalesce=True,
         next_run_time=None,
     )
+
+    if settings.cardmarket_ingest_enabled:
+        scheduler.add_job(
+            _run_cardmarket_ingestion,
+            "interval",
+            hours=24,
+            id=JOB_CARDMARKET,
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            next_run_time=None,
+        )
+        logger.info(
+            "CardMarket ingestion registered. trigger=interval/24h first_run=startup+%ds",
+            _STARTUP_DELAY.get(JOB_CARDMARKET, 1050),
+        )
 
     scheduler.add_job(
         _run_explanation_sweep,

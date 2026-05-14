@@ -29,6 +29,7 @@ from backend.app.models.user import User
 from backend.app.backstage.scheduler import get_zero_output_jobs
 from backend.app.services.scheduler_run_log_service import (
     JOB_BULK_REFRESH,
+    JOB_CARDMARKET,
     JOB_DIGEST,
     JOB_EBAY,
     JOB_EXPLANATION,
@@ -575,6 +576,7 @@ def admin_stats(
         JOB_EBAY,
         JOB_HEARTBEAT,
         JOB_YGO,
+        JOB_CARDMARKET,
         JOB_DIGEST,
         JOB_BULK_REFRESH,
         JOB_EXPLANATION,
@@ -586,7 +588,7 @@ def admin_stats(
     }
 
     settings = get_settings()
-    _zero_output_monitored = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION, JOB_DIGEST]
+    _zero_output_monitored = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST]
     zero_output = get_zero_output_jobs(
         db,
         job_names=_zero_output_monitored,

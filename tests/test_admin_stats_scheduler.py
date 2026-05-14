@@ -184,3 +184,9 @@ class TestAdminStatsSchedulerSection:
         digest = scheduler["jobs"]["market-digest-send"]
         assert digest["last_run_meta_json"] == meta
         assert digest["last_run_status"] == "success"
+
+
+def test_cardmarket_job_in_monitored_list():
+    """cardmarket-ingestion must appear in the heartbeat's monitored jobs list."""
+    from backend.app.backstage.scheduler import JOB_CARDMARKET
+    assert JOB_CARDMARKET == "cardmarket-ingestion"
