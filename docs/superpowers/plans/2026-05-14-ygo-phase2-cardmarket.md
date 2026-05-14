@@ -814,12 +814,12 @@ git commit -m "feat(cardmarket): scheduler job — 24h interval, monitored, star
 
 ## Task 4: Seed validation + dispersion analysis
 
-**This task runs BEFORE Task 5 (signal engine).** Its output — the empirical p90/p95 of `|avg1-avg7|/avg7` across the 67 existing POTE/TOCH assets — is the input used to set `CARDMARKET_DISPERSION_THRESHOLD` in Task 5. Do not proceed to Task 5 until this analysis is complete and a threshold value is chosen.
+**This task runs BEFORE Task 5 (signal engine).** Its output was intended to set `CARDMARKET_DISPERSION_THRESHOLD` in Task 5. Outcome: both analysis runs (74K full catalog and 67-asset targeted) were discarded as statistically insufficient or wrong-cohort. Decision: **fail-open (`Decimal("999")`)** during Phase 2 launch. Calibrated threshold deferred to Task 8 with ≥1 month production data prerequisite. Task 4 is complete in the sense that a threshold decision has been recorded; it is not a precision numeric value.
 
 **Files:**
 - No permanent files created. One-off railway run.
 
-- [ ] **Step 4.1: Run CardMarket ingest against the 67 existing YGO assets**
+- [x] **Step 4.1: Run CardMarket ingest against the 67 existing YGO assets**
 
 After Tasks 1–3 are deployed, run:
 ```
@@ -837,7 +837,7 @@ with SessionLocal() as db:
 
 Expected: `matched >= 50`. If `no_match > 15`, investigate name mismatches before continuing (print the unmatched names and cross-check against `cat._name_to_ids` manually).
 
-- [ ] **Step 4.2: Compute dispersion distribution on matched assets**
+- [x] **Step 4.2: Compute dispersion distribution on matched assets**
 
 Run this analysis script against production to compute `|avg1-avg7|/avg7` percentiles:
 
@@ -874,46 +874,55 @@ if n > 0:
 "
 ```
 
-- [ ] **Step 4.3: Choose threshold and record it**
+- [x] **Step 4.3: Choose threshold and record it**
 
 Use **p90** as the default threshold. Record the actual value here in the plan before moving to Task 5:
 
 ```
-DISPERSION ANALYSIS OUTPUT (completed 2026-05-14, n=74,462 CardMarket YGO records):
+PROVISIONAL ANALYSIS — numbers recorded for reference, NOT used in production.
+See "Decision" below for the value that is actually in code.
 
-NOTE: YGOPRODeck API returned 403; analysis run against full CardMarket YGO
-price guide (87K records, 74,462 with both avg7+avg1 > 0). This is more
-statistically robust than 67 POTE/TOCH cards. Distribution is representative.
-
+--- Analysis run 1 (2026-05-14, full YGO catalog, n=74,462) ---
+Source: All CardMarket YGO records with avg7+avg1>0 (wrong cohort — includes
+cards never ingested by Flashcard Planet; retained as distribution reference).
   n      = 74,462
-  p10    = 0.0000
-  p25    = 0.1111
-  p50    = 0.3389
-  p75    = 0.6667
   p90    = 0.9091
   p95    = 1.3333
   p99    = 2.7692
   max    = 15.3333
+  Provisional choice: 1.33 (p95) — NOT used. See decision below.
 
-  Bracket summary:
-    <0.10  : 23.4% (essentially zero variance)
-    0.10–1.0: 68.7% (normal daily variation)
-    1.0–1.5 :  3.8% (meaningful deviation)
-    >1.5    :  4.1% (anomalous)
+--- Analysis run 2 (2026-05-14, 67 POTE/TOCH assets, n=356 product pairs) ---
+Source: 67 production YGO assets, all matched. n=356 because each asset maps
+to multiple CardMarket product IDs. 29 product pairs had null avg1 or avg7.
+  n      = 356
+  p50    = 0.347826
+  p75    = 0.666667
+  p90    = 0.960784
+  p95    = 1.500000
+  max    = 7.000000
+  Provisional choice: 0.960784 (p90) — NOT used. See decision below.
 
-  Chosen threshold = 1.33  (p95)
+--- Why both analyses are insufficient ---
+67 independent observations (one per card, regardless of product multiplicity)
+cannot reliably distinguish p90 from p95 from p99 — confidence intervals are
+too wide. The full-catalog run uses the wrong cohort. Neither value is a
+production-ready threshold.
 
-  Rationale: p90=0.91 gates 10% of cards (too aggressive — normal daily
-  variation crosses this). p95=1.33 gates 5%, catching cards where avg1
-  diverges >2.3× from avg7 — genuinely anomalous, not routine variance.
-  Original plan placeholder (1.5) was too permissive (only 1.8% gated).
+--- Decision (2026-05-14): FAIL-OPEN ---
+  Chosen threshold = Decimal("999")  (intentional fail-open)
+
+  Rationale: Provisional fail-open value during Phase 2 launch. All cards
+  pass the dispersion gate. Calibrated threshold requires ≥1 month of
+  production data on the actual signal-emitting YGO cohort. See Task 8.
+  Mandatory revisit by 2026-06-14.
 ```
 
 ---
 
 ## Task 5: Signal engine — CardMarket compute path
 
-**Prerequisite: Task 4 is complete.** Use `CARDMARKET_DISPERSION_THRESHOLD = 1.33` (p95 from Task 4 analysis, 2026-05-14). The code block below already has this value set — do not change it back to 1.5.
+**Prerequisite: Task 4 is complete.** Use `CARDMARKET_DISPERSION_THRESHOLD = Decimal("999")` — intentional fail-open during Phase 2 launch. See Task 4.3 for the provisional analysis values (0.96/1.33) and why they were discarded. Calibrated value deferred to Task 8 (target 2026-06-14). The code block below has this value set — do not change it to any empirically-derived number until Task 8 completes.
 
 **Files:**
 - Modify: `backend/app/services/signal_service.py`
@@ -934,7 +943,7 @@ Read the Task 4, Step 4.3 fill-in table in this plan document. Locate the line:
   Chosen threshold = ___
 ```
 
-Task 4.3 is complete. Chosen threshold = **1.33** (p95, empirical, 2026-05-14). The `CARDMARKET_DISPERSION_THRESHOLD = Decimal("1.33")` is already set correctly in the code block below. Verify the value matches before proceeding — if it still reads `1.5`, stop and report.
+Task 4.3 is complete. Chosen threshold = **Decimal("999")** (fail-open, 2026-05-14). The code block below has `CARDMARKET_DISPERSION_THRESHOLD = Decimal("999")`. Verify this matches before proceeding. If it reads `1.33`, `1.5`, or `0.960784`, stop — those are stale values from provisional analysis that was discarded. The gate is intentionally disabled during Phase 2 launch; Task 8 will calibrate it with production data.
 
 - [ ] **Step 4.1: Write failing tests for the cardmarket signal path**
 
@@ -1096,11 +1105,14 @@ CM_SOURCES = {CM_SOURCE_AVG1, CM_SOURCE_AVG7, CM_SOURCE_AVG30}
 
 # Dispersion threshold: if |avg1 - avg7| / avg7 exceeds this ratio, the card is
 # too volatile for a reliable signal (single-day spike on low liquidity).
-# Empirical p95 from Task 4 dispersion analysis (2026-05-14):
-# n=74,462 CardMarket YGO records with avg7+avg1>0; p90=0.91, p95=1.33, p99=2.77.
-# p95 chosen: gates cards where today's price diverges >2.3x from 7-day avg.
-# p90 (0.91) was too aggressive (gates 10% of normal daily variance).
-CARDMARKET_DISPERSION_THRESHOLD = Decimal("1.33")
+# FAIL-OPEN during Phase 2 launch: Decimal("999") means all cards pass the gate.
+# Provisional analysis (67 POTE/TOCH assets, n=356) gave p90=0.960784, p95=1.500000
+# but sample size is too small to distinguish percentiles reliably. Full-catalog
+# run (74K records) used the wrong cohort. Both values discarded.
+# Pre-condition for calibration: ≥1 month of cardmarket_avg7 production data on
+# the actual signal-emitting YGO cohort. Revisit by 2026-06-14. See plan Task 8
+# and CLAUDE.md §14.
+CARDMARKET_DISPERSION_THRESHOLD = Decimal("999")
 # Lookback window for "recent" CardMarket rows (daily ingest, so 48h is safe margin)
 CM_CURRENT_WINDOW_HOURS = 48
 ```
@@ -1406,6 +1418,35 @@ git commit -m "fix(signals): exclude CM_SOURCES from standard delta path (safety
 
 ---
 
+## Task 8: Dispersion threshold calibration (deferred — target 2026-06-14)
+
+**This task does NOT block Phase 2 launch.** `CARDMARKET_DISPERSION_THRESHOLD = Decimal("999")` ships with Phase 2 and the gate is effectively disabled. Task 8 runs after ≥1 month of production CardMarket data has accumulated.
+
+**Pre-requisite:** ≥1 month of `cardmarket_avg7` rows in production `price_history` on the actual YGO signal-emitting cohort (cards that have produced at least one BREAKOUT, MOVE, or WATCH signal since CardMarket ingest started).
+
+**Steps:**
+
+- [ ] **8.1** Query production for the signal-emitting cohort: assets with `game='yugioh'` AND at least one `asset_signal_history` row with label != `INSUFFICIENT_DATA` since CardMarket ingest was enabled.
+
+- [ ] **8.2** For each asset in that cohort, compute `|avg1 - avg7| / avg7` from the `price_history` rows (not the catalog snapshot — use actual ingested production data). This is the correct dataset: same cards, same source, same time window as the signals we're trying to protect.
+
+- [ ] **8.3** Compute distribution: n, p50, p75, p90, p95, p99, max. Record exact values.
+
+- [ ] **8.4** Apply decision rule:
+  - If p90 gates >15% of signal-emitting observations → threshold too aggressive, use p95.
+  - If p99 gates <2% → threshold too permissive, gating provides no useful signal quality filter; document and remove the gate entirely.
+  - Otherwise → use p90.
+
+- [ ] **8.5** Update `CARDMARKET_DISPERSION_THRESHOLD` in `signal_service.py` with the calibrated value. Remove the fail-open comment block. Add a comment citing the empirical source (date, n, cohort description, percentile chosen).
+
+- [ ] **8.6** Run the full test suite to confirm no regressions.
+
+- [ ] **8.7** Update CLAUDE.md §14 to remove the "pending calibration" note.
+
+**Note for executor:** Do not substitute a sample-derived estimate for production data. If the signal-emitting cohort has fewer than 200 observations at Task 8 execution time, extend the accumulation window — do not lower the bar.
+
+---
+
 ## Self-Review
 
 **Spec coverage check:**
@@ -1430,4 +1471,4 @@ git commit -m "fix(signals): exclude CM_SOURCES from standard delta path (safety
 - `CardmarketIngestionResult.price_points_written` matches test assertions. ✓
 - `CardmarketIngestionResult.catalog_etag` + `skipped_not_modified` added — referenced in Task 3 scheduler code. ✓
 - `compute_cardmarket_delta` signature matches test calls. ✓
-- Task 4 → Task 5 binding: Task 5 step 5.3 has `CARDMARKET_DISPERSION_THRESHOLD = 1.5` marked as placeholder; Task 4 step 4.3 has the fill-in table. Executor must not proceed past Task 4.3 without recording the chosen value.
+- Task 4 → Task 5 binding: `CARDMARKET_DISPERSION_THRESHOLD = Decimal("999")` (fail-open). Provisional analysis values (0.960784/1.33) are recorded in Task 4.3 as historical reference, marked "NOT used". Calibration deferred to Task 8 (target 2026-06-14). ✓
