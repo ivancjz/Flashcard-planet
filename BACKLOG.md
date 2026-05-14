@@ -4,7 +4,7 @@
 >
 > **This file is for Claude Code to consume autonomously.** When picking up a session and there is no specific operator instruction, read this file and start the highest-priority task you have evidence to safely execute. See §0 below.
 
-**Last updated:** 2026-05-13 (v7 — PR #14 split decision added; TASK-509 mobile nav)
+**Last updated:** 2026-05-15 (v8 — TASK-801 YGO CardMarket Phase 2b added)
 **Maintained by:** Ivan (operator) with proposed updates from Claude Code via PR
 
 ---
@@ -186,6 +186,35 @@ Format:
 - **BLOCKED 2026-05-07 pending discovery test.** POTE/TOCH returned byte-identical prices across 14 days — but this may be set-specific (older low-velocity sets) or source-specific (YGOPRODeck doesn't refresh old sets). TASK-201 is NOT a known unlock — it might confirm the problem rather than solve it.
 - **Required before TASK-201:** 7-day discovery test — poll 10 high-velocity 2024–2025 sets (LEDE, PHNI, AGOV, DUNE, INFO candidates) via `/admin/diag/price-variance`. Decision rule: ≥30% of assets show ≥2 distinct prices → proceed; otherwise → YGO is blocked on alternative price source.
 - Use the existing PR #11 import guard pattern — bulk import only sets that exist in DB; never auto-import on schedule.
+
+---
+
+#### TASK-801 — YGO CardMarket seed expansion (Phase 2b)
+
+**Priority:** P1
+**Status:** not_started
+**Owner:** Claude Code + Ivan
+**Preconditions:**
+- Phase 2 CardMarket ingest running for ≥1 week on the current 67 assets
+- At least one YGO BREAKOUT, MOVE, or WATCH signal observed in production (signal verification criterion 5 from Phase 2 plan)
+
+**Definition of Done:**
+Expand the YGO CardMarket seed catalog to include these high-liquidity tournament staples, matched to their CardMarket product IDs and confirmed producing signals:
+
+| Set | Cards |
+|-----|-------|
+| PHNI | Promethean Princess, Infernoble Arms - Durendal |
+| LEDE | Snake-Eye Ash, Flamberge |
+| AGOV | Unchained Abomination, Chaos Ruler the Chaotic Magical Dragon |
+| RA01 | Blue-Eyes White Dragon (RA01-EN000), Dark Magician (RA01-EN001) |
+
+- CardMarket product IDs resolved for all 8 cards
+- All 8 assets seeded in production with `game='ygo'`
+- Minimum 7 days `cardmarket_avg7` rows accumulating for each
+- At least one non-INSUFFICIENT_DATA signal on ≥2 of the 8 cards
+
+**Estimated effort:** S
+**Reference:** Phase 2 plan `docs/superpowers/plans/2026-05-14-ygo-phase2-cardmarket.md` Task 7 (Step 7.1); CLAUDE.md §13
 
 ---
 

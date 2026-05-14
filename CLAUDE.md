@@ -659,6 +659,10 @@ Threshold misclassification risk if rate drifts beyond ±10%. Trigger to update:
 
 `cardmarket_avg7=1.0, cardmarket_avg30=0.5, cardmarket_avg1=0.0, cardmarket_trend=0.0` in `signal_delta_source_weights` default (set 2026-05-15). Weights are provisional pending production data. avg1 and trend carry 0.0 weight: avg1 is only used in the dispersion gate; trend uses an opaque CardMarket algorithm not suitable for direct signal weighting. Revisit alongside dispersion threshold calibration (Task 8) at 2026-06-14. Note: CM sources are excluded from `_compute_delta_batch()` WHERE clauses (EUR-denominated); current weights only apply if routing logic changes.
 
+### _parse_source_weights silently drops malformed entries
+
+`_parse_source_weights()` in `signal_service.py` splits on commas then `=`. Any segment without `=` (e.g. a typo in the `SIGNAL_DELTA_SOURCE_WEIGHTS` env var) is silently discarded — no warning, no error. Benign for the current default string; dangerous if the env var is misconfigured in production (misconfigured source gets default weight 1.0 instead of the intended value, with no alert). Fix: add a `logger.warning` for malformed segments. Low priority — fix opportunistically when editing `_parse_source_weights`.
+
 ### Sample tiering by sold-count over-indexes on query-fuzzy matches
 
 Verified 2026-05-14 during eBay Q1 analysis: "Pokemon Pikachu Base" matched Shadowless, 1st Edition, Unlimited, and Yellow Cheeks Pikachu variants as one card because `_build_search_query` does not include card number. Sold-count-based tier assignment treats multi-variant query matches as one card — the high sold count reflects query fuzziness, not single-card liquidity. Future eBay or market analyses should tier by realized-price tier and collectibility category (e.g. vintage holo / modern rare / modern common), not raw sold-row count.
