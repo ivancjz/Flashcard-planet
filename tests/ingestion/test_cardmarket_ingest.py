@@ -125,3 +125,171 @@ def test_catalog_returns_none_on_304():
     with patch("httpx.get", side_effect=fake_get_304):
         result = CardmarketCatalog.download(game_id=GAME_ID_YGO, etag='"abc123"')
     assert result is None
+
+# ── Task 2: ingest function tests ─────────────────────────────────────────────
+
+from contextlib import contextmanager
+from datetime import UTC, datetime
+import uuid
+
+from sqlalchemy import JSON, create_engine, select
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+import backend.app.models  # noqa: F401
+from backend.app.db.base import Base
+from backend.app.models.asset import Asset
+from backend.app.models.price_history import PriceHistory
+from backend.app.ingestion.cardmarket import ingest_cardmarket_ygo, CardmarketIngestionResult
+
+
+def _coerce_postgres_types():
+    for table in Base.metadata.tables.values():
+        for col in table.columns:
+            if isinstance(col.type, JSONB):
+                col.type = JSON()
+
+
+@contextmanager
+def _db():
+    _coerce_postgres_types()
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    with factory() as db:
+        yield db
+    Base.metadata.drop_all(engine)
+
+
+def _make_asset(session, name: str, game: str = "yugioh") -> Asset:
+    asset = Asset(
+        id=uuid.uuid4(),
+        asset_class="TCG",
+        game=game,
+        name=name,
+        set_name="POTE",
+        card_number="001",
+        language="EN",
+        variant="Super Rare",
+    )
+    session.add(asset)
+    session.flush()
+    return asset
+
+
+def _make_catalog_with(
+    card_name: str,
+    product_id: int,
+    avg7: float | None,
+    avg30: float | None,
+    avg1: float | None = None,
+) -> CardmarketCatalog:
+    catalog = CardmarketCatalog(game_id=GAME_ID_YGO, created_at="2026-05-13T02:43:22+0200")
+    catalog._name_to_ids[card_name.lower()] = [product_id]
+    catalog._prices[product_id] = {"avg1": avg1, "avg7": avg7, "avg30": avg30}
+    return catalog
+
+
+def test_ingest_writes_avg7_and_avg30_rows():
+    with _db() as db:
+        asset = _make_asset(db, "Ash Blossom & Joyous Spring")
+        catalog = _make_catalog_with("Ash Blossom & Joyous Spring", 101788, avg7=5.0, avg30=4.5)
+        result = ingest_cardmarket_ygo(db, catalog=catalog)
+        db.commit()
+
+        rows = db.execute(select(PriceHistory).where(PriceHistory.asset_id == asset.id)).scalars().all()
+        sources = {r.source for r in rows}
+        assert "cardmarket_avg7" in sources
+        assert "cardmarket_avg30" in sources
+        assert result.price_points_written == 2
+
+
+def test_ingest_writes_avg1_when_present():
+    with _db() as db:
+        asset = _make_asset(db, "Ash Blossom & Joyous Spring")
+        catalog = _make_catalog_with("Ash Blossom & Joyous Spring", 101788, avg7=5.0, avg30=4.5, avg1=6.0)
+        result = ingest_cardmarket_ygo(db, catalog=catalog)
+        db.commit()
+
+        rows = db.execute(select(PriceHistory).where(PriceHistory.asset_id == asset.id)).scalars().all()
+        sources = {r.source for r in rows}
+        assert "cardmarket_avg1" in sources
+        assert result.price_points_written == 3
+
+
+def test_ingest_skips_avg1_when_null():
+    with _db() as db:
+        asset = _make_asset(db, "Ash Blossom & Joyous Spring")
+        catalog = _make_catalog_with("Ash Blossom & Joyous Spring", 101788, avg7=5.0, avg30=4.5, avg1=None)
+        ingest_cardmarket_ygo(db, catalog=catalog)
+        db.commit()
+
+        rows = db.execute(select(PriceHistory).where(PriceHistory.asset_id == asset.id)).scalars().all()
+        sources = {r.source for r in rows}
+        assert "cardmarket_avg1" not in sources
+
+
+def test_ingest_skips_card_with_null_avg7_and_avg30():
+    with _db() as db:
+        asset = _make_asset(db, "Dark Magician")
+        catalog = _make_catalog_with("Dark Magician", 102000, avg7=None, avg30=None)
+        result = ingest_cardmarket_ygo(db, catalog=catalog)
+        db.commit()
+
+        rows = db.execute(select(PriceHistory).where(PriceHistory.asset_id == asset.id)).scalars().all()
+        assert len(rows) == 0
+        assert result.assets_skipped_no_price == 1
+
+
+def test_ingest_sets_market_segment_raw():
+    with _db() as db:
+        asset = _make_asset(db, "Ash Blossom & Joyous Spring")
+        catalog = _make_catalog_with("Ash Blossom & Joyous Spring", 101788, avg7=5.0, avg30=4.5)
+        ingest_cardmarket_ygo(db, catalog=catalog)
+        db.commit()
+
+        rows = db.execute(select(PriceHistory).where(PriceHistory.asset_id == asset.id)).scalars().all()
+        for row in rows:
+            assert row.market_segment == "raw", f"Expected market_segment='raw', got {row.market_segment!r}"
+
+
+def test_ingest_sets_currency_eur():
+    with _db() as db:
+        asset = _make_asset(db, "Ash Blossom & Joyous Spring")
+        catalog = _make_catalog_with("Ash Blossom & Joyous Spring", 101788, avg7=5.0, avg30=4.5)
+        ingest_cardmarket_ygo(db, catalog=catalog)
+        db.commit()
+
+        rows = db.execute(select(PriceHistory).where(PriceHistory.asset_id == asset.id)).scalars().all()
+        for row in rows:
+            assert row.currency == "EUR"
+
+
+def test_ingest_caches_cm_product_id_in_metadata():
+    with _db() as db:
+        asset = _make_asset(db, "Ash Blossom & Joyous Spring")
+        catalog = _make_catalog_with("Ash Blossom & Joyous Spring", 101788, avg7=5.0, avg30=4.5)
+        ingest_cardmarket_ygo(db, catalog=catalog)
+        db.commit()
+        db.refresh(asset)
+
+        cached = (asset.metadata_json or {}).get("cm_product_ids", [])
+        assert 101788 in cached
+
+
+def test_ingest_skips_non_ygo_assets():
+    with _db() as db:
+        pokemon_asset = _make_asset(db, "Ash Blossom & Joyous Spring", game="pokemon")
+        catalog = _make_catalog_with("Ash Blossom & Joyous Spring", 101788, avg7=5.0, avg30=4.5)
+        result = ingest_cardmarket_ygo(db, catalog=catalog)
+        db.commit()
+
+        rows = db.execute(select(PriceHistory).where(PriceHistory.asset_id == pokemon_asset.id)).scalars().all()
+        assert len(rows) == 0
+        assert result.assets_matched == 0
