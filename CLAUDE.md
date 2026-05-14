@@ -524,7 +524,9 @@ If a task seems to require crossing these boundaries, **stop and report to the o
 
 ---
 
-## 9. Operator preferences (learned over 2026-04-21/22)
+## 9. Approach & patterns
+
+### 9.1 Operator preferences (learned over 2026-04-21/22)
 
 - **Direct feedback is welcomed.** The operator will say "you're wrong" when they disagree and expects the same from you. Don't soften bad news.
 - **Operator reads SQL fluently**, and has deep domain knowledge of Pokémon TCG market. When the operator says "this doesn't match what I see on eBay," that's a strong signal — listen.
@@ -532,6 +534,94 @@ If a task seems to require crossing these boundaries, **stop and report to the o
 - **The operator does not want excessive caveats or hedging.** State your position, explain the reasoning briefly, and let them decide. Long "on the other hand..." passages get skimmed.
 - **The operator prefers shorter, specific questions over open-ended ones.** Use `ask_user_input` equivalents with 2-4 options when you have uncertainty.
 - **Language**: Mix of English and Chinese is fine, as in the advisory conversations. Keep technical terms in English (commit messages, code, error messages). Narrative can switch.
+
+### 9.2 Evaluation & implementation discipline
+
+**Pattern: Multi-stage prompt with mandatory pauses**
+
+For non-trivial work spanning reference extraction, generation, verification, and integration, structure the prompt as explicit stages with operator-decision gates between them. Each stage produces an artifact (cheat sheet, generated output, grep results, diff) that the operator reviews before authorizing the next stage. Do not let the LLM auto-chain stages — chaining defeats the evidence-gate purpose.
+
+Stages typically follow: pre-flight checks → reference extraction (PAUSE) → generation → visual/structural inspection (PAUSE) → structural grep / diff → final verdict.
+
+*Derived from: Pencil.dev evaluation (2026-05-13). Re-applied successfully in eBay forensic, eBay feasibility, CardMarket landscape audit. Transferable to any "should we adopt tool X" investigation or any task where verifiable intermediate outputs exist.*
+
+---
+
+**Pattern: 5-category post-implementation audit**
+
+After any subagent or LLM-driven implementation phase reports "no flags" or "complete", run a structured self-audit on five known edge-case categories before accepting the result. "No flags" ≠ "no decisions made" — silent decisions are the common failure mode.
+
+Categories:
+1. No-match / missing-data paths (what if input is empty?)
+2. Multi-match / ambiguity handling (what if input is duplicated?)
+3. Null / zero / negative / boundary inputs (what if input is degenerate?)
+4. Locale / currency / unit assumptions (what unit is the input in?)
+5. Audit-log and monitoring coverage for new code paths (what does ops see?)
+
+For each, ask the implementer to answer one of:
+- "handled this way: `<description>`, code at file:line"
+- "plan implicitly assumes `<X>`, code matches assumption"
+- "not handled, would surface as `<symptom>`, deferred backlog item"
+
+*Derived from: CardMarket ingest Task 2 audit (2026-05-14). Surfaced zero/negative price guard gap + 304-skip audit-trail gap that subagent did not flag spontaneously.*
+
+---
+
+**Pattern: Fail-open over fake-precision for under-calibrated thresholds**
+
+When a numerical parameter (threshold, weight, ratio, timeout) is derived from insufficient sample size or wrong-cohort data, do NOT ship a fake-precise value with "revisit later" intent. Ship a fail-open sentinel (e.g. `Decimal("999")` for thresholds, `0.0` for weights) that effectively disables the parameter's filtering effect, with a code comment stating:
+- Why the value is fail-open
+- What data would be needed to calibrate it properly
+- Concrete revisit target date
+- Pointer to backlog item that owns the calibration
+
+This applies the "merge ≠ deploy ≠ verified" principle to numerical parameters: a parameter is not verified until production data has calibrated it. Fake-precision gives false confidence that the parameter is doing useful work.
+
+*Derived from: CardMarket dispersion threshold (Task 4, 2026-05-14). 67-asset cohort gave insufficient sample for p90/p95 percentile estimation; 74K full-catalog gave wrong-cohort distribution. Neither was production-ready. Shipped `Decimal("999")` fail-open with Task 8 calibration scheduled 2026-06-14.*
+
+---
+
+**Pattern: Three-layer enforcement for data source deprecation**
+
+When deprecating a data source, documentation alone leaves the door open for accidental re-introduction. Source deprecation requires three coordinated layers:
+
+1. **Documentation** in CLAUDE.md / source comments explaining the deprecation date, reason, and remediation if re-introduction is needed
+2. **Code-level exclusion** in computation paths (WHERE clauses, filter functions, aggregation queries) — explicit source IN/NOT IN guards, not date-based filters that happen to work today
+3. **Configuration removal** of weights, credentials, feature flags, and any other config surface that would activate the source if data accidentally re-appeared
+
+Documentation alone is "polite request not to use this". Layers 2 and 3 are "code-enforced cannot use this even if you try". The full three-layer approach prevents latent traps when future code, migrations, or ad-hoc scripts inadvertently write to the deprecated source.
+
+*Derived from: ebay_sold deprecation (2026-05-13 doc, 2026-05-14 code + config enforcement). Documentation alone left a latent contamination risk affecting 426 Pokémon assets via signal baseline computation. Three-layer fix landed as commits 7ac9561 + 387c367 on main.*
+
+---
+
+**Pattern: Unit conversion at threshold comparison sites**
+
+Threshold comparisons across mismatched units are categorical errors, not precision errors. When code computes `value_in_unit_A < threshold_in_unit_B`, the result determines a category (BREAKOUT / MOVE / WATCH / IGNORE / etc.) — any drift produces real classification errors on boundary inputs, regardless of how close unit_A happens to be to unit_B at the time of writing.
+
+"Small drift" framing is wrong for categorical gates. Always convert units explicitly at the comparison site, even when the conversion factor happens to be near 1.0.
+
+Implementation form:
+- A constant declaring the conversion ratio with provenance + drift-watch range
+- A helper function or inline conversion at every threshold comparison
+- A regression test that uses a boundary input to prove the conversion is applied (e.g. value just below threshold in source unit becomes just above threshold in target unit, classification changes accordingly)
+
+*Derived from: CardMarket EUR vs signal USD thresholds (Task 5, 2026-05-14). €1.95 was being downgraded from BREAKOUT to MOVE because `SIGNAL_BREAKOUT_MIN_PRICE_USD = 2.00` compared against EUR directly. Fix: `CARDMARKET_EUR_TO_USD = Decimal("1.09")` + `_eur_to_usd()` helper at every threshold comparison. Regression test `test_cardmarket_thresholds_use_eur_to_usd_conversion`.*
+
+---
+
+**Lesson: Plan specifications must include calibration fallback hierarchy**
+
+When a task derives a value from a primary data source, the plan must explicitly enumerate fallback data sources in priority order, and a stop-condition when all fallbacks are unavailable. Otherwise the LLM implementing the task will substitute an arbitrary larger dataset under information-poor conditions and produce a confidently wrong calibration.
+
+Standard form for calibration tasks:
+
+> Primary dataset: `<X>`
+> Fallback 1 if primary unavailable: `<Y>`, with rationale
+> Fallback 2 if both unavailable: `<Z>`, with rationale
+> If all fallbacks unavailable: STOP and flag, do not substitute alternative dataset.
+
+*Derived from: CardMarket dispersion threshold (Task 4, 2026-05-14). Plan specified 67 POTE/TOCH cards as primary cohort; YGOPRODeck returned 403, backup container unavailable; subagent substituted 74K full YGO catalog as fallback. Substitution was reasonable in isolation but produced wrong-cohort distribution. Plan should have prescribed fallback behavior explicitly (or stop-and-flag).*
 
 ---
 
