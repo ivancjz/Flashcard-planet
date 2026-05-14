@@ -64,6 +64,41 @@ ACTIVE_WINDOW_DAYS = 30
 SWEEP_BATCH_SIZE = 100
 PREDICTION_POINTS = 8
 
+CM_SOURCE_AVG1 = "cardmarket_avg1"
+CM_SOURCE_AVG7 = "cardmarket_avg7"
+CM_SOURCE_AVG30 = "cardmarket_avg30"
+CM_SOURCE_TREND = "cardmarket_trend"
+CM_SOURCES = {CM_SOURCE_AVG1, CM_SOURCE_AVG7, CM_SOURCE_AVG30}
+# All CardMarket source strings — EUR-denominated, must never enter the standard
+# USD weighted-median path. CM_SOURCES covers the three sources used by
+# compute_cardmarket_delta(); CM_ALL_SOURCES is the broader exclusion set for
+# _compute_delta_batch() WHERE clauses (includes trend, written by ingest but
+# not used in signal computation).
+CM_ALL_SOURCES = frozenset({CM_SOURCE_AVG1, CM_SOURCE_AVG7, CM_SOURCE_AVG30, CM_SOURCE_TREND})
+
+# CardMarket dispersion gate is intentionally fail-open for Phase 2 Task 5.
+# Discarded provisional values: p90=0.960784 from a 67-asset sample and
+# p95=1.3333 from the full catalog. The first cohort was too small; the second
+# used the wrong cohort for signal-path gating. Revisit under Task 8 in
+# docs/superpowers/plans/2026-05-14-ygo-phase2-cardmarket.md by 2026-06-14.
+CARDMARKET_DISPERSION_THRESHOLD = Decimal(999)
+
+CM_CURRENT_WINDOW_HOURS = 48
+
+CARDMARKET_EUR_TO_USD = Decimal("1.09")
+# PROVISIONAL — hardcoded as of 2026-05-14. CardMarket reports prices
+# in EUR; signal thresholds (signal_breakout_min_price_usd,
+# signal_move_min_price_usd, SIGNAL_BULK_FLOOR_PRICE) are denominated
+# in USD. This constant converts EUR → USD for threshold comparisons.
+#
+# Drift watch: revisit if EUR/USD moves outside 0.98–1.20 (±10%).
+# Long-term fix: per-source currency config + live exchange rate.
+# Tracked in CLAUDE.md §14.
+
+
+def _eur_to_usd(eur_price: Decimal) -> Decimal:
+    return eur_price * CARDMARKET_EUR_TO_USD
+
 
 # ── Source weight parsing ─────────────────────────────────────────────────────
 
@@ -318,6 +353,83 @@ def compute_signal_delta(
     return result.get(asset_id, (None, {"reason": "no_data"}))
 
 
+def compute_cardmarket_delta(
+    db: Session,
+    asset_id: Any,
+    *,
+    now: datetime | None = None,
+) -> tuple[Decimal | None, dict]:
+    if now is None:
+        now = datetime.now(UTC)
+    window_start = now - timedelta(hours=CM_CURRENT_WINDOW_HOURS)
+
+    rows = db.execute(
+        select(PriceHistory.source, PriceHistory.price, PriceHistory.captured_at)
+        .where(
+            PriceHistory.asset_id == asset_id,
+            PriceHistory.source.in_(CM_SOURCES),
+            PriceHistory.captured_at >= window_start,
+            PriceHistory.captured_at <= now,
+            PriceHistory.market_segment == "raw",
+        )
+        .order_by(PriceHistory.captured_at.desc())
+    ).all()
+
+    by_source: dict[str, Decimal] = {}
+    for row in rows:
+        if row.source not in by_source:
+            by_source[row.source] = Decimal(str(row.price))
+
+    avg7 = by_source.get(CM_SOURCE_AVG7)
+    avg30 = by_source.get(CM_SOURCE_AVG30)
+    avg1 = by_source.get(CM_SOURCE_AVG1)
+
+    if avg7 is None and avg30 is None:
+        return None, {"reason": "no_cardmarket_data"}
+
+    if avg30 is None:
+        return None, {"reason": "no_baseline", "avg7": float(avg7)}
+
+    if avg7 is None:
+        return None, {"reason": "no_current", "avg30": float(avg30)}
+
+    if _eur_to_usd(avg30) < SIGNAL_BULK_FLOOR_PRICE:
+        return None, {"reason": "bulk_baseline_price", "avg30": float(avg30)}
+
+    if avg30 == 0:
+        return None, {"reason": "zero_baseline"}
+
+    dispersion_ratio = None
+    if avg1 is not None and avg7 > 0:
+        dispersion_ratio = float(abs(avg1 - avg7) / avg7)
+
+    if (
+        dispersion_ratio is not None
+        and Decimal(str(dispersion_ratio)) > CARDMARKET_DISPERSION_THRESHOLD
+    ):
+        return None, {
+            "reason": "high_dispersion",
+            "avg1": float(avg1),
+            "avg7": float(avg7),
+            "avg30": float(avg30),
+            "dispersion_ratio": dispersion_ratio,
+        }
+
+    delta = ((avg7 - avg30) / avg30 * Decimal("100")).quantize(Decimal("0.01"))
+    ctx = {
+        "current_price": float(avg7),
+        "baseline_price": float(avg30),
+        "source": "cardmarket",
+        "baseline_n": settings.signal_move_min_baseline_n,
+        "current_n": 1,
+    }
+    if avg1 is not None:
+        ctx["avg1"] = float(avg1)
+    if dispersion_ratio is not None:
+        ctx["dispersion_ratio"] = dispersion_ratio
+    return delta, ctx
+
+
 _BASELINE_SAMPLE_POINTS = 5   # how many rows to sample around the baseline cutoff
 _CURRENT_SAMPLE_POINTS = 10  # how many recent rows to use for the current price
 
@@ -367,6 +479,7 @@ def _compute_delta_batch(
             PriceHistory.captured_at <= baseline_cutoff,
             PriceHistory.market_segment == 'raw',
             PriceHistory.source != "ebay_sold",  # deprecated 2026-05-14; code-level guard prevents baseline contamination
+            PriceHistory.source.notin_(CM_ALL_SOURCES),  # EUR-denominated; standard path is USD-only
         )
         .subquery()
     )
@@ -399,6 +512,7 @@ def _compute_delta_batch(
             PriceHistory.captured_at <= now,
             PriceHistory.market_segment == 'raw',
             PriceHistory.source != "ebay_sold",  # deprecated 2026-05-14; defensive — no rows in 24h window but explicit
+            PriceHistory.source.notin_(CM_ALL_SOURCES),  # EUR-denominated; standard path is USD-only
         )
         .subquery()
     )
@@ -583,16 +697,38 @@ def _process_batch(
     current_window_hours: int,
 ) -> None:
     now = datetime.now(UTC)
+    window_start = now - timedelta(hours=CM_CURRENT_WINDOW_HOURS)
 
-    # Compute windowed deltas for the whole batch
+    cm_asset_ids = {
+        row.asset_id
+        for row in db.execute(
+            select(PriceHistory.asset_id)
+            .distinct()
+            .where(
+                PriceHistory.asset_id.in_(asset_ids),
+                PriceHistory.source.in_(CM_SOURCES),
+                PriceHistory.captured_at >= window_start,
+                PriceHistory.captured_at <= now,
+                PriceHistory.market_segment == "raw",
+            )
+        ).all()
+    }
+    cm_deltas = {
+        aid: compute_cardmarket_delta(db, aid, now=now)
+        for aid in cm_asset_ids
+    }
+    standard_ids = [aid for aid in asset_ids if aid not in cm_asset_ids]
+
+    # Compute windowed deltas for non-CardMarket assets with the standard path.
     delta_batch = _compute_delta_batch(
         db,
-        asset_ids,
+        standard_ids,
         baseline_window_days=baseline_window_days,
         current_window_hours=current_window_hours,
         source_weights=source_weights,
         now=now,
     )
+    delta_batch.update(cm_deltas)
 
     # Build percent_changes for assets that have a valid delta
     percent_changes: dict[Any, Decimal] = {}
@@ -658,7 +794,10 @@ def _process_batch(
 
         # Hard floor: too few current samples → single-sale noise, not a signal.
         current_n = ctx.get("current_n", 0)
-        if current_n < MIN_CURRENT_N_FOR_SIGNAL:
+        is_cardmarket = ctx.get("source") == "cardmarket"
+        # CardMarket rows are daily aggregates (n=1 by design); bypass is
+        # source-specific, does not relax the floor for other sources.
+        if not is_cardmarket and current_n < MIN_CURRENT_N_FOR_SIGNAL:
             ctx["downgrade_reason"] = "insufficient_current_n"
             signal = SignalRow(
                 asset_id=asset_id,
@@ -697,6 +836,9 @@ def _process_batch(
 
         current_price = Decimal(str(ctx.get("current_price", 0)))
         baseline_price = Decimal(str(ctx.get("baseline_price", 0)))
+        if is_cardmarket:
+            current_price = _eur_to_usd(current_price)
+            baseline_price = _eur_to_usd(baseline_price)
         label, downgrade_reason = _apply_signal_downgrade(
             candidate, current_price=current_price, baseline_price=baseline_price, baseline_n=baseline_n
         )

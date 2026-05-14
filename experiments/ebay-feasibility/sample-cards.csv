@@ -1,0 +1,31 @@
+asset_id,name,set_name,card_number,variant,grade_company,grade_score,sold_count,median_sold,tier
+149a2f7a-5bd6-48c3-a8e5-b36b2764e51a,Charizard,Base,4,holo,,,36,112.5,H
+045be0c1-44cb-49c7-b585-d81ef64213a9,Blastoise,Base,2,holo,,,18,129.0,H
+0d691a92-7b21-414c-adea-09e6c1c5f90d,Mewtwo,Base,10,holo,,,16,62.5,H
+a380c4b0-3707-4b34-a1c8-82ffa4d81442,Ninetales,Base,12,holo,,,16,47.5,H
+f37a97f7-1911-4d54-98b9-8ded43351713,Pikachu,Base,58,,,,16,39.99,H
+503ce3e5-af3c-4068-935f-d66d0be6fc59,Venusaur,Base,15,holo,,,15,109.99,H
+44bc8c21-f28a-4055-9fce-ad8e88083b70,Charmander,Base,46,,,,15,8.0,H
+90d989c4-5276-43c3-bc22-c1af7ae44c8c,Gyarados,Base,6,holo,,,15,31.0,H
+68849b64-c25c-4946-b06c-d4142366739b,Dragonite,Fossil,19,Stage 2 | Rare,,,14,101.0,H
+7a263d18-222d-4cce-bc7b-810c1d7e50f8,Aurorus,Perfect Order,92,Stage 2 | Illustration Rare,,,14,15.0,H
+9a284113-4b85-4f8a-bdcc-405bcbb72130,Mega Sharpedo ex,Phantasmal Flames,61,Stage 1 | MEGA | ex | Double Rare,,,9,5.0,M
+8a01e711-7fa6-4c76-84c7-1c4c9f4863f5,Salazzle ex,Perfect Order,16,Stage 1 | ex | Double Rare,,,9,4.0,M
+a0587873-4b3f-411c-adf8-d1b3e18f909a,Arcanine,Base,23,,,,9,7.99,M
+10ace5fd-0e4e-46ef-99de-699906ac0b53,Nidoking,Base,11,holo,,,8,40.0,M
+1ac819bb-a1a1-4461-bae4-2adf7353adcb,Pinsir,Jungle,9,Basic | Rare Holo,,,8,29.5,M
+63b6eb70-e7d1-4b11-a43a-f9474eb8ab33,Haunter,Base,29,,,,8,5.0,M
+6d3e354b-bf69-45c2-a548-7545a733af2f,Pinsir,Jungle,25,Basic | Rare,,,8,29.5,M
+8e03a695-a8e8-4252-81f5-ac3717b31ba7,Magneton,Base,9,holo,,,8,33.0,M
+97400721-54c4-4382-92ef-9c44786eef42,Eevee,Jungle,51,Basic | Common,,,8,4.49,M
+b5f53cf3-022e-4ced-8de8-604f30b5c511,Spewpa,Perfect Order,89,Stage 1 | Illustration Rare,,,8,5.0,M
+06836513-4ab6-4363-80f5-87b496be359f,Murkrow,Phantasmal Flames,57,Basic | Common,,,3,0.99,L
+8a1c4dbc-158d-474f-9b2b-3f369ada6df6,Dragonair,Base,18,,,,4,35.0,L
+5aff3cdd-5364-41b3-93d2-ca6082cd7a25,Switching Cups,Evolving Skies,162,,,,3,1.5,L
+7d4d8651-cb5a-4076-8b5f-706357fe45ce,Hisuian Sneasler,Astral Radiance,93,Stage 1 | Rare Holo,,,4,20.5,L
+b14f985b-c7a1-443b-993c-cd1fa37e2ea1,Dark Wartortle,Team Rocket,46,Stage 1 | Uncommon,,,3,8.99,L
+675e968b-aafb-4dc8-a063-6339440519d3,Bellsprout,Jungle,49,Basic | Common,,,4,4.5,L
+633e83e7-70db-4f12-89d8-02a222b37fed,Energy Recycler,Perfect Order,108,Item | Ultra Rare,,,3,15.39,L
+5bf55071-93e1-415f-9bce-a33dc4cd571c,Growlithe,Base,28,,,,4,26.0,L
+19a9256d-500b-4410-9f26-87e7f4048c54,Garbodor V,Evolving Skies,100,holo,,,3,10.0,L
+4c669996-ee53-4819-8651-d5097cf9392e,Rapidash,Jungle,44,Stage 1 | Uncommon,,,3,7.32,L

@@ -11,6 +11,7 @@ from backend.app.ingestion.pokemon_tcg import backfill_single_card, run_backfill
 from backend.app.services.backfill_retry_service import run_retry_pass
 from backend.app.services.scheduler_run_log_service import (
     JOB_BULK_REFRESH,
+    JOB_CARDMARKET,
     JOB_DIGEST,
     JOB_EBAY,
     JOB_HEARTBEAT,
@@ -42,6 +43,7 @@ from backend.app.ingestion.provider_registry import (
 from sqlalchemy import func, select, text as sa_text
 from sqlalchemy.orm import Session
 from backend.app.models.asset import Asset
+from backend.app.models.asset_signal import AssetSignal
 from backend.app.models.scheduler_run_log import SchedulerRunLog
 
 from backend.app.alerting.discord import send_discord_alert
@@ -57,6 +59,10 @@ EBAY_DURATION_CANARY_WINDOW_HOURS: int = 24
 
 _COMPLETED_STATUSES = {"success", "partial", "warning"}
 
+# Maps DB game values to display labels used in the heartbeat message.
+# Unknown game values fall back to the raw DB string (see _send_heartbeat usage).
+_GAME_DISPLAY_LABELS: dict[str, str] = {"pokemon": "Pokemon", "ygo": "YGO"}
+
 
 def get_zero_output_jobs(
     session: Session,
@@ -69,25 +75,30 @@ def get_zero_output_jobs(
 
     A job with no completed runs in the window is excluded — that is the 25h
     absence check's territory, not a zero-output alert.
+
+    304-skipped runs are excluded from the zero-output check: CardMarket writes
+    records_written=0 + meta_json={'not_modified': True} when the upstream S3
+    file is unchanged. These are expected zero-output and must not trigger alerts.
     """
     cutoff = now - timedelta(hours=window_hours)
     flagged: list[str] = []
     for job_name in job_names:
         rows = session.execute(
-            select(
-                func.count().label("total"),
-                func.sum(
-                    SchedulerRunLog.records_written
-                ).label("total_records"),
-            )
+            select(SchedulerRunLog)
             .where(
                 SchedulerRunLog.job_name == job_name,
                 SchedulerRunLog.started_at >= cutoff,
                 SchedulerRunLog.status.in_(list(_COMPLETED_STATUSES)),
             )
-        ).one()
-        total = rows.total or 0
-        total_records = rows.total_records or 0
+        ).scalars().all()
+
+        # Exclude 304-skipped runs: CardMarket writes records_written=0 +
+        # meta_json->>'not_modified'='true' when the upstream file is unchanged.
+        # These are expected zero-output and must not trigger alerts.
+        meaningful_rows = [r for r in rows if not (r.meta_json or {}).get("not_modified")]
+
+        total = len(meaningful_rows)
+        total_records = sum(r.records_written or 0 for r in meaningful_rows)
         if total > 0 and total_records == 0:
             flagged.append(job_name)
     return flagged
@@ -99,6 +110,7 @@ _STARTUP_DELAY: dict[str, int] = {
     "alert-heartbeat":        720,   # 12 min — receives first sweep result before sending
     "ebay-ingestion":         660,   # 11 min — after signal-sweep, before heartbeat reports it
     "yugioh-ingestion":       780,   # 13 min — after heartbeat, YGO sets are small so runs fast
+    "cardmarket-ingestion":   1050,  # 17.5 min — after explanation-sweep (960s), before digest (1200s); ±60s clear
     "bulk-set-price-refresh": 900,   # 15 min — after ingestion (120s+~5min run) and signal (600s)
     "explanation-sweep":      960,   # 16 min — after signal-sweep so new signals get explanations fast
     "market-digest-send":     1200,  # 20 min — after all other jobs have warmed up
@@ -396,7 +408,7 @@ def _send_heartbeat() -> None:
 
         # Zero-output alert: jobs that ran completed runs but wrote zero records.
         # Detects the eBay-outage pattern: API calls consumed, status=success, 0 rows written.
-        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST]
+        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,
@@ -461,7 +473,40 @@ def _send_heartbeat() -> None:
                 "\n\n检查对应 ingest 路径，确认 market_segment='raw' 已设置。",
             )
 
+        # Per-game signal breakdown — query asset_signals joined to assets,
+        # grouped by game and label (INSUFFICIENT_DATA excluded as noise).
+        #
+        # Edge-case decisions:
+        #   1. Game with zero actionable signals (all INSUFFICIENT_DATA): shows
+        #      BREAKOUT=0 MOVE=0 WATCH=0 IDLE=0. Do NOT skip — the game exists.
+        #   2. Game with no assets in DB at all: silently absent from GROUP BY
+        #      result; skipped here too. Expected state for unseeded games.
+        #   3. Unknown game value: included as-is using raw DB string, so no
+        #      data is silently dropped from the breakdown line.
+        per_game: dict[str, dict[str, int]] = {}
+        with SessionLocal() as _sig_session:
+            signal_rows = _sig_session.execute(
+                select(Asset.game, AssetSignal.label, func.count().label("cnt"))
+                .join(Asset, Asset.id == AssetSignal.asset_id)
+                .where(AssetSignal.label != "INSUFFICIENT_DATA")
+                .group_by(Asset.game, AssetSignal.label)
+            ).all()
+        for sig_row in signal_rows:
+            game = sig_row.game
+            if game not in per_game:
+                per_game[game] = {"BREAKOUT": 0, "MOVE": 0, "WATCH": 0, "IDLE": 0}
+            if sig_row.label in per_game[game]:
+                per_game[game][sig_row.label] = sig_row.cnt
+
         lines = [f"{r.status}: {r.cnt} runs, last at {r.last_run}" for r in rows]
+        game_parts = []
+        for game_db, counts in sorted(per_game.items()):
+            label = _GAME_DISPLAY_LABELS.get(game_db, game_db)
+            game_parts.append(
+                f"{label}: BREAKOUT={counts['BREAKOUT']} MOVE={counts['MOVE']} WATCH={counts['WATCH']} IDLE={counts['IDLE']}"
+            )
+        if game_parts:
+            lines.append("Signals: " + " | ".join(game_parts))
         tag = " [观察期]" if in_observation else ""
         send_discord_alert(
             "heartbeat",
@@ -1016,6 +1061,66 @@ def _run_ygo_ingestion() -> None:
             prune_old_runs(_log_session, JOB_YGO)
 
 
+def _run_cardmarket_ingestion() -> None:
+    from backend.app.ingestion.cardmarket import ingest_cardmarket_ygo
+    from backend.app.models.scheduler_run_log import SchedulerRunLog
+
+    try:
+        with SessionLocal() as _log_session:
+            _run_id = start_run(_log_session, JOB_CARDMARKET)
+    except Exception as exc:
+        logger.exception("start_run_failed job=%s", JOB_CARDMARKET)
+        send_discord_alert("error", f"CRITICAL: start_run 失败 — {JOB_CARDMARKET}", f"error={exc}")
+        return
+
+    _records = 0
+    _errors = 0
+    _error_message: str | None = None
+    _meta: dict = {}
+
+    try:
+        # Read last ETag from most recent successful run to enable 304 conditional fetch
+        with SessionLocal() as _etag_db:
+            last_run = _etag_db.execute(
+                select(SchedulerRunLog)
+                .where(SchedulerRunLog.job_name == JOB_CARDMARKET,
+                       SchedulerRunLog.status == "success")
+                .order_by(SchedulerRunLog.finished_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            last_etag = (last_run.meta_json or {}).get("catalog_etag") if last_run else None
+
+        with SessionLocal() as session:
+            result = ingest_cardmarket_ygo(session, last_etag=last_etag)
+            if not result.skipped_not_modified:
+                session.commit()
+        _records = result.price_points_written
+        _meta = {"catalog_etag": result.catalog_etag, "not_modified": result.skipped_not_modified}
+        if result.skipped_not_modified:
+            logger.info("cardmarket_ingestion_skipped_304 etag=%s", last_etag)
+        else:
+            logger.info(
+                "cardmarket_ingestion_complete matched=%s no_match=%s no_price=%s written=%s",
+                result.assets_matched, result.assets_skipped_no_match,
+                result.assets_skipped_no_price, result.price_points_written,
+            )
+    except Exception as exc:
+        _errors = 1
+        _error_message = str(exc)
+        logger.exception("cardmarket_ingestion_failed")
+    finally:
+        with SessionLocal() as _log_session:
+            finish_run(
+                _log_session, _run_id,
+                status="success" if not _errors else "error",
+                records_written=_records,
+                errors=_errors,
+                error_message=_error_message,
+                meta_json=_meta if _meta else None,
+            )
+            prune_old_runs(_log_session, JOB_CARDMARKET)
+
+
 def _register_ebay_job(scheduler: BackgroundScheduler, settings: object) -> None:
     from backend.app.core.config import Settings
 
@@ -1174,6 +1279,22 @@ def build_scheduler() -> BackgroundScheduler:
         coalesce=True,
         next_run_time=None,
     )
+
+    if settings.cardmarket_ingest_enabled:
+        scheduler.add_job(
+            _run_cardmarket_ingestion,
+            "interval",
+            hours=24,
+            id=JOB_CARDMARKET,
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            next_run_time=None,
+        )
+        logger.info(
+            "CardMarket ingestion registered. trigger=interval/24h first_run=startup+%ds",
+            _STARTUP_DELAY.get(JOB_CARDMARKET, 1050),
+        )
 
     scheduler.add_job(
         _run_explanation_sweep,
