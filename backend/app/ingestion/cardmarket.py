@@ -57,6 +57,7 @@ def ingest_cardmarket_ygo(
         if downloaded is None:
             result = CardmarketIngestionResult()
             result.skipped_not_modified = True
+            result.catalog_etag = last_etag or ""  # preserve so next run still sends If-None-Match
             return result
         catalog = downloaded
 

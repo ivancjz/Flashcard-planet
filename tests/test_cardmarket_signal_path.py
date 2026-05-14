@@ -176,3 +176,17 @@ def test_cm_sources_constant_contains_expected_values():
     assert "cardmarket_avg7" in CM_SOURCES
     assert "cardmarket_avg30" in CM_SOURCES
     assert "cardmarket_avg1" in CM_SOURCES
+
+
+def test_ingest_304_preserves_etag(monkeypatch):
+    """When download() returns None (HTTP 304), catalog_etag must be carried
+    forward so the next run can still send If-None-Match and get another 304."""
+    from unittest.mock import patch
+    from backend.app.ingestion.cardmarket import ingest_cardmarket_ygo
+
+    with _db() as db:
+        with patch("backend.app.ingestion.cardmarket.CardmarketCatalog.download", return_value=None):
+            result = ingest_cardmarket_ygo(db, last_etag="W/\"abc123\"")
+
+    assert result.skipped_not_modified is True
+    assert result.catalog_etag == "W/\"abc123\""
