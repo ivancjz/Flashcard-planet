@@ -65,7 +65,7 @@ def _make_asset(name: str = "Charizard") -> Asset:
     )
 
 
-def _ph(asset_id, *, price: str, days_ago: int, source: str = "ebay_sold",
+def _ph(asset_id, *, price: str, days_ago: int, source: str = "pokemon_tcg_api",
         segment: str = "raw") -> PriceHistory:
     """Helper: create a PriceHistory row with explicit market_segment."""
     return PriceHistory(
@@ -109,7 +109,7 @@ class TestSignalExcludesGradedRows(unittest.TestCase):
                 [asset.id],
                 baseline_window_days=7,
                 current_window_hours=24,
-                source_weights={"ebay_sold": 1.0},
+                source_weights={"pokemon_tcg_api": 1.0},
                 now=now,
             )
 
@@ -144,7 +144,7 @@ class TestSignalExcludesGradedRows(unittest.TestCase):
             result = _compute_delta_batch(
                 db, [asset.id],
                 baseline_window_days=7, current_window_hours=24,
-                source_weights={"ebay_sold": 1.0}, now=now,
+                source_weights={"pokemon_tcg_api": 1.0}, now=now,
             )
 
         delta, ctx = result[asset.id]
@@ -177,7 +177,7 @@ class TestSignalExcludesUnknownRows(unittest.TestCase):
             result = _compute_delta_batch(
                 db, [asset.id],
                 baseline_window_days=7, current_window_hours=24,
-                source_weights={"ebay_sold": 1.0}, now=now,
+                source_weights={"pokemon_tcg_api": 1.0}, now=now,
             )
 
         delta, ctx = result[asset.id]
@@ -207,7 +207,7 @@ class TestNoRawBaselineYieldsNoBaaselineData(unittest.TestCase):
             result = _compute_delta_batch(
                 db, [asset.id],
                 baseline_window_days=7, current_window_hours=24,
-                source_weights={"ebay_sold": 1.0}, now=now,
+                source_weights={"pokemon_tcg_api": 1.0}, now=now,
             )
 
         delta, ctx = result[asset.id]
@@ -240,7 +240,7 @@ class TestNoRawCurrentYieldsNoCurrentData(unittest.TestCase):
             result = _compute_delta_batch(
                 db, [asset.id],
                 baseline_window_days=7, current_window_hours=24,
-                source_weights={"ebay_sold": 1.0}, now=now,
+                source_weights={"pokemon_tcg_api": 1.0}, now=now,
             )
 
         delta, ctx = result[asset.id]

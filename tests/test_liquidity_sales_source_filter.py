@@ -132,20 +132,19 @@ class TestLiquiditySalesCountsOnlyEbaySold(unittest.TestCase):
             "pokemon_tcg_api polls must not count toward sales_count_30d."
         )
 
-    def test_ebay_sold_rows_are_counted_as_sales(self):
-        """3 ebay_sold rows in 7d → sales_count_7d must equal 3."""
+    def test_ebay_sold_rows_do_not_count_as_sales_after_deprecation(self):
+        """ebay_sold deprecated 2026-05-14 — sales_count_7d must be 0 even with ebay_sold rows present."""
         from backend.app.services.liquidity_service import get_liquidity_snapshots
         with _db_session() as db:
             asset = _make_asset()
             db.add(asset)
             db.flush()
 
-            # eBay sold rows
+            # ebay_sold rows within 7-day window — must NOT count after deprecation
             db.add(_ph(asset.id, price="1.66", hours_ago=1, source="ebay_sold"))
             db.add(_ph(asset.id, price="1.80", hours_ago=48, source="ebay_sold"))
             db.add(_ph(asset.id, price="1.50", hours_ago=100, source="ebay_sold"))
 
-            # TCG polls that must NOT be counted
             for h in range(24):
                 db.add(_ph(asset.id, price="2.18", hours_ago=h + 0.5,
                            source="pokemon_tcg_api"))
@@ -155,8 +154,8 @@ class TestLiquiditySalesCountsOnlyEbaySold(unittest.TestCase):
 
         snap = snapshots[asset.id]
         self.assertEqual(
-            snap.sales_count_7d, 3,
-            f"Expected 3 ebay_sold rows but got {snap.sales_count_7d}."
+            snap.sales_count_7d, 0,
+            f"ebay_sold is deprecated — sales_count_7d must be 0, got {snap.sales_count_7d}."
         )
 
 
@@ -189,7 +188,12 @@ class TestLiquidityLastSaleAtUsesOnlyEbaySold(unittest.TestCase):
         )
 
     def test_last_real_sale_at_uses_ebay_sold_timestamp(self):
-        """last_real_sale_at must match the most recent ebay_sold row, ignoring TCG polls."""
+        """After ebay_sold deprecation (2026-05-14), last_real_sale_at is always None.
+
+        Previously this tested that ebay_sold timestamps were surfaced here.
+        Now ebay_sold is excluded from the query — last_real_sale_at must be None
+        even when ebay_sold rows are present in the DB.
+        """
         from backend.app.services.liquidity_service import get_liquidity_snapshots
         with _db_session() as db:
             asset = _make_asset()
@@ -202,7 +206,6 @@ class TestLiquidityLastSaleAtUsesOnlyEbaySold(unittest.TestCase):
                 source="ebay_sold", captured_at=ebay_ts, market_segment="raw",
             ))
 
-            # TCG polls added AFTER the eBay row — must not displace it
             for h in range(24):
                 db.add(_ph(asset.id, price="2.18", hours_ago=h + 0.5,
                            source="pokemon_tcg_api"))
@@ -211,12 +214,9 @@ class TestLiquidityLastSaleAtUsesOnlyEbaySold(unittest.TestCase):
             snapshots = get_liquidity_snapshots(db, [asset.id])
 
         snap = snapshots[asset.id]
-        self.assertIsNotNone(snap.last_real_sale_at)
-        # The eBay timestamp should match (within 1 second — SQLite precision)
-        diff = abs((snap.last_real_sale_at - ebay_ts).total_seconds())
-        self.assertLess(
-            diff, 1.0,
-            f"last_real_sale_at should match eBay timestamp but got {snap.last_real_sale_at}."
+        self.assertIsNone(
+            snap.last_real_sale_at,
+            f"last_real_sale_at must be None after ebay_sold deprecation, got {snap.last_real_sale_at}."
         )
 
 
@@ -226,8 +226,8 @@ class TestLiquidityPreservesHistoryDepthAndSourceCount(unittest.TestCase):
     not just ebay_sold. These are data-richness indicators, not sales indicators.
     """
 
-    def test_history_depth_counts_all_non_sample_sources(self):
-        """180 TCG + 2 eBay rows → history_depth should be 182, not 2."""
+    def test_history_depth_excludes_ebay_sold_after_deprecation(self):
+        """180 TCG + 2 eBay rows → history_depth should be 180 (ebay_sold excluded after deprecation)."""
         from backend.app.services.liquidity_service import get_liquidity_snapshots
         with _db_session() as db:
             asset = _make_asset()
@@ -245,13 +245,17 @@ class TestLiquidityPreservesHistoryDepthAndSourceCount(unittest.TestCase):
 
         snap = snapshots[asset.id]
         self.assertEqual(
-            snap.history_depth, 182,
-            f"history_depth should count all non-sample rows (180 TCG + 2 eBay = 182) "
-            f"but got {snap.history_depth}."
+            snap.history_depth, 180,
+            f"history_depth must exclude ebay_sold rows (deprecated 2026-05-14); "
+            f"expected 180 TCG rows, got {snap.history_depth}."
         )
 
-    def test_source_count_counts_all_non_sample_sources(self):
-        """A card with TCG + eBay rows should have source_count=2."""
+    def test_source_count_includes_all_non_sample_sources_including_deprecated(self):
+        """A card with TCG + eBay rows has source_count=2 — ebay_sold still counted in distinct sources.
+
+        source_count is a data-presence indicator, not an active-sales indicator.
+        ebay_sold rows are in the DB and represent historical data richness.
+        """
         from backend.app.services.liquidity_service import get_liquidity_snapshots
         with _db_session() as db:
             asset = _make_asset()
@@ -267,7 +271,7 @@ class TestLiquidityPreservesHistoryDepthAndSourceCount(unittest.TestCase):
         snap = snapshots[asset.id]
         self.assertEqual(
             snap.source_count, 2,
-            f"source_count should be 2 (pokemon_tcg_api + ebay_sold) but got {snap.source_count}."
+            f"source_count should be 2 (pokemon_tcg_api + ebay_sold present in DB) but got {snap.source_count}."
         )
 
     def test_source_count_is_one_for_tcg_only_card(self):

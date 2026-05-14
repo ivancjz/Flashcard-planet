@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Iterable
 
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, case, func, literal, select
 from sqlalchemy.orm import Session
 
 from backend.app.core.price_sources import EBAY_SOLD_PRICE_SOURCE, SAMPLE_PRICE_SOURCE
@@ -261,24 +261,24 @@ def get_liquidity_snapshots(
 
     # The current schema stores point-in-time provider observations, not explicit sale events.
     # For this MVP, "sales" is the closest grounded proxy: count real non-sample observations.
+    # ebay_sold deprecated 2026-05-14 (Finding API decommissioned, no new rows):
+    #   sales_count_7d/30d and last_real_sale_at are zeroed/nulled at code level.
+    #   history_depth excludes ebay_sold rows (1,380 rows would otherwise inflate
+    #   depth for 426 assets, misleading data-richness signals and future decisions).
     rows = db.execute(
         select(
             PriceHistory.asset_id,
+            # Sales counts always 0 — ebay_sold is the only sold-price source and it's deprecated.
+            # Code-enforced, not date-implicit: no dependency on current window math.
+            func.sum(literal(0)).label("sales_count_7d"),
+            func.sum(literal(0)).label("sales_count_30d"),
+            # history_depth: only non-deprecated, non-sample sources
             func.sum(case(
-                (and_(PriceHistory.source == EBAY_SOLD_PRICE_SOURCE,
-                      PriceHistory.captured_at >= cutoff_7d), 1),
+                (PriceHistory.source != EBAY_SOLD_PRICE_SOURCE, 1),
                 else_=0,
-            )).label("sales_count_7d"),
-            func.sum(case(
-                (and_(PriceHistory.source == EBAY_SOLD_PRICE_SOURCE,
-                      PriceHistory.captured_at >= cutoff_30d), 1),
-                else_=0,
-            )).label("sales_count_30d"),
-            func.count(PriceHistory.id).label("history_depth"),
-            func.max(case(
-                (PriceHistory.source == EBAY_SOLD_PRICE_SOURCE, PriceHistory.captured_at),
-                else_=None,
-            )).label("last_real_sale_at"),
+            )).label("history_depth"),
+            # last_real_sale_at always None — no active sold-price channel
+            func.max(literal(None)).label("last_real_sale_at"),
             func.count(func.distinct(PriceHistory.source)).label("source_count"),
         )
         .where(

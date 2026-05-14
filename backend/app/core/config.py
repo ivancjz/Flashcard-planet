@@ -113,7 +113,10 @@ class Settings(BaseSettings):
     signal_sweep_alert_threshold: int = Field(default=5000, ge=1)
     signal_baseline_window_days: int = Field(default=7, ge=1)
     signal_current_window_hours: int = Field(default=24, ge=1)
-    signal_delta_source_weights: str = Field(default="ebay_sold=2.0,pokemon_tcg_api=1.0,ygoprodeck_api=1.0")
+    # ebay_sold deprecated 2026-05-13, see CLAUDE.md §2. Weight removed to prevent latent-trap
+    # if rows are accidentally re-inserted. Code-level exclusions in signal_service.py and
+    # liquidity_service.py are the enforced contract.
+    signal_delta_source_weights: str = Field(default="pokemon_tcg_api=1.0,ygoprodeck_api=1.0")
     signal_breakout_min_price_usd: float = Field(default=2.00, ge=0)
     signal_move_min_price_usd: float = Field(default=1.00, ge=0)
     signal_breakout_min_baseline_n: int = Field(default=3, ge=1)
