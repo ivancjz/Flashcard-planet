@@ -679,9 +679,9 @@ Currently temporarily open for testing phase. To restore the Pro tier gate:
 
 All supporting infrastructure (`Feature.SIGNAL_EXPLANATION`, `can()`, the pattern in `signals_feed_service.py:63`) is already in place.
 
-### Backlog: find and fix the source of the "3 days no data" label
+### RESOLVED 2026-05-15: Issue B — "3 days no data" forensic
 
-The "3 days no Pokémon data" wording for the 2026-05-04 incident came from conversation/session handoff — source not confirmed to be an automated alert. Two places to check: (1) `_send_heartbeat` in `backend/app/backstage/scheduler.py` around the zero-output and 25h-absence checks; (2) session-handoff-*.md files in `.claude/`. `last_priced_at` does **not** exist in the codebase — any alert watching it is hypothetical until confirmed. Do NOT conflate this audit with the 429 fix (separate PR).
+RESOLVED 2026-05-15: Issue B forensic verified Pokemon TCG API continuous operation throughout May 2026. The "3 days no data" claim was session-handoff exaggeration of the 2026-05-04 to 05-06 bulk-refresh 429 storm (fixed in `b2204c3`, PR #12), which affected `bulk-set-price-refresh` only — `scheduled-ingestion` continued running with the 60s cap already in place from the earlier PR #12 fix. `price_history` never stopped receiving Pokemon TCG rows. No recurring gap pattern. `last_priced_at` does not exist in the codebase; no automated alert ever fired for this incident.
 
 ### Backlog: move PokemonTCGImporter out of scripts/
 
@@ -770,6 +770,10 @@ Threshold misclassification risk if rate drifts beyond ±10%. Trigger to update:
 ### _parse_source_weights silently drops malformed entries
 
 `_parse_source_weights()` in `signal_service.py` splits on commas then `=`. Any segment without `=` (e.g. a typo in the `SIGNAL_DELTA_SOURCE_WEIGHTS` env var) is silently discarded — no warning, no error. Benign for the current default string; dangerous if the env var is misconfigured in production (misconfigured source gets default weight 1.0 instead of the intended value, with no alert). Fix: add a `logger.warning` for malformed segments. Low priority — fix opportunistically when editing `_parse_source_weights`.
+
+### Health diagnostics monitoring blindspot (discovered 2026-05-15)
+
+`/admin/diagnostics/json` health section reports `total_assets=0` and `recent_real_price_rows_last_24h=0` for all queries. Cause: `PROVIDER_EXTERNAL_ID_PREFIX = "pokemontcg:%"` in `data_health_service.py:21` doesn't match production asset external_ids (stored as `base1-1`, `sv8pt5-148`, etc. — not `pokemontcg:base1-1`). Has been silently broken since the service was written. Severity: medium — does not affect ingest or signal computation, but invalidates the health dashboard as a verification surface. Future forensic work should not trust the `health` section of this endpoint. Fix is a one-line prefix correction; deferred to next maintenance window.
 
 ### Sample tiering by sold-count over-indexes on query-fuzzy matches
 
