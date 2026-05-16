@@ -1126,11 +1126,6 @@ def _run_cardmarket_ingestion() -> None:
 def _run_ebay_web_sold() -> None:
     from backend.app.ingestion.ebay_web_scrape import ingest_ebay_web_sold
 
-    settings = get_settings()
-    if not settings.ebay_web_sold_enabled:
-        logger.info("ebay_web_sold_skipped reason=kill_switch")
-        return
-
     try:
         with SessionLocal() as _log_session:
             _run_id = start_run(_log_session, JOB_EBAY_WEB_SOLD)
@@ -1139,32 +1134,38 @@ def _run_ebay_web_sold() -> None:
         send_discord_alert("error", f"CRITICAL: start_run 失败 — {JOB_EBAY_WEB_SOLD}", f"error={exc}")
         return
 
+    _status = "error"
+    _records = 0
+    _errors = 0
+    _meta: dict = {}
+
     try:
-        with SessionLocal() as session:
+        with SessionLocal() as session:  # commit owned by ingest_ebay_web_sold internally
             result = ingest_ebay_web_sold(session)
 
-        status = "success" if result.assets_skipped_http_error == 0 else "partial"
+        _status = "success" if result.assets_skipped_http_error == 0 else "partial"
+        _records = result.price_points_written
+        _errors = result.assets_skipped_http_error
+        _meta = {
+            "assets_attempted": result.assets_attempted,
+            "assets_written": result.assets_written,
+            "assets_skipped_no_sales": result.assets_skipped_no_sales,
+            "assets_skipped_http_error": result.assets_skipped_http_error,
+        }
+    except Exception:
+        logger.exception("ebay_web_sold_failed")
+        _errors = 1
+        send_discord_alert("error", "ebay-web-sold job failed", "check logs")
+    finally:
         with SessionLocal() as _log_session:
             finish_run(
                 _log_session,
                 _run_id,
-                status=status,
-                records_written=result.price_points_written,
-                errors=result.assets_skipped_http_error,
-                meta_json={
-                    "assets_attempted": result.assets_attempted,
-                    "assets_written": result.assets_written,
-                    "assets_skipped_no_sales": result.assets_skipped_no_sales,
-                    "assets_skipped_http_error": result.assets_skipped_http_error,
-                },
+                status=_status,
+                records_written=_records,
+                errors=_errors,
+                meta_json=_meta,
             )
-    except Exception:
-        logger.exception("ebay_web_sold_failed")
-        with SessionLocal() as _log_session:
-            finish_run(_log_session, _run_id, status="error", errors=1)
-        send_discord_alert("error", "ebay-web-sold job failed", "check logs")
-    finally:
-        with SessionLocal() as _log_session:
             prune_old_runs(_log_session, JOB_EBAY_WEB_SOLD)
 
 
@@ -1349,6 +1350,7 @@ def build_scheduler() -> BackgroundScheduler:
             "interval",
             hours=24,
             id=JOB_EBAY_WEB_SOLD,
+            replace_existing=True,
             max_instances=1,
             coalesce=True,
             next_run_time=None,
