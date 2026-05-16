@@ -42,7 +42,7 @@
       {% if card.current_price %}<strong>${{ "%.2f"|format(card.current_price) }}</strong>{% endif %}
       {% if card.price_delta_pct is not none %}
         <span class="{{ 'delta-pos' if card.price_delta_pct >= 0 else 'delta-neg' }}">
-          {{ "%+.1f"|format(card.price_delta_pct) }}%
+          {% if card.price_delta_pct >= 100 %}▲ +100%+{% elif card.price_delta_pct <= -100 %}▼ -100%+{% else %}{{ "%+.1f"|format(card.price_delta_pct) }}%{% endif %}
         </span>
       {% endif %}
       <span class="badge badge-{{ card.signal_type|lower }}">{{ card.signal_type }}</span>
