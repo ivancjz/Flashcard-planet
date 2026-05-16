@@ -782,6 +782,7 @@ When a task ships, move it here with PR number and merge date. Keep this section
 
 | TASK | Title | PR | Merged | Outcome |
 |---|---|---|---|---|
+| — | Fix digest MOVE ordering noise + display cap on extreme deltas | PR fix/digest-move-ordering | 2026-05-16 | Re-ordered MOVE candidates by signal_score DESC (was ABS(price_delta_pct)); capped triple-digit deltas to ▲+100%+ / ▼-100%+ in email template. 43 tests pass. |
 | TASK-T06 | Delete stale /admin/diag/ingestion-history | commit 2176d0f | 2026-05-12 | Deleted 30-line endpoint with hardcoded 2026-04-23 timestamps. |
 | TASK-T07 | health_warnings in /admin/stats + /admin/diagnostics/json | commit 2176d0f | 2026-05-12 | Added health_warnings[] to /admin/stats (calls get_zero_output_jobs). Added /admin/diagnostics/json JSON endpoint. |
 | TASK-T08 | Operational quick reference in DEV_NOTES.md | commit 2176d0f | 2026-05-12 | Added 6-command "Operational health check" section to docs/DEV_NOTES.md. |

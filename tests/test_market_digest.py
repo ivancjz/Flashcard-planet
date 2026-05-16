@@ -111,6 +111,12 @@ def _make_signal_row(
 
 
 class TestGetDigestCandidates:
+    def _db_empty(self):
+        db = MagicMock()
+        results = [MagicMock(fetchall=MagicMock(return_value=[])) for _ in range(3)]
+        db.execute.side_effect = results
+        return db
+
     def _db_with_signals(self, breakouts=None, moves=None, popular=None):
         db = MagicMock()
         results = []
@@ -148,6 +154,18 @@ class TestGetDigestCandidates:
         db = self._db_with_signals()
         cards = get_digest_candidates(db, date(2026, 5, 4))
         assert cards == []
+
+    def test_move_query_orders_by_confidence(self):
+        db = self._db_empty()
+        get_digest_candidates(db, date(2026, 5, 4))
+        move_sql = str(db.execute.call_args_list[1].args[0])
+        assert "ORDER BY s.confidence DESC NULLS LAST" in move_sql
+
+    def test_move_query_does_not_order_by_abs_delta(self):
+        db = self._db_empty()
+        get_digest_candidates(db, date(2026, 5, 4))
+        move_sql = str(db.execute.call_args_list[1].args[0])
+        assert "ABS(s.price_delta_pct)" not in move_sql
 
     def test_no_duplicate_cards(self):
         shared_id = str(uuid.uuid4())
@@ -474,3 +492,66 @@ class TestGetDigestCandidatesRawSegment:
         get_digest_candidates(db, date(2026, 5, 4))
         popular_sql = str(db.execute.call_args_list[2].args[0])
         assert "market_segment = 'raw'" in popular_sql
+
+
+class TestDigestEmailDeltaDisplay:
+    """Verify the Jinja cap on extreme price_delta_pct in the rendered digest HTML."""
+
+    def _render(self, price_delta_pct):
+        from jinja2 import Environment, FileSystemLoader
+        from pathlib import Path
+        from backend.app.services.market_digest import DigestCard, DigestStats
+        import uuid
+        from datetime import datetime, UTC
+
+        template_dir = (
+            Path(__file__).resolve().parents[1]
+            / "backend" / "app" / "email" / "templates"
+        )
+        env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
+        tmpl = env.get_template("market_digest.html")
+
+        card = DigestCard(
+            asset_id=uuid.uuid4(),
+            name="Charizard",
+            game="pokemon",
+            signal_type="MOVE",
+            price_delta_pct=price_delta_pct,
+            current_price=42.0,
+            explanation="Test.",
+        )
+        stats = DigestStats(
+            total_assets=100,
+            games=["pokemon"],
+            last_updated_utc=datetime.now(UTC),
+        )
+        return tmpl.render(
+            user_name="Test",
+            cards=[card],
+            trigger_type="event",
+            stats=stats,
+            app_url="https://example.com",
+        )
+
+    def test_positive_extreme_shows_capped_label(self):
+        html = self._render(378.0)
+        assert "+100%+" in html
+        assert "378" not in html
+
+    def test_negative_extreme_shows_capped_label(self):
+        html = self._render(-150.0)
+        assert "-100%+" in html
+
+    def test_moderate_positive_renders_normally(self):
+        html = self._render(45.6)
+        assert "+45.6%" in html
+
+    def test_zero_renders_normally(self):
+        html = self._render(0.0)
+        assert "+0.0%" in html
+
+    def test_none_delta_not_rendered(self):
+        html = self._render(None)
+        # CSS defines .delta-pos / .delta-neg, so check the span element is absent
+        assert 'class="delta-pos"' not in html
+        assert 'class="delta-neg"' not in html

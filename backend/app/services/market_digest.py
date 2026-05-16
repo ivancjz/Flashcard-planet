@@ -125,7 +125,8 @@ def get_digest_candidates(db: Session, today: date) -> list[DigestCard]:
     """)).fetchall()
     _add(breakout_rows, "BREAKOUT")
 
-    # Step 2: MOVEs ordered by |price_delta_pct| DESC
+    # Step 2: MOVEs ordered by confidence DESC (mirrors BREAKOUT; avoids surfacing
+    # thin-data spikes that dominate ABS(price_delta_pct) ordering)
     if len(selected) < 5:
         move_rows = db.execute(text("""
             SELECT
@@ -147,7 +148,7 @@ def get_digest_candidates(db: Session, today: date) -> list[DigestCard]:
                 ORDER BY captured_at DESC LIMIT 1
             ) ph ON TRUE
             WHERE s.label = 'MOVE'
-            ORDER BY ABS(s.price_delta_pct) DESC NULLS LAST
+            ORDER BY s.confidence DESC NULLS LAST
             LIMIT 5
         """)).fetchall()
         _add(move_rows, "MOVE")

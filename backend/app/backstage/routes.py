@@ -2629,3 +2629,60 @@ def admin_trigger_send_digest_now(
         "errors": errors,
         "candidates": len(candidates),
     }
+
+
+@router.get("/diag/digest-move-ordering-verify")
+def admin_diag_digest_move_ordering_verify(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+):
+    """Compare MOVE ordering before vs. after fix.
+
+    top_5_move_by_confidence    — post-fix order (confidence DESC)
+    top_5_move_by_abs_delta_old — pre-fix order (ABS(price_delta_pct) DESC)
+    overlap_count               — assets appearing in both lists
+
+    REMOVE AFTER: operator confirms first post-fix digest at ivancheng236@gmail.com is clean.
+    """
+    def _fetch(order_clause: str) -> list[dict]:
+        rows = db.execute(text(f"""
+            SELECT
+                a.name,
+                s.confidence,
+                s.price_delta_pct,
+                ph.price AS current_price
+            FROM assets a
+            JOIN asset_signals s ON s.asset_id = a.id
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = a.id
+                  AND source = CASE a.game WHEN 'yugioh' THEN 'ygoprodeck_api'
+                               ELSE 'pokemon_tcg_api' END
+                  AND market_segment = 'raw'
+                ORDER BY captured_at DESC LIMIT 1
+            ) ph ON TRUE
+            WHERE s.label = 'MOVE'
+            ORDER BY {order_clause}
+            LIMIT 5
+        """)).fetchall()
+        return [
+            {
+                "name": r.name,
+                "confidence": r.confidence,
+                "price_delta_pct": float(r.price_delta_pct) if r.price_delta_pct is not None else None,
+                "current_price": float(r.current_price) if r.current_price is not None else None,
+            }
+            for r in rows
+        ]
+
+    by_confidence = _fetch("s.confidence DESC NULLS LAST")
+    by_delta = _fetch("ABS(s.price_delta_pct) DESC NULLS LAST")
+
+    names_confidence = {r["name"] for r in by_confidence}
+    names_delta = {r["name"] for r in by_delta}
+
+    return {
+        "top_5_move_by_confidence": by_confidence,
+        "top_5_move_by_abs_delta_old": by_delta,
+        "overlap_count": len(names_confidence & names_delta),
+    }
