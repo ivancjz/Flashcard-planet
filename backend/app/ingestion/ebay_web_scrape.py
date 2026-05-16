@@ -162,11 +162,13 @@ def ingest_ebay_web_sold(
     session: Session,
     *,
     asset_ids: list[uuid.UUID] | None = None,
+    max_assets: int = 250,
 ) -> EbayWebScrapeResult:
     """Scrape eBay sold listings for YGO assets and write median prices to price_history.
 
     If asset_ids is given, only those assets are processed (for testing / partial runs).
-    Otherwise all yugioh assets with a non-null variant (rarity) are processed.
+    Otherwise all yugioh assets with a non-null variant (rarity) are processed, up to
+    max_assets per run (guards against unbounded external requests as the asset set grows).
     """
     result = EbayWebScrapeResult()
     captured_at = datetime.now(UTC).replace(microsecond=0)
@@ -179,6 +181,8 @@ def ingest_ebay_web_sold(
     )
     if asset_ids:
         query = query.where(Asset.id.in_(asset_ids))
+    else:
+        query = query.limit(max_assets)
 
     assets = session.scalars(query).all()
 

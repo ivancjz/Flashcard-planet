@@ -1137,11 +1137,15 @@ def _run_ebay_web_sold() -> None:
     _status = "error"
     _records = 0
     _errors = 0
+    _error_message: str | None = None
     _meta: dict = {}
 
     try:
         with SessionLocal() as session:  # commit owned by ingest_ebay_web_sold internally
-            result = ingest_ebay_web_sold(session)
+            result = ingest_ebay_web_sold(
+                session,
+                max_assets=get_settings().ebay_web_sold_max_assets_per_run,
+            )
 
         _status = "success" if result.assets_skipped_http_error == 0 else "partial"
         _records = result.price_points_written
@@ -1152,9 +1156,10 @@ def _run_ebay_web_sold() -> None:
             "assets_skipped_no_sales": result.assets_skipped_no_sales,
             "assets_skipped_http_error": result.assets_skipped_http_error,
         }
-    except Exception:
+    except Exception as exc:
         logger.exception("ebay_web_sold_failed")
         _errors = 1
+        _error_message = str(exc)
         send_discord_alert("error", "ebay-web-sold job failed", "check logs")
     finally:
         with SessionLocal() as _log_session:
@@ -1164,6 +1169,7 @@ def _run_ebay_web_sold() -> None:
                 status=_status,
                 records_written=_records,
                 errors=_errors,
+                error_message=_error_message,
                 meta_json=_meta,
             )
             prune_old_runs(_log_session, JOB_EBAY_WEB_SOLD)

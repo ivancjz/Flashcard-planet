@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     ebay_scheduled_ingest_enabled: bool = False
     # Category β — opt-in via env var: external eBay HTTP scrape, no auth wall, network cost per asset
     ebay_web_sold_enabled: bool = Field(default=False)
+    ebay_web_sold_max_assets_per_run: int = Field(default=250, ge=1, le=2000)
     cardmarket_ingest_enabled: bool = Field(default=True)
     graded_shadow_audit_enabled: bool = False  # Phase 0: audit graded eBay listings without price authority
     ebay_daily_budget_limit: int = Field(default=500, ge=1, le=5000)
