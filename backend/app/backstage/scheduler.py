@@ -14,7 +14,6 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_CARDMARKET,
     JOB_DIGEST,
     JOB_EBAY,
-    JOB_EBAY_WEB_SOLD,
     JOB_HEARTBEAT,
     JOB_HISTORY_PRUNE,
     JOB_INGESTION,
@@ -118,7 +117,6 @@ _STARTUP_DELAY: dict[str, int] = {
     "signal-history-prune":   1500,  # 25 min — last; pure DB DELETE, no upstream dependency (TASK-105)
     "trial-expiry-sweep":     900,   # 15 min — subscription maintenance, no upstream dependency
     "sealed-ingest":          840,   # 14 min — eBay Browse API, after heartbeat registered
-    "ebay-web-sold":          870,   # 14.5 min — eBay HTML scrape, 24h interval
     "backup-freshness-check": 15000, # 4h 10min — runs every 4h so detection latency is ≤4h
                                      # regardless of deploy time. A fixed 24h startup delay would
                                      # allow the watchdog to fire before the 04:00 UTC backup if
@@ -410,7 +408,7 @@ def _send_heartbeat() -> None:
 
         # Zero-output alert: jobs that ran completed runs but wrote zero records.
         # Detects the eBay-outage pattern: API calls consumed, status=success, 0 rows written.
-        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_EBAY_WEB_SOLD]
+        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,
@@ -1123,52 +1121,6 @@ def _run_cardmarket_ingestion() -> None:
             prune_old_runs(_log_session, JOB_CARDMARKET)
 
 
-def _run_ebay_web_sold() -> None:
-    from backend.app.ingestion.ebay_web_scrape import ingest_ebay_web_sold
-
-    try:
-        with SessionLocal() as _log_session:
-            _run_id = start_run(_log_session, JOB_EBAY_WEB_SOLD)
-    except Exception as exc:
-        logger.exception("start_run_failed job=%s", JOB_EBAY_WEB_SOLD)
-        send_discord_alert("error", f"CRITICAL: start_run 失败 — {JOB_EBAY_WEB_SOLD}", f"error={exc}")
-        return
-
-    _status = "error"
-    _records = 0
-    _errors = 0
-    _meta: dict = {}
-
-    try:
-        with SessionLocal() as session:  # commit owned by ingest_ebay_web_sold internally
-            result = ingest_ebay_web_sold(session)
-
-        _status = "success" if result.assets_skipped_http_error == 0 else "partial"
-        _records = result.price_points_written
-        _errors = result.assets_skipped_http_error
-        _meta = {
-            "assets_attempted": result.assets_attempted,
-            "assets_written": result.assets_written,
-            "assets_skipped_no_sales": result.assets_skipped_no_sales,
-            "assets_skipped_http_error": result.assets_skipped_http_error,
-        }
-    except Exception:
-        logger.exception("ebay_web_sold_failed")
-        _errors = 1
-        send_discord_alert("error", "ebay-web-sold job failed", "check logs")
-    finally:
-        with SessionLocal() as _log_session:
-            finish_run(
-                _log_session,
-                _run_id,
-                status=_status,
-                records_written=_records,
-                errors=_errors,
-                meta_json=_meta,
-            )
-            prune_old_runs(_log_session, JOB_EBAY_WEB_SOLD)
-
-
 def _register_ebay_job(scheduler: BackgroundScheduler, settings: object) -> None:
     from backend.app.core.config import Settings
 
@@ -1342,22 +1294,6 @@ def build_scheduler() -> BackgroundScheduler:
         logger.info(
             "CardMarket ingestion registered. trigger=interval/24h first_run=startup+%ds",
             _STARTUP_DELAY.get(JOB_CARDMARKET, 1050),
-        )
-
-    if settings.ebay_web_sold_enabled:
-        scheduler.add_job(
-            _run_ebay_web_sold,
-            "interval",
-            hours=24,
-            id=JOB_EBAY_WEB_SOLD,
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-            next_run_time=None,
-        )
-        logger.info(
-            "ebay-web-sold registered. trigger=interval/24h first_run=startup+%ds",
-            _STARTUP_DELAY.get(JOB_EBAY_WEB_SOLD, 870),
         )
 
     scheduler.add_job(

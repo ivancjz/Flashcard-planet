@@ -32,7 +32,6 @@ JOB_TRIAL_EXPIRY    = "trial-expiry-sweep"
 JOB_SEALED_INGEST   = "sealed-ingest"
 JOB_BACKUP_FRESHNESS   = "backup-freshness-check"  # PR #14a D1 — GitHub watchdog
 JOB_CARDMARKET         = "cardmarket-ingestion"
-JOB_EBAY_WEB_SOLD      = "ebay-web-sold"
 
 _KEEP_RUNS = 50
 
