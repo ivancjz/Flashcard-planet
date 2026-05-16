@@ -1147,7 +1147,12 @@ def _run_ebay_web_sold() -> None:
                 max_assets=get_settings().ebay_web_sold_max_assets_per_run,
             )
 
-        _status = "success" if result.assets_skipped_http_error == 0 else "partial"
+        if result.assets_skipped_http_error > 0:
+            _status = "partial"
+        elif result.price_points_written == 0:
+            _status = "no_op"   # ran cleanly but no EN singles found — not an error
+        else:
+            _status = "success"
         _records = result.price_points_written
         _errors = result.assets_skipped_http_error
         _meta = {
