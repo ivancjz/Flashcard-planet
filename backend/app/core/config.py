@@ -69,6 +69,8 @@ class Settings(BaseSettings):
     ebay_sold_lookback_hours: int = Field(default=24, ge=1, le=168)
     ebay_search_keywords: str = ""  # comma-separated search terms
     ebay_scheduled_ingest_enabled: bool = False
+    # Category β — opt-in via env var: external eBay HTTP scrape, no auth wall, network cost per asset
+    ebay_web_sold_enabled: bool = Field(default=False)
     cardmarket_ingest_enabled: bool = Field(default=True)
     graded_shadow_audit_enabled: bool = False  # Phase 0: audit graded eBay listings without price authority
     ebay_daily_budget_limit: int = Field(default=500, ge=1, le=5000)
@@ -121,7 +123,7 @@ class Settings(BaseSettings):
     # (2026-05-15); revisit alongside dispersion threshold calibration at 2026-06-14.
     # CM sources are EUR-denominated and excluded from _compute_delta_batch() WHERE
     # clauses — weights only apply if routing logic changes. See CLAUDE.md §14.
-    signal_delta_source_weights: str = Field(default="pokemon_tcg_api=1.0,ygoprodeck_api=1.0,cardmarket_avg7=1.0,cardmarket_avg30=0.5,cardmarket_avg1=0.0,cardmarket_trend=0.0")
+    signal_delta_source_weights: str = Field(default="pokemon_tcg_api=1.0,ygoprodeck_api=1.0,cardmarket_avg7=1.0,cardmarket_avg30=0.5,cardmarket_avg1=0.0,cardmarket_trend=0.0,ebay_web_sold=1.0")
     signal_breakout_min_price_usd: float = Field(default=2.00, ge=0)
     signal_move_min_price_usd: float = Field(default=1.00, ge=0)
     signal_breakout_min_baseline_n: int = Field(default=3, ge=1)
