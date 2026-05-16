@@ -14,9 +14,14 @@ frontend/dist/
 .pytest_cache/
 .pytest-cache-local/
 
-# ¡Kbut DO track Phase 1 specs and playbooks (handoffs stay ignored)
+# ï¿½Kbut DO track Phase 1 specs and playbooks (handoffs stay ignored)
 !.claude/specs/
 !.claude/specs/**
 !.claude/playbooks/
 !.claude/playbooks/**
+!.claude/agents/
+!.claude/agents/**
+.claude/agents/.current-role
 experiments/data-landscape/
+.gstack/
+.claude/agents/.current-role
