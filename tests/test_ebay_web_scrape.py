@@ -197,9 +197,10 @@ def test_rarity_confirmation_keeps_matching_listings():
     items = _extract_sold_items(_RARITY_FILTER_TEXT)
     valid = _filter_valid_singles(items, rarity="Secret Rare")
     prices = [i["price_usd"] for i in valid]
-    # Both Secret Rare listings ($14.00 and $8.50) must be kept
+    # Secret Rare 1st Edition ($14.00) must be kept
     assert Decimal("14.00") in prices
-    assert Decimal("8.50") in prices
+    # "secret rare unlimited edition" ($8.50) is dropped by the Unlimited filter
+    assert Decimal("8.50") not in prices
 
 
 def test_rarity_confirmation_is_case_insensitive():
@@ -220,6 +221,23 @@ Pre-Owned$9.99Buy It Now
     # Title contains "Secret Rare" as a substring — must be kept
     assert len(valid) == 1
     assert valid[0]["price_usd"] == Decimal("9.99")
+
+
+# ── Unlimited-edition drop (Mode 1 enforcement) ───────────────────────────────
+
+def test_filter_drops_unlimited_listings():
+    text = """
+Sold  May 17, 2026Spright Elf POTE-EN049 Ultra Rare Unlimited NM YugiohOpens in a new window or tab
+Pre-Owned$2.50Buy It Now
+
+Sold  May 17, 2026Spright Elf POTE-EN049 Ultra Rare 1st Edition NM YugiohOpens in a new window or tab
+Pre-Owned$12.00Buy It Now
+"""
+    items = _extract_sold_items(text)
+    valid = _filter_valid_singles(items)
+    prices = [i["price_usd"] for i in valid]
+    assert Decimal("2.50") not in prices   # Unlimited — dropped
+    assert Decimal("12.00") in prices      # 1st Edition — kept
 
 
 # ── Query format — 1st Edition scope (Mode 1 workaround) ─────────────────────

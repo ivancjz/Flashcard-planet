@@ -48,6 +48,11 @@ _SOLD_RE = re.compile(
 )
 _LANG_JP_RE = re.compile(r"japanese|POTE-JP|\bJP\d|\bOCG\b", re.IGNORECASE)
 _LANG_KR_RE = re.compile(r"korean|POTE-KR|\bKR\d", re.IGNORECASE)
+# Unlimited-edition drop: eBay's "1st Edition" search still returns Unlimited
+# listings. Drop any listing that says "unlimited" in the title (Unlimited Print,
+# Unlimited Ed, Unlimited Edition). This enforces the 1st-Edition-only scope
+# declared in _build_search_url. Remove when TASK-802 ships.
+_UNLIMITED_RE = re.compile(r"\bunlimited\b", re.IGNORECASE)
 
 _HEADERS = {
     "User-Agent": (
@@ -139,6 +144,8 @@ def _filter_valid_singles(items: list[dict], *, rarity: str = "") -> list[dict]:
             continue
         if _LANG_JP_RE.search(title) or _LANG_KR_RE.search(title):
             continue
+        if _UNLIMITED_RE.search(title):
+            continue  # Unlimited print — 1st Edition scope enforced per ADR-001 / TASK-802
         if rarity_lower and rarity_lower not in tl:
             continue  # rarity mismatch — variant bleed-through (Starlight, QC, etc.)
 
