@@ -77,3 +77,25 @@ The kill switch (`EBAY_WEB_SOLD_ENABLED`) must remain `false` until:
 **Negative:** Web scraping is fragile to eBay page-structure changes; condition/edition mixing reduces signal precision vs. a structured API; no rate-limit guarantee from eBay.
 
 **Monitoring:** `scheduler_run_log` `status=no_op` indicates zero EN singles found (expected during low-volume periods or eBay structure changes). `status=partial` indicates HTTP errors on some assets. `status=error` requires immediate investigation.
+
+---
+
+## Update — 2026-05-17 — Edition scope narrowed to 1st Edition only
+
+Dry-run gate (Step 3 of rollout plan) **failed**: 45% pass rate (threshold ≥50%), 102% median IQR (threshold <100%). Two failure modes identified and addressed differently:
+
+**Mode 2 — Starlight Rare / Collector's Rare bleed-through (technical bug):** Fixed by adding a title-level rarity confirmation filter in `_filter_valid_singles(rarity=...)`. Listings whose title does not contain the queried rarity string (case-insensitive substring) are now dropped. "Quarter Century Secret Rare" still passes when querying "Secret Rare" (substring match is intentional — QC Secret Rare is a print of Secret Rare); "Starlight Rare" and "Collector's Rare" are dropped.
+
+**Mode 1 — 1st Edition vs Unlimited mixing (strategic gap):** The correct long-term solution is per-edition asset rows (1st Ed and Unlimited as separate `Asset` records). That requires schema + ingest + signal engine + UI changes (TASK-802, deferred). Short-term workaround: `"1st Edition"` baked into the eBay search query. `ebay_web_sold` now represents 1st Edition prints exclusively until TASK-802 ships.
+
+### Updated known-limitations table
+
+| Axis | Status after this update |
+|------|--------------------------|
+| Rarity mixing | Solved at query + title-confirmation level |
+| Condition mixing (NM vs LP) | Unchanged — median absorbs |
+| Edition mixing | Workaround — query forces 1st Edition; Unlimited not tracked |
+
+### Re-gate required
+
+A second dry-run validation must run after this fix is merged, using the same 20-asset sample. Pass criteria unchanged: pass rate ≥50%, median IQR <100%. Only if the re-gate passes should `EBAY_WEB_SOLD_ENABLED=true` be set in Railway.

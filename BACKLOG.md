@@ -4,7 +4,7 @@
 >
 > **This file is for Claude Code to consume autonomously.** When picking up a session and there is no specific operator instruction, read this file and start the highest-priority task you have evidence to safely execute. See §0 below.
 
-**Last updated:** 2026-05-15 (v8 — TASK-801 YGO CardMarket Phase 2b added)
+**Last updated:** 2026-05-17 (v9 — TASK-802 YGO edition-aware asset model added)
 **Maintained by:** Ivan (operator) with proposed updates from Claude Code via PR
 
 ---
@@ -215,6 +215,30 @@ Expand the YGO CardMarket seed catalog to include these high-liquidity tournamen
 
 **Estimated effort:** S
 **Reference:** Phase 2 plan `docs/superpowers/plans/2026-05-14-ygo-phase2-cardmarket.md` Task 7 (Step 7.1); CLAUDE.md §13
+
+---
+
+#### TASK-802 — YGO edition-aware asset model (ebay_web_sold Phase 2)
+
+**Priority:** P2
+**Status:** not_started
+**Owner:** Claude Code + Ivan
+**Preconditions:**
+- `EBAY_WEB_SOLD_ENABLED=true` live for ≥7 days (signals validated)
+- Pro launch complete
+
+**Definition of Done:**
+Per-edition asset rows for YGO — 1st Edition and Unlimited as separate `Asset` records. Required work:
+- `assets.metadata` schema update: add `edition` field (`"1st"` | `"unlimited"` | `null`)
+- Backfill existing YGO rows: `edition=null` (signals intent to resolve later)
+- `ebay_web_sold` scraper: scrape 1st Ed and Unlimited separately into respective `asset_id` rows, remove the 1st-Edition query workaround (see ADR-001 §Update 2026-05-17)
+- Signal engine: confirm independent delta computation per edition asset (no cross-edition blending)
+- CardMarket alignment: investigate whether CM `avg7/30/1` data distinguishes editions; document conclusion
+- Frontend card detail: edition indicator or tabs if both editions exist for same card+set
+- i18n strings: `edition.first` / `edition.unlimited`
+
+**Estimated effort:** L (schema + 3 ingest paths + UI)
+**Origin:** ADR-001 §Update 2026-05-17. Workaround (`"1st Edition"` baked into query) must stay in place until this task ships.
 
 ---
 

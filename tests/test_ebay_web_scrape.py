@@ -164,3 +164,108 @@ def test_result_dataclass_defaults():
     assert r.assets_skipped_no_sales == 0
     assert r.assets_skipped_http_error == 0
     assert r.price_points_written == 0
+
+
+# ── Rarity title-confirmation filter (Mode 2 fix) ─────────────────────────────
+
+_RARITY_FILTER_TEXT = """
+Sold  May 17, 2026Kurikara Divincarnate POTE-EN031 Secret Rare 1st Edition NMOpens in a new window or tab
+Pre-Owned$14.00Buy It Now
+
+Sold  May 17, 2026Kurikara Divincarnate POTE-EN031 Starlight Rare 1st Edition NMOpens in a new window or tab
+Pre-Owned$250.00Buy It Now
+
+Sold  May 17, 2026Kurikara Divincarnate POTE-EN031 Collector's Rare 1st Edition NMOpens in a new window or tab
+Pre-Owned$180.00Buy It Now
+
+Sold  May 17, 2026Kurikara Divincarnate POTE-EN031 secret rare unlimited editionOpens in a new window or tab
+Pre-Owned$8.50Buy It Now
+"""
+
+
+def test_rarity_confirmation_drops_listings_missing_queried_rarity():
+    items = _extract_sold_items(_RARITY_FILTER_TEXT)
+    valid = _filter_valid_singles(items, rarity="Secret Rare")
+    prices = [i["price_usd"] for i in valid]
+    # Starlight Rare ($250) and Collector's Rare ($180) titles do not contain
+    # "Secret Rare" — they must be dropped as bleed-through variants
+    assert Decimal("250.00") not in prices
+    assert Decimal("180.00") not in prices
+
+
+def test_rarity_confirmation_keeps_matching_listings():
+    items = _extract_sold_items(_RARITY_FILTER_TEXT)
+    valid = _filter_valid_singles(items, rarity="Secret Rare")
+    prices = [i["price_usd"] for i in valid]
+    # Secret Rare 1st Edition ($14.00) must be kept
+    assert Decimal("14.00") in prices
+    # "secret rare unlimited edition" ($8.50) is dropped by the Unlimited filter
+    assert Decimal("8.50") not in prices
+
+
+def test_rarity_confirmation_is_case_insensitive():
+    items = _extract_sold_items(_RARITY_FILTER_TEXT)
+    # queried rarity in lower case must still match title with title-case
+    valid_lower = _filter_valid_singles(items, rarity="secret rare")
+    valid_title = _filter_valid_singles(items, rarity="Secret Rare")
+    assert len(valid_lower) == len(valid_title)
+
+
+def test_rarity_confirmation_allows_substring_match():
+    text = """
+Sold  May 17, 2026Exosister Martha POTE-EN025 Secret Rare 1st Edition Near Mint YugiohOpens in a new window or tab
+Pre-Owned$9.99Buy It Now
+"""
+    items = _extract_sold_items(text)
+    valid = _filter_valid_singles(items, rarity="Secret Rare")
+    # Title contains "Secret Rare" as a substring — must be kept
+    assert len(valid) == 1
+    assert valid[0]["price_usd"] == Decimal("9.99")
+
+
+# ── Unlimited-edition drop (Mode 1 enforcement) ───────────────────────────────
+
+def test_filter_drops_unlimited_listings():
+    text = """
+Sold  May 17, 2026Spright Elf POTE-EN049 Ultra Rare Unlimited NM YugiohOpens in a new window or tab
+Pre-Owned$2.50Buy It Now
+
+Sold  May 17, 2026Spright Elf POTE-EN049 Ultra Rare 1st Edition NM YugiohOpens in a new window or tab
+Pre-Owned$12.00Buy It Now
+"""
+    items = _extract_sold_items(text)
+    valid = _filter_valid_singles(items)
+    prices = [i["price_usd"] for i in valid]
+    assert Decimal("2.50") not in prices   # "Unlimited" — no 1st marker, dropped
+    assert Decimal("12.00") in prices      # "1st Edition" — kept
+
+
+def test_filter_drops_edition_ambiguous_listings():
+    text = """
+Sold  May 17, 2026Spright Elf POTE-EN049 Ultra Rare Near MintOpens in a new window or tab
+Pre-Owned$5.00Buy It Now
+
+Sold  May 17, 2026Spright Elf POTE-EN049 Ultra Rare 1st Ed NMOpens in a new window or tab
+Pre-Owned$11.00Buy It Now
+"""
+    items = _extract_sold_items(text)
+    valid = _filter_valid_singles(items)
+    prices = [i["price_usd"] for i in valid]
+    assert Decimal("5.00") not in prices   # no edition marker — ambiguous, dropped
+    assert Decimal("11.00") in prices      # "1st Ed" matches \b1st\b, kept
+
+
+# ── Query format — 1st Edition scope (Mode 1 workaround) ─────────────────────
+
+def test_built_query_contains_first_edition():
+    url = _build_search_url("Spright Elf", "POTE-EN049", "Ultra Rare")
+    assert "1st+Edition" in url or "1st%20Edition" in url or "1st+edition" in url
+
+
+def test_built_query_retains_existing_elements():
+    url = _build_search_url("Exosister Martha", "POTE-EN025", "Secret Rare")
+    assert "Exosister" in url
+    assert "POTE-EN025" in url
+    assert "Secret" in url
+    assert "yugioh" in url.lower()
+    assert "LH_Sold=1" in url
