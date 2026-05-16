@@ -72,8 +72,13 @@ class EbayWebScrapeResult:
 
 
 def _build_search_url(name: str, card_number: str, rarity: str) -> str:
-    """Return a completed-listings eBay search URL for one card + rarity."""
-    query = f"{name} {card_number} {rarity} yugioh"
+    # Edition scope — WORKAROUND, see ADR-001 §Update 2026-05-17 and TASK-802.
+    # ebay_web_sold currently scrapes 1st Edition only. Unlimited prints are
+    # excluded by query. This is a deliberate scope limitation pending the
+    # edition-aware asset model (Phase 2). DO NOT remove "1st Edition" from the
+    # query until TASK-802 schema migration is complete and the scraper is
+    # refactored to scrape both editions into separate asset rows.
+    query = f"{name} {card_number} {rarity} 1st Edition yugioh"
     params = urlencode({
         "_nkw": query,
         "LH_Sold": "1",
@@ -108,8 +113,16 @@ def _extract_sold_items(page_text: str) -> list[dict]:
     return items
 
 
-def _filter_valid_singles(items: list[dict]) -> list[dict]:
-    """Keep only EN ungraded single-card sold items within price bounds."""
+def _filter_valid_singles(items: list[dict], *, rarity: str = "") -> list[dict]:
+    """Keep only EN ungraded single-card sold items within price bounds.
+
+    Pass rarity (the same string used in the search query, e.g. "Secret Rare")
+    to enable title-level rarity confirmation. Listings whose title does not
+    contain the queried rarity term are dropped, catching bleed-through from
+    variant prints (Starlight Rare, Quarter-Century, Collector's Rare, etc.).
+    When rarity is empty the confirmation step is skipped (backward-compatible).
+    """
+    rarity_lower = rarity.lower()
     valid = []
     for item in items:
         title = item["title"]
@@ -126,6 +139,8 @@ def _filter_valid_singles(items: list[dict]) -> list[dict]:
             continue
         if _LANG_JP_RE.search(title) or _LANG_KR_RE.search(title):
             continue
+        if rarity_lower and rarity_lower not in tl:
+            continue  # rarity mismatch — variant bleed-through (Starlight, QC, etc.)
 
         valid.append(item)
 
@@ -203,7 +218,7 @@ def ingest_ebay_web_sold(
                 continue
 
             raw_items = _extract_sold_items(page_text)
-            valid_items = _filter_valid_singles(raw_items)
+            valid_items = _filter_valid_singles(raw_items, rarity=asset.variant or "")
 
             if not valid_items:
                 logger.debug(
