@@ -125,7 +125,7 @@ def get_digest_candidates(db: Session, today: date) -> list[DigestCard]:
     """)).fetchall()
     _add(breakout_rows, "BREAKOUT")
 
-    # Step 2: MOVEs ordered by signal_score DESC (mirrors BREAKOUT; avoids surfacing
+    # Step 2: MOVEs ordered by confidence DESC (mirrors BREAKOUT; avoids surfacing
     # thin-data spikes that dominate ABS(price_delta_pct) ordering)
     if len(selected) < 5:
         move_rows = db.execute(text("""
@@ -135,7 +135,6 @@ def get_digest_candidates(db: Session, today: date) -> list[DigestCard]:
                 a.game,
                 s.label,
                 s.confidence,
-                s.signal_score,
                 s.price_delta_pct,
                 ph.price    AS current_price
             FROM assets a
@@ -149,7 +148,7 @@ def get_digest_candidates(db: Session, today: date) -> list[DigestCard]:
                 ORDER BY captured_at DESC LIMIT 1
             ) ph ON TRUE
             WHERE s.label = 'MOVE'
-            ORDER BY s.signal_score DESC NULLS LAST
+            ORDER BY s.confidence DESC NULLS LAST
             LIMIT 5
         """)).fetchall()
         _add(move_rows, "MOVE")

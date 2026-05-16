@@ -2638,7 +2638,7 @@ def admin_diag_digest_move_ordering_verify(
 ):
     """Compare MOVE ordering before vs. after fix.
 
-    top_5_move_by_signal_score  — post-fix order (signal_score DESC)
+    top_5_move_by_confidence    — post-fix order (confidence DESC)
     top_5_move_by_abs_delta_old — pre-fix order (ABS(price_delta_pct) DESC)
     overlap_count               — assets appearing in both lists
 
@@ -2648,7 +2648,7 @@ def admin_diag_digest_move_ordering_verify(
         rows = db.execute(text(f"""
             SELECT
                 a.name,
-                s.signal_score,
+                s.confidence,
                 s.price_delta_pct,
                 ph.price AS current_price
             FROM assets a
@@ -2668,21 +2668,21 @@ def admin_diag_digest_move_ordering_verify(
         return [
             {
                 "name": r.name,
-                "signal_score": float(r.signal_score) if r.signal_score is not None else None,
+                "confidence": r.confidence,
                 "price_delta_pct": float(r.price_delta_pct) if r.price_delta_pct is not None else None,
                 "current_price": float(r.current_price) if r.current_price is not None else None,
             }
             for r in rows
         ]
 
-    by_score = _fetch("s.signal_score DESC NULLS LAST")
+    by_confidence = _fetch("s.confidence DESC NULLS LAST")
     by_delta = _fetch("ABS(s.price_delta_pct) DESC NULLS LAST")
 
-    names_score = {r["name"] for r in by_score}
+    names_confidence = {r["name"] for r in by_confidence}
     names_delta = {r["name"] for r in by_delta}
 
     return {
-        "top_5_move_by_signal_score": by_score,
+        "top_5_move_by_confidence": by_confidence,
         "top_5_move_by_abs_delta_old": by_delta,
-        "overlap_count": len(names_score & names_delta),
+        "overlap_count": len(names_confidence & names_delta),
     }

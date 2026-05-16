@@ -155,11 +155,11 @@ class TestGetDigestCandidates:
         cards = get_digest_candidates(db, date(2026, 5, 4))
         assert cards == []
 
-    def test_move_query_orders_by_signal_score(self):
+    def test_move_query_orders_by_confidence(self):
         db = self._db_empty()
         get_digest_candidates(db, date(2026, 5, 4))
         move_sql = str(db.execute.call_args_list[1].args[0])
-        assert "ORDER BY s.signal_score DESC NULLS LAST" in move_sql
+        assert "ORDER BY s.confidence DESC NULLS LAST" in move_sql
 
     def test_move_query_does_not_order_by_abs_delta(self):
         db = self._db_empty()
