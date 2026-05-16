@@ -48,11 +48,11 @@ _SOLD_RE = re.compile(
 )
 _LANG_JP_RE = re.compile(r"japanese|POTE-JP|\bJP\d|\bOCG\b", re.IGNORECASE)
 _LANG_KR_RE = re.compile(r"korean|POTE-KR|\bKR\d", re.IGNORECASE)
-# Unlimited-edition drop: eBay's "1st Edition" search still returns Unlimited
-# listings. Drop any listing that says "unlimited" in the title (Unlimited Print,
-# Unlimited Ed, Unlimited Edition). This enforces the 1st-Edition-only scope
-# declared in _build_search_url. Remove when TASK-802 ships.
-_UNLIMITED_RE = re.compile(r"\bunlimited\b", re.IGNORECASE)
+# 1st-Edition positive filter: only keep listings that carry an explicit 1st-edition
+# marker in the title. Drops Unlimited prints AND edition-ambiguous listings (no
+# marker at all). Enforces 1st-Edition-only scope per ADR-001. Remove / replace
+# with per-edition routing when TASK-802 ships.
+_FIRST_EDITION_RE = re.compile(r"\b1st\b|\bfirst\s+edition\b", re.IGNORECASE)
 
 _HEADERS = {
     "User-Agent": (
@@ -126,6 +126,10 @@ def _filter_valid_singles(items: list[dict], *, rarity: str = "") -> list[dict]:
     contain the queried rarity term are dropped, catching bleed-through from
     variant prints (Starlight Rare, Quarter-Century, Collector's Rare, etc.).
     When rarity is empty the confirmation step is skipped (backward-compatible).
+
+    Edition: only listings with an explicit "1st" / "first edition" marker in
+    the title are kept. This drops Unlimited prints AND edition-ambiguous
+    listings (no edition mentioned). Remove when TASK-802 ships.
     """
     rarity_lower = rarity.lower()
     valid = []
@@ -144,8 +148,8 @@ def _filter_valid_singles(items: list[dict], *, rarity: str = "") -> list[dict]:
             continue
         if _LANG_JP_RE.search(title) or _LANG_KR_RE.search(title):
             continue
-        if _UNLIMITED_RE.search(title):
-            continue  # Unlimited print — 1st Edition scope enforced per ADR-001 / TASK-802
+        if not _FIRST_EDITION_RE.search(title):
+            continue  # no 1st-edition marker — Unlimited or ambiguous; per ADR-001 / TASK-802
         if rarity_lower and rarity_lower not in tl:
             continue  # rarity mismatch — variant bleed-through (Starlight, QC, etc.)
 

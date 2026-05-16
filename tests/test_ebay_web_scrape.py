@@ -236,8 +236,23 @@ Pre-Owned$12.00Buy It Now
     items = _extract_sold_items(text)
     valid = _filter_valid_singles(items)
     prices = [i["price_usd"] for i in valid]
-    assert Decimal("2.50") not in prices   # Unlimited — dropped
-    assert Decimal("12.00") in prices      # 1st Edition — kept
+    assert Decimal("2.50") not in prices   # "Unlimited" — no 1st marker, dropped
+    assert Decimal("12.00") in prices      # "1st Edition" — kept
+
+
+def test_filter_drops_edition_ambiguous_listings():
+    text = """
+Sold  May 17, 2026Spright Elf POTE-EN049 Ultra Rare Near MintOpens in a new window or tab
+Pre-Owned$5.00Buy It Now
+
+Sold  May 17, 2026Spright Elf POTE-EN049 Ultra Rare 1st Ed NMOpens in a new window or tab
+Pre-Owned$11.00Buy It Now
+"""
+    items = _extract_sold_items(text)
+    valid = _filter_valid_singles(items)
+    prices = [i["price_usd"] for i in valid]
+    assert Decimal("5.00") not in prices   # no edition marker — ambiguous, dropped
+    assert Decimal("11.00") in prices      # "1st Ed" matches \b1st\b, kept
 
 
 # ── Query format — 1st Edition scope (Mode 1 workaround) ─────────────────────
