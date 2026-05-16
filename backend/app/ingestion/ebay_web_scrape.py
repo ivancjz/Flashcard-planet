@@ -14,7 +14,7 @@ import logging
 import re
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
@@ -227,12 +227,11 @@ def ingest_ebay_web_sold(
             if rows.rowcount:
                 result.price_points_written += 1
                 result.assets_written += 1
-
-            logger.info(
-                "ebay_web_sold_written asset=%s card=%s rarity=%s median=%.2f valid=%s raw=%s",
-                asset.name, asset.card_number, asset.variant,
-                float(median), len(valid_items), len(raw_items),
-            )
+                logger.info(
+                    "ebay_web_sold_written asset=%s card=%s rarity=%s median=%.2f valid=%s raw=%s",
+                    asset.name, asset.card_number, asset.variant,
+                    float(median), len(valid_items), len(raw_items),
+                )
 
             time.sleep(SCRAPE_DELAY_SECONDS)
 
