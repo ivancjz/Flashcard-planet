@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Form, Header, HTTPException, Query, Requ
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, RedirectResponse
 from decimal import Decimal
+from pydantic import BaseModel
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
@@ -1194,13 +1195,17 @@ def admin_ygo_verify_26(
 def admin_diag_ygo_scrape_targets(
     _: None = Depends(require_admin_key),
     db: Session = Depends(get_database),
+    max_assets: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
     """Return YGO assets eligible for eBay web scraping.
 
-    Used by the GitHub Actions ebay-scrape workflow to get the asset list
-    without needing direct DB access.
+    max_assets caps the result set (0 = use EBAY_WEB_SOLD_MAX_ASSETS_PER_RUN
+    setting, which defaults to 250). Passed through from the GA scraper to
+    match the Railway job's per-run budget.
     """
-    assets = db.execute(
+    settings = get_settings()
+    cap = max_assets or settings.ebay_web_sold_max_assets_per_run
+    query = (
         select(Asset.id, Asset.name, Asset.card_number, Asset.variant)
         .where(
             Asset.game == "yugioh",
@@ -1208,40 +1213,89 @@ def admin_diag_ygo_scrape_targets(
             Asset.card_number.isnot(None),
         )
         .order_by(Asset.card_number)
-    ).all()
+        .limit(cap)
+    )
+    assets = db.execute(query).all()
     return {
         "assets": [
             {"id": str(r.id), "name": r.name, "card_number": r.card_number, "variant": r.variant}
             for r in assets
         ],
         "count": len(assets),
+        "max_assets_applied": cap,
     }
+
+
+class _EbayPriceEntry(BaseModel):
+    asset_id: str
+    price_usd: str
+
+    def to_uuid(self) -> uuid.UUID:
+        return uuid.UUID(self.asset_id)
+
+    def to_decimal(self) -> Decimal:
+        return Decimal(self.price_usd)
+
+
+class _EbaySoldWriteBody(BaseModel):
+    prices: list[_EbayPriceEntry] = []
+    meta: dict[str, Any] = {}
+    run_date: str = ""  # YYYY-MM-DD from scraper; used for idempotency
 
 
 @router.post("/trigger/ebay-sold-write")
 def admin_trigger_ebay_sold_write(
-    body: dict[str, Any],
+    body: _EbaySoldWriteBody,
     _: None = Depends(require_admin_key),
     db: Session = Depends(get_database),
 ) -> dict[str, Any]:
     """Write eBay sold prices from the GitHub Actions scraper into price_history.
 
-    Accepts the result payload from scripts/github_ebay_scrape.py and:
-    1. Upserts price_history rows (source='ebay_web_sold', market_segment='raw').
-    2. Writes a scheduler_run_log row so heartbeat monitoring sees this as a
-       regular ebay-web-sold job run.
+    Idempotency: if a completed ebay-web-sold run already exists for run_date,
+    returns status='duplicate' without writing. Prevents double-writes on
+    retry or re-trigger.
+
+    Input is fully validated by Pydantic before any DB writes to avoid partial
+    commits on bad UUID/Decimal mid-loop.
     """
-    prices: list[dict] = body.get("prices", [])
-    meta: dict = body.get("meta", {})
+    # Idempotency check — skip if a completed run already exists for this date
+    if body.run_date:
+        try:
+            run_day = datetime.strptime(body.run_date, "%Y-%m-%d").date()
+            day_start = datetime(run_day.year, run_day.month, run_day.day, tzinfo=timezone.utc)
+            day_end = day_start + timedelta(days=1)
+            existing = db.execute(
+                select(SchedulerRunLog)
+                .where(
+                    SchedulerRunLog.job_name == JOB_EBAY_WEB_SOLD,
+                    SchedulerRunLog.status.in_(["success", "partial", "no_op"]),
+                    SchedulerRunLog.started_at >= day_start.replace(tzinfo=None),
+                    SchedulerRunLog.started_at < day_end.replace(tzinfo=None),
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            if existing:
+                return {"status": "duplicate", "written": 0, "run_date": body.run_date}
+        except ValueError:
+            pass  # malformed run_date — proceed without idempotency check
+
+    # All input already validated by Pydantic; pre-convert to avoid mid-loop failures
+    entries = [(e.to_uuid(), e.to_decimal()) for e in body.prices]
 
     run_id = start_run(db, JOB_EBAY_WEB_SOLD)
     written = 0
-    captured_at = datetime.now(timezone.utc).replace(microsecond=0)
+    # Use run_date as captured_at when provided so retries share the same timestamp
+    if body.run_date:
+        try:
+            d = datetime.strptime(body.run_date, "%Y-%m-%d").date()
+            captured_at = datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+        except ValueError:
+            captured_at = datetime.now(timezone.utc).replace(microsecond=0)
+    else:
+        captured_at = datetime.now(timezone.utc).replace(microsecond=0)
 
     try:
-        for entry in prices:
-            asset_id = uuid.UUID(entry["asset_id"])
-            price = Decimal(str(entry["price_usd"]))
+        for asset_id, price in entries:
             stmt = pg_insert(PriceHistory).values(
                 id=uuid.uuid4(),
                 asset_id=asset_id,
@@ -1257,9 +1311,8 @@ def admin_trigger_ebay_sold_write(
 
         db.flush()
 
-        assets_written = meta.get("assets_written", written)
-        assets_attempted = meta.get("assets_attempted", len(prices))
-        http_errors = meta.get("assets_skipped_http_error", 0)
+        assets_attempted = body.meta.get("assets_attempted", len(body.prices))
+        http_errors = body.meta.get("assets_skipped_http_error", 0)
 
         if http_errors > 0 and written == 0:
             status = "partial"
@@ -1273,7 +1326,7 @@ def admin_trigger_ebay_sold_write(
             status=status,
             records_written=written,
             errors=http_errors,
-            meta_json={**meta, "written_by": "github_actions"},
+            meta_json={**body.meta, "written_by": "github_actions"},
         )
         prune_old_runs(db, JOB_EBAY_WEB_SOLD)
         db.commit()

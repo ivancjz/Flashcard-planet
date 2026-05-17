@@ -27,6 +27,9 @@ from urllib.parse import urlencode
 
 import httpx
 from curl_cffi import requests as cffi_requests
+from curl_cffi.requests.exceptions import HTTPError as CffiHTTPError
+from curl_cffi.requests.exceptions import RequestException as CffiRequestException
+from curl_cffi.requests.exceptions import Timeout as CffiTimeout
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -133,9 +136,13 @@ def _fetch(session: cffi_requests.Session, url: str) -> tuple[str | None, str | 
             log.warning("HTTP %s", resp.status_code)
             return None, str(resp.status_code)
         return resp.text, None
-    except cffi_requests.Timeout:
+    except CffiHTTPError as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", "http_error")
+        log.warning("HTTP error: %s", status)
+        return None, str(status)
+    except CffiTimeout:
         return None, "timeout"
-    except cffi_requests.RequestException as exc:
+    except CffiRequestException as exc:
         log.warning("request error: %s", exc)
         return None, "connection_error"
 
@@ -146,68 +153,113 @@ def _admin_headers() -> dict:
     return {"X-Admin-Key": ADMIN_KEY}
 
 
+MAX_ASSETS = int(os.environ.get("EBAY_MAX_ASSETS", "250"))
+
+
 def fetch_assets() -> list[dict]:
+    """Fetch YGO asset list from Railway, capped at MAX_ASSETS."""
     resp = httpx.get(
         f"{APP_URL}/admin/diag/ygo-scrape-targets",
         headers=_admin_headers(),
+        params={"max_assets": MAX_ASSETS},
         timeout=15,
     )
     resp.raise_for_status()
     return resp.json()["assets"]
 
 
-def post_results(prices: list[dict], meta: dict) -> dict:
+def post_results(prices: list[dict], meta: dict, run_date: str) -> dict:
     if DRY_RUN:
         log.info("[DRY RUN] would post %d prices: %s", len(prices), meta)
         return {"status": "dry_run", "written": 0}
     resp = httpx.post(
         f"{APP_URL}/admin/trigger/ebay-sold-write",
         headers={**_admin_headers(), "Content-Type": "application/json"},
-        json={"prices": prices, "meta": meta},
+        json={"prices": prices, "meta": meta, "run_date": run_date},
         timeout=30,
     )
     resp.raise_for_status()
     return resp.json()
 
 
+def post_failure(meta: dict, error: str, run_date: str) -> None:
+    """POST a failure record so Railway's scheduler_run_log always has an entry."""
+    if DRY_RUN:
+        return
+    try:
+        httpx.post(
+            f"{APP_URL}/admin/trigger/ebay-sold-write",
+            headers={**_admin_headers(), "Content-Type": "application/json"},
+            json={
+                "prices": [],
+                "meta": {**meta, "error": error, "runner": "github_actions"},
+                "run_date": run_date,
+            },
+            timeout=15,
+        )
+    except Exception as exc:
+        log.warning("Failed to post failure record to Railway: %s", exc)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> int:
+    import datetime as _dt
+    run_date = _dt.date.today().isoformat()  # YYYY-MM-DD — idempotency key
+
     if not APP_URL or not ADMIN_KEY:
         log.error("FLASHCARD_APP_URL and FLASHCARD_ADMIN_KEY must be set")
         return 1
-
-    assets = fetch_assets()
-    log.info("Fetched %d YGO assets to scrape", len(assets))
 
     prices: list[dict] = []
     http_error_counts: dict[str, int] = {}
     skipped_no_sales = 0
     skipped_http = 0
+    assets: list[dict] = []
 
-    with cffi_requests.Session(impersonate="chrome136") as session:
-        for asset in assets:
-            url = _build_url(asset["name"], asset["card_number"], asset["variant"])
-            html, err_key = _fetch(session, url)
+    try:
+        assets = fetch_assets()
+        log.info("Fetched %d YGO assets to scrape (max=%d)", len(assets), MAX_ASSETS)
 
-            if html is None:
-                skipped_http += 1
-                http_error_counts[err_key] = http_error_counts.get(err_key, 0) + 1
+        with cffi_requests.Session(impersonate="chrome136") as session:
+            for asset in assets:
+                url = _build_url(asset["name"], asset["card_number"], asset["variant"])
+                html, err_key = _fetch(session, url)
+
+                if html is None:
+                    skipped_http += 1
+                    http_error_counts[err_key] = http_error_counts.get(err_key, 0) + 1
+                    time.sleep(SCRAPE_DELAY)
+                    continue
+
+                raw = _extract_items(html)
+                valid = _filter_singles(raw, rarity=asset.get("variant", ""))
+
+                if valid:
+                    median = _median([i["price_usd"] for i in valid])
+                    prices.append({"asset_id": asset["id"], "price_usd": str(median)})
+                    log.info("  %s → $%s (%d sales)", asset["card_number"], median, len(valid))
+                else:
+                    skipped_no_sales += 1
+                    log.debug("  %s: no valid sales (raw=%d)", asset["card_number"], len(raw))
+
                 time.sleep(SCRAPE_DELAY)
-                continue
 
-            raw = _extract_items(html)
-            valid = _filter_singles(raw, rarity=asset.get("variant", ""))
-
-            if valid:
-                median = _median([i["price_usd"] for i in valid])
-                prices.append({"asset_id": asset["id"], "price_usd": str(median)})
-                log.info("  %s → $%s (%d sales)", asset["card_number"], median, len(valid))
-            else:
-                skipped_no_sales += 1
-                log.debug("  %s: no valid sales (raw=%d)", asset["card_number"], len(raw))
-
-            time.sleep(SCRAPE_DELAY)
+    except Exception as exc:
+        log.exception("Scraper failed: %s", exc)
+        # Always write a run record so Railway heartbeat monitoring sees this run
+        post_failure(
+            meta={
+                "assets_attempted": len(assets),
+                "assets_written": 0,
+                "assets_skipped_no_sales": skipped_no_sales,
+                "assets_skipped_http_error": skipped_http,
+                "http_error_counts": http_error_counts,
+            },
+            error=str(exc),
+            run_date=run_date,
+        )
+        return 1
 
     meta = {
         "assets_attempted": len(assets),
@@ -219,10 +271,9 @@ def main() -> int:
     }
     log.info("Scrape complete: %s", meta)
 
-    result = post_results(prices, meta)
+    result = post_results(prices, meta, run_date)
     log.info("Railway response: %s", result)
 
-    # Exit 1 if all assets errored — fails the Actions job visibly
     if skipped_http == len(assets) and len(assets) > 0:
         log.error("All assets returned HTTP errors — possible IP block on GitHub Actions")
         return 1

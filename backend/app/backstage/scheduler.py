@@ -93,10 +93,14 @@ def get_zero_output_jobs(
             )
         ).scalars().all()
 
-        # Exclude 304-skipped runs: CardMarket writes records_written=0 +
-        # meta_json->>'not_modified'='true' when the upstream file is unchanged.
-        # These are expected zero-output and must not trigger alerts.
-        meaningful_rows = [r for r in rows if not (r.meta_json or {}).get("not_modified")]
+        # Exclude known expected-zero runs so they don't fire false-positive alerts:
+        #   not_modified=true  — CardMarket 304-skip (upstream file unchanged)
+        #   job_blocked_reason — ebay-ingestion budget_exhausted / disabled path
+        meaningful_rows = [
+            r for r in rows
+            if not (r.meta_json or {}).get("not_modified")
+            and not (r.meta_json or {}).get("job_blocked_reason")
+        ]
 
         total = len(meaningful_rows)
         total_records = sum(r.records_written or 0 for r in meaningful_rows)
@@ -410,10 +414,11 @@ def _send_heartbeat() -> None:
 
         # Zero-output alert: jobs that ran completed runs but wrote zero records.
         # Detects the eBay-outage pattern: API calls consumed, status=success, 0 rows written.
-        # JOB_EBAY excluded: Finding API permanently dead since 2025-02-05; every run
-        # writes status='success', records_written=0 via the daily_budget_exhausted path.
-        # Monitoring it for zero-output produces a false positive alert every 24h.
-        _monitored_jobs = [JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_EBAY_WEB_SOLD]
+        # JOB_EBAY is back in the monitored list now that get_zero_output_jobs excludes
+        # runs with job_blocked_reason (budget_exhausted / disabled). If the job somehow
+        # starts writing real data again it will be monitored; budget-exhausted no-ops are
+        # excluded at the filtering layer rather than removed from monitoring entirely.
+        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_EBAY_WEB_SOLD]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,

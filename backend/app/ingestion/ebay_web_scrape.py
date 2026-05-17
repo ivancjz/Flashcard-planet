@@ -20,6 +20,9 @@ from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
 from curl_cffi import requests as cffi_requests
+from curl_cffi.requests.exceptions import HTTPError as CffiHTTPError
+from curl_cffi.requests.exceptions import RequestException as CffiRequestException
+from curl_cffi.requests.exceptions import Timeout as CffiTimeout
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
@@ -188,14 +191,14 @@ def _fetch_page_text(url: str, client: cffi_requests.Session) -> tuple[str | Non
         resp = client.get(url, headers=_HEADERS, allow_redirects=True, timeout=20)
         resp.raise_for_status()
         return resp.text, None
-    except cffi_requests.HTTPError as exc:
+    except CffiHTTPError as exc:
         status = exc.response.status_code
         logger.warning("ebay_web_http_error url=%s status=%s", url, status)
         return None, str(status)
-    except cffi_requests.Timeout as exc:
+    except CffiTimeout as exc:
         logger.warning("ebay_web_timeout url=%s error=%s", url, exc)
         return None, "timeout"
-    except cffi_requests.RequestException as exc:
+    except CffiRequestException as exc:
         logger.warning("ebay_web_request_error url=%s error=%s", url, exc)
         return None, "connection_error"
 
