@@ -41,14 +41,14 @@ export default function PlusUpgradeModal({ onClose }: Props) {
             marginBottom: 8, color: 'var(--text-primary)', margin: '0 0 8px',
           }}
         >
-          Upgrade to Plus for unlimited watchlist
+          Upgrade to Pro
         </h2>
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 24, lineHeight: 1.6 }}>
-          $9.99/mo. Cross-game watchlist + daily digest + smart alerts. Free tier is limited to 5 cards.
+          From $12/mo. Unlimited watchlist, AI signal explanations, confidence scores, CSV export, and more. Free tier is limited to 5 cards.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <a
-            href="/#plus"
+            href="/pricing"
             className="btn btn-gold-soft"
             style={{
               display: 'block', textAlign: 'center', padding: '11px 20px',
@@ -56,7 +56,7 @@ export default function PlusUpgradeModal({ onClose }: Props) {
               fontSize: 14, textDecoration: 'none',
             }}
           >
-            View Plus plans →
+            View Pro plans →
           </a>
           <button
             onClick={onClose}

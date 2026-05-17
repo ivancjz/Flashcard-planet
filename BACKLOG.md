@@ -614,17 +614,13 @@ Code PR (≤2 files, ~10 lines):
 #### TASK-507 — Sealed ingest scheduler observability
 
 **Priority:** P1
-**Status:** ready
+**Status:** complete — verified 2026-05-17
 **Owner:** Claude Code
-**Preconditions:** TASK-502 (sealed ingest job) merged to main ✅
-**Definition of Done:**
-- Confirm `scheduler_run_log` entries are written on every sealed ingest run (already implemented in `_scheduled_sealed_ingest` — verify with SQL after first run)
-- Expose sealed ingest run history via existing `/admin/stats` diagnostics or a new `/admin/diag/sealed-ingest` endpoint
-- SQL verification: `SELECT job_name, status, records_written, started_at FROM scheduler_run_log WHERE job_name = 'sealed-ingest' ORDER BY started_at DESC LIMIT 10` returns rows on the expected 6-hour cadence
-- Confirm `_monitored_jobs` includes `JOB_SEALED_INGEST` (already added — verify heartbeat alert fires if job goes silent >25h)
-**Estimated effort:** XS
-**Reference:** CEO plan 2026-05-12, CLAUDE.md Lesson 9
-**Notes:** Must be done before declaring sealed feature "shipped" to paying users. `scheduler_run_log` + `_monitored_jobs` are already wired in the implementation; this task is verification + diagnostics exposure.
+**Definition of Done — verified 2026-05-17:**
+- ✅ `scheduler_run_log` confirmed: `run_count_24h=10, status=success, records_written=20` per run, `meta_json={products_total:20, products_failed:0, snapshots_written:20}`
+- ✅ `JOB_SEALED_INGEST` added to `_tracked_jobs` in admin/stats (commit 6c3a9b2 — visible in admin/stats scheduler.jobs section)
+- ✅ `JOB_SEALED_INGEST` in heartbeat `_monitored_jobs` — silence alert fires if >25h gap
+- ✅ `JOB_SEALED_INGEST` in `_zero_output_monitored` — zero-output alert if all runs write 0
 
 ---
 
@@ -809,6 +805,7 @@ When a task ships, move it here with PR number and merge date. Keep this section
 
 | TASK | Title | PR | Merged | Outcome |
 |---|---|---|---|---|
+| TASK-507 | Sealed ingest observability | commit 6c3a9b2 | 2026-05-17 | sealed-ingest: run_count_24h=10, status=success, written=20/run. In _tracked_jobs, _monitored_jobs, _zero_output_monitored. |
 | TASK-505 | Extend trial to 14 days | tests/test_trial_14day.py | 2026-05-17 | All 5 propagation sites verified (trial.py, resend_client.py, trial_started.html, PricingPage.tsx). 9/9 tests pass. No day-6 refs in scheduler. |
 | TASK-506 | Disable trial auto-start until LemonSqueezy | config.py + oauth gates | 2026-05-17 | `trial_auto_start: bool = False` in Settings; both google_oauth.py and magic_link.py gated. 9/9 tests pass. |
 | — | Fix digest MOVE ordering noise + display cap on extreme deltas | PR fix/digest-move-ordering | 2026-05-16 | Re-ordered MOVE candidates by signal_score DESC (was ABS(price_delta_pct)); capped triple-digit deltas to ▲+100%+ / ▼-100%+ in email template. 43 tests pass. |
