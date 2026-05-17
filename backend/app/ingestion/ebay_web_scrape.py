@@ -74,6 +74,11 @@ class EbayWebScrapeResult:
     assets_skipped_http_error: int = 0
     price_points_written: int = 0
     captured_at: datetime | None = None
+    http_error_counts: dict[str, int] = None  # e.g. {"403": 20, "timeout": 3}
+
+    def __post_init__(self):
+        if self.http_error_counts is None:
+            self.http_error_counts = {}
 
 
 def _build_search_url(name: str, card_number: str, rarity: str) -> str:
@@ -170,18 +175,27 @@ def _median_price(prices: list[Decimal]) -> Decimal:
     return (sorted_prices[mid - 1] + sorted_prices[mid]) / 2
 
 
-def _fetch_page_text(url: str, client: httpx.Client) -> str | None:
-    """Fetch eBay page and return its text content. Returns None on HTTP error."""
+def _fetch_page_text(url: str, client: httpx.Client) -> tuple[str | None, str | None]:
+    """Fetch eBay page. Returns (page_text, error_key) where error_key is None on success.
+
+    error_key is a short string for meta_json aggregation: "403", "503", "timeout",
+    "connection_error", etc.  Used to surface the exact failure mode in the run's
+    meta_json without relying on log availability.
+    """
     try:
         resp = client.get(url, headers=_HEADERS, follow_redirects=True, timeout=20.0)
         resp.raise_for_status()
-        return resp.text
+        return resp.text, None
     except httpx.HTTPStatusError as exc:
-        logger.warning("ebay_web_http_error url=%s status=%s", url, exc.response.status_code)
-        return None
+        status = exc.response.status_code
+        logger.warning("ebay_web_http_error url=%s status=%s", url, status)
+        return None, str(status)
+    except httpx.TimeoutException as exc:
+        logger.warning("ebay_web_timeout url=%s error=%s", url, exc)
+        return None, "timeout"
     except httpx.RequestError as exc:
         logger.warning("ebay_web_request_error url=%s error=%s", url, exc)
-        return None
+        return None, "connection_error"
 
 
 def ingest_ebay_web_sold(
@@ -222,9 +236,11 @@ def ingest_ebay_web_sold(
                 rarity=asset.variant,
             )
 
-            page_text = _fetch_page_text(url, client)
+            page_text, err_key = _fetch_page_text(url, client)
             if page_text is None:
                 result.assets_skipped_http_error += 1
+                if err_key:
+                    result.http_error_counts[err_key] = result.http_error_counts.get(err_key, 0) + 1
                 time.sleep(SCRAPE_DELAY_SECONDS)
                 continue
 

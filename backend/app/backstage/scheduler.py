@@ -1163,6 +1163,7 @@ def _run_ebay_web_sold() -> None:
             "assets_written": result.assets_written,
             "assets_skipped_no_sales": result.assets_skipped_no_sales,
             "assets_skipped_http_error": result.assets_skipped_http_error,
+            "http_error_counts": result.http_error_counts or {},
         }
     except Exception as exc:
         logger.exception("ebay_web_sold_failed")
