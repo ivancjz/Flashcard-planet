@@ -414,11 +414,12 @@ def _send_heartbeat() -> None:
 
         # Zero-output alert: jobs that ran completed runs but wrote zero records.
         # Detects the eBay-outage pattern: API calls consumed, status=success, 0 rows written.
-        # JOB_EBAY is back in the monitored list now that get_zero_output_jobs excludes
-        # runs with job_blocked_reason (budget_exhausted / disabled). If the job somehow
-        # starts writing real data again it will be monitored; budget-exhausted no-ops are
-        # excluded at the filtering layer rather than removed from monitoring entirely.
-        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_EBAY_WEB_SOLD]
+        # JOB_EBAY excluded: Finding API permanently dead. The job runs its full loop
+        # (200+ API calls), gets 0 results on every call, and writes 0 records. There is
+        # no job_blocked_reason set on this path — the job "succeeds" but is useless.
+        # Monitoring it produces a false-positive alert every 24h with no actionable signal.
+        # The 25h absence check above (hardcoded) still runs independently for JOB_EBAY.
+        _monitored_jobs = [JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_EBAY_WEB_SOLD]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,
