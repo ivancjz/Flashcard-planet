@@ -410,7 +410,10 @@ def _send_heartbeat() -> None:
 
         # Zero-output alert: jobs that ran completed runs but wrote zero records.
         # Detects the eBay-outage pattern: API calls consumed, status=success, 0 rows written.
-        _monitored_jobs = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_EBAY_WEB_SOLD]
+        # JOB_EBAY excluded: Finding API permanently dead since 2025-02-05; every run
+        # writes status='success', records_written=0 via the daily_budget_exhausted path.
+        # Monitoring it for zero-output produces a false positive alert every 24h.
+        _monitored_jobs = [JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_EBAY_WEB_SOLD]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,
@@ -1662,7 +1665,12 @@ def _scheduled_trial_expiry_sweep() -> None:
         _exc = exc
         raise
     finally:
-        log_status = "error" if _exc is not None else "success"
+        if _exc is not None:
+            log_status = "error"
+        elif (_log_meta or {}).get("users_downgraded", 0) == 0:
+            log_status = "no_op"  # expected when no trials are expiring; not a zero-output failure
+        else:
+            log_status = "success"
         try:
             with SessionLocal() as _log_session:
                 finish_run(

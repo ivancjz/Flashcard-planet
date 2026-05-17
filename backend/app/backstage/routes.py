@@ -32,11 +32,13 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_CARDMARKET,
     JOB_DIGEST,
     JOB_EBAY,
+    JOB_EBAY_WEB_SOLD,
     JOB_EXPLANATION,
     JOB_HEARTBEAT,
     JOB_HISTORY_PRUNE,
     JOB_INGESTION,
     JOB_RETRY,
+    JOB_SEALED_INGEST,
     JOB_SIGNALS,
     JOB_TRIAL_EXPIRY,
     JOB_YGO,
@@ -582,13 +584,16 @@ def admin_stats(
         JOB_EXPLANATION,
         JOB_HISTORY_PRUNE,
         JOB_TRIAL_EXPIRY,
+        JOB_SEALED_INGEST,
+        JOB_EBAY_WEB_SOLD,
     ]
     scheduler = {
         "jobs": {job: _job_stats(db, job) for job in _tracked_jobs},
     }
 
     settings = get_settings()
-    _zero_output_monitored = [JOB_EBAY, JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST]
+    # Must match heartbeat's _monitored_jobs minus JOB_EBAY (Finding API permanently dead).
+    _zero_output_monitored = [JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_EBAY_WEB_SOLD]
     zero_output = get_zero_output_jobs(
         db,
         job_names=_zero_output_monitored,

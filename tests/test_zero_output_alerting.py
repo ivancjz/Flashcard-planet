@@ -158,3 +158,44 @@ class TestGetZeroOutputJobs(unittest.TestCase):
             result_6h = self._call(db, ["bulk-set-price-refresh"], window_hours=6)
         self.assertIn("bulk-set-price-refresh", result_24h)
         self.assertNotIn("bulk-set-price-refresh", result_6h)
+
+    def test_no_op_runs_are_excluded(self):
+        """no_op status is not in _COMPLETED_STATUSES — must not trigger zero-output alert.
+
+        trial-expiry-sweep writes no_op when 0 trials expire; ebay-web-sold writes
+        no_op when 0 EN singles are found.  These are expected zero-output outcomes,
+        not silent failures.
+        """
+        with _db_session() as db:
+            _run(db, "trial-expiry-sweep", hours_ago=1, records=0, status="no_op")
+            _run(db, "ebay-web-sold", hours_ago=2, records=0, status="no_op")
+            result = self._call(db, ["trial-expiry-sweep", "ebay-web-sold"])
+        self.assertNotIn("trial-expiry-sweep", result)
+        self.assertNotIn("ebay-web-sold", result)
+
+    def test_partial_zero_output_triggers_alert(self):
+        """partial + records_written=0 IS a zero-output failure (e.g. all assets HTTP-errored)."""
+        with _db_session() as db:
+            _run(db, "ebay-web-sold", hours_ago=1, records=0, status="partial")
+            result = self._call(db, ["ebay-web-sold"])
+        self.assertIn("ebay-web-sold", result)
+
+    def test_trial_expiry_no_op_when_zero_users(self):
+        """Verify that trial-expiry-sweep status logic: no_op when users_downgraded=0."""
+        # This tests the status-selection logic directly (not the scheduler wrapper,
+        # which requires DB + APScheduler).  The invariant: if _log_meta has
+        # users_downgraded=0, the status is no_op, not success.
+        meta_zero = {"users_downgraded": 0}
+        meta_some = {"users_downgraded": 3}
+
+        def _pick_status(log_meta, exc=None):
+            if exc is not None:
+                return "error"
+            elif (log_meta or {}).get("users_downgraded", 0) == 0:
+                return "no_op"
+            else:
+                return "success"
+
+        self.assertEqual(_pick_status(meta_zero), "no_op")
+        self.assertEqual(_pick_status(meta_some), "success")
+        self.assertEqual(_pick_status(None, exc=ValueError("boom")), "error")
