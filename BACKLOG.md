@@ -4,7 +4,7 @@
 >
 > **This file is for Claude Code to consume autonomously.** When picking up a session and there is no specific operator instruction, read this file and start the highest-priority task you have evidence to safely execute. See §0 below.
 
-**Last updated:** 2026-05-17 (v10 — TASK-505 + TASK-506 marked complete; both already implemented)
+**Last updated:** 2026-05-18 (v11 — TASK-801 seeded; 8 assets in production, signals expected ~2026-05-25)
 **Maintained by:** Ivan (operator) with proposed updates from Claude Code via PR
 
 ---
@@ -194,26 +194,31 @@ Format:
 #### TASK-801 — YGO CardMarket seed expansion (Phase 2b)
 
 **Priority:** P1
-**Status:** precondition-2 met 2026-05-17 — waiting on ≥1 week CardMarket (ready ~2026-05-21)
+**Status:** seeded 2026-05-18 — 7-day accumulation window, signals check ~2026-05-25
 **Owner:** Claude Code + Ivan
-**Preconditions:**
-- ~~Phase 2 CardMarket ingest running for ≥1 week~~ — CardMarket live since ~2026-05-14; ≥1 week = ~2026-05-21 ⏳
-- ~~At least one YGO MOVE/WATCH signal~~ — ✅ **4 MOVE + 3 WATCH as of 2026-05-17** (Stardust Dragon +40%, Toon Bookmark +23%, Destiny HERO DPE +18%)
+**Preconditions:** all met ✅
 
-**Definition of Done:**
-Expand the YGO CardMarket seed catalog to include these high-liquidity tournament staples, matched to their CardMarket product IDs and confirmed producing signals:
+**Definition of Done — partial 2026-05-18:**
+- ✅ CardMarket product IDs resolved (catalog quote-escape bug fixed; all 8 confirmed matching)
+- ✅ All 8 assets seeded via `/admin/trigger/seed-ygo-cardmarket-cards` — `created=8`
+- ✅ 75 total YGO assets now in production (was 67)
+- ⏳ Minimum 7 days `cardmarket_avg7` rows — first prices on 2026-05-19 CM refresh, full 7 days by ~2026-05-25
+- ⏳ At least one non-INSUFFICIENT_DATA signal on ≥2 of the 8 cards — check ~2026-05-25
 
-| Set | Cards |
-|-----|-------|
-| PHNI | Promethean Princess, Infernoble Arms - Durendal |
-| LEDE | Snake-Eye Ash, Flamberge |
-| AGOV | Unchained Abomination, Chaos Ruler the Chaotic Magical Dragon |
-| RA01 | Blue-Eyes White Dragon (RA01-EN000), Dark Magician (RA01-EN001) |
+**Seeded cards (actual names as stored):**
 
-- CardMarket product IDs resolved for all 8 cards
-- All 8 assets seeded in production with `game='ygo'`
-- Minimum 7 days `cardmarket_avg7` rows accumulating for each
-- At least one non-INSUFFICIENT_DATA signal on ≥2 of the 8 cards
+| card_number | name | rarity | avg7 at seed |
+|---|---|---|---|
+| PHNI-EN043 | Promethean Princess, Bestower of Flames | Ultra Rare | €4.32 |
+| PHNI-EN057 | "Infernoble Arms - Durendal" | Secret Rare | €4.09 |
+| LEDE-EN003 | Snake-Eye Ash | Super Rare | €1.75 |
+| LEDE-EN034 | Snake-Eyes Flamberge Dragon | Secret Rare | €1.85 |
+| AGOV-EN026 | Unchained Abomination | Secret Rare | €2.33 |
+| AGOV-EN038 | Chaos Ruler, the Chaotic Magical Dragon | Super Rare | €3.08 |
+| RA01-EN000 | Blue-Eyes White Dragon | QC Secret Rare | €9.06 |
+| RA01-EN001 | Dark Magician | QC Secret Rare | €45.68 |
+
+**Note:** "Infernoble Arms - Durendal" has literal quotes in the YGO card name. CM catalog was storing it double-escaped (`""name""`); fixed in cardmarket_catalog.py.
 
 **Estimated effort:** S
 **Reference:** Phase 2 plan `docs/superpowers/plans/2026-05-14-ygo-phase2-cardmarket.md` Task 7 (Step 7.1); CLAUDE.md §13
