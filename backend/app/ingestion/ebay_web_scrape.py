@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
-import httpx
+from curl_cffi import requests as cffi_requests
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
@@ -175,25 +175,27 @@ def _median_price(prices: list[Decimal]) -> Decimal:
     return (sorted_prices[mid - 1] + sorted_prices[mid]) / 2
 
 
-def _fetch_page_text(url: str, client: httpx.Client) -> tuple[str | None, str | None]:
+def _fetch_page_text(url: str, client: cffi_requests.Session) -> tuple[str | None, str | None]:
     """Fetch eBay page. Returns (page_text, error_key) where error_key is None on success.
 
+    Uses curl_cffi with impersonate="chrome136" so the TLS handshake matches a real
+    Chrome browser — bypasses Akamai Bot Manager 503 blocks that httpx triggered.
+
     error_key is a short string for meta_json aggregation: "403", "503", "timeout",
-    "connection_error", etc.  Used to surface the exact failure mode in the run's
-    meta_json without relying on log availability.
+    "connection_error", etc.
     """
     try:
-        resp = client.get(url, headers=_HEADERS, follow_redirects=True, timeout=20.0)
+        resp = client.get(url, headers=_HEADERS, allow_redirects=True, timeout=20)
         resp.raise_for_status()
         return resp.text, None
-    except httpx.HTTPStatusError as exc:
+    except cffi_requests.HTTPError as exc:
         status = exc.response.status_code
         logger.warning("ebay_web_http_error url=%s status=%s", url, status)
         return None, str(status)
-    except httpx.TimeoutException as exc:
+    except cffi_requests.Timeout as exc:
         logger.warning("ebay_web_timeout url=%s error=%s", url, exc)
         return None, "timeout"
-    except httpx.RequestError as exc:
+    except cffi_requests.RequestException as exc:
         logger.warning("ebay_web_request_error url=%s error=%s", url, exc)
         return None, "connection_error"
 
@@ -226,7 +228,7 @@ def ingest_ebay_web_sold(
 
     assets = session.scalars(query).all()
 
-    with httpx.Client() as client:
+    with cffi_requests.Session(impersonate="chrome136") as client:
         for asset in assets:
             result.assets_attempted += 1
 
