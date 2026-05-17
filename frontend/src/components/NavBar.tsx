@@ -130,14 +130,7 @@ export default function NavBar() {
             <>
               {/* PRO/PLUS tier badge */}
               {badge && (
-                <span style={{
-                  fontSize: 9, padding: '2px 7px',
-                  background: badge.background,
-                  color: badge.color,
-                  border: `1px solid ${badge.borderColor}`,
-                  borderRadius: 10,
-                  fontFamily: 'var(--font-mono)', fontWeight: 700,
-                }}>{badge.label}</span>
+                <span className={badge.className}>{badge.label}</span>
               )}
 
               {/* Upgrade CTA for free-tier users */}

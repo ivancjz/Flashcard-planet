@@ -11,6 +11,11 @@ on:
         type: boolean
         default: false
 
+env:
+  # Node.js 20 actions deprecated Jun 2026; forced to Node.js 24 from Jun 2, 2026.
+  # Set now to opt in early and suppress runner deprecation warnings.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   scrape:
     runs-on: ubuntu-latest

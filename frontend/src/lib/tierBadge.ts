@@ -1,37 +1,24 @@
 import type { Tier } from '../contexts/UserContext'
 
-export interface TierBadgeStyle {
+export interface TierBadge {
   label: string
-  color: string
-  background: string
-  borderColor: string
+  className: string
 }
 
 /**
- * Map a Tier to its NavBar badge style, or null if no badge should render.
- * Free tier returns null; pro and plus return distinct visual styles.
+ * Map a Tier to its NavBar badge, or null if no badge should render.
+ * Free tier returns null; pro and plus return distinct CSS class badges.
  *
- * Regression guard for Lesson 13: the original NavBar conditional only
- * checked tier === 'pro'; PLUS users got no badge. Switch over the full
- * Tier enum here — any future tier addition that misses this function
- * will return null (safe fail-safe) and be caught by the test.
+ * Regression guard for Lesson 13: switch over the full Tier enum so any
+ * future tier addition that misses this function returns null (safe default)
+ * and is caught by the test.
  */
-export function tierBadge(tier: Tier): TierBadgeStyle | null {
+export function tierBadge(tier: Tier): TierBadge | null {
   if (tier === 'pro') {
-    return {
-      label: 'PRO',
-      color: 'var(--gold)',
-      background: 'var(--gold-glow)',
-      borderColor: 'var(--border-gold-soft)',
-    }
+    return { label: 'PRO', className: 'badge-pro' }
   }
   if (tier === 'plus') {
-    return {
-      label: 'PLUS',
-      color: 'var(--plus)',
-      background: 'var(--plus-glow)',
-      borderColor: 'var(--border-plus-soft)',
-    }
+    return { label: 'PLUS', className: 'badge-plus' }
   }
   return null
 }

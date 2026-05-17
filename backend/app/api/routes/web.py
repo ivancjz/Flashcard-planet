@@ -1114,8 +1114,6 @@ def web_card_detail(
         except (ValueError, TypeError):
             return None
 
-
-
     return {
         **dict(row._mapping),
         "ai_analysis": ai_analysis,   # overrides row.ai_analysis with auto-generated value
