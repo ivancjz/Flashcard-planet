@@ -252,7 +252,14 @@ class WebCardDetailTests(TestCase):
         self.assertIn("ebay_price", ph[0])
         self.assertIsNone(ph[1]["ebay_price"])
 
-    def test_signal_history_query_excludes_pre_previous_label_rows(self):
+    def test_signal_history_query_includes_first_ever_transitions(self):
+        """Signal history includes first-ever signals (previous_label IS NULL).
+
+        The old filter AND previous_label IS NOT NULL was removed to show the
+        first transition on a card (e.g. INSUFFICIENT_DATA → WATCH). Deduplication
+        is handled by AND label IS DISTINCT FROM previous_label which works correctly
+        with NULL (NULL IS DISTINCT FROM 'WATCH' = TRUE).
+        """
         card = _make_row(
             asset_id="abc123", name="Charizard", set_name="Base",
             rarity="ultra", card_type="pokemon", signal="BREAKOUT",
@@ -266,7 +273,7 @@ class WebCardDetailTests(TestCase):
 
         self.assertEqual(resp.status_code, 200)
         signal_history_sql = str(db.execute.call_args_list[2].args[0])
-        self.assertIn("previous_label IS NOT NULL", signal_history_sql)
+        self.assertNotIn("previous_label IS NOT NULL", signal_history_sql)
         self.assertIn("label IS DISTINCT FROM previous_label", signal_history_sql)
 
     def test_detail_price_query_uses_game_specific_market_source(self):
