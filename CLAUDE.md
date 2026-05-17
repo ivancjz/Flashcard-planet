@@ -44,33 +44,15 @@ This file is the project context for any Claude instance working on this codebas
 
 ### eBay API status — critical, read before touching ebay_sold.py
 
-**eBay Finding API is decommissioned (2025-02-05, date unverified — see note).** Endpoint: `https://svcs.ebay.com/services/search/FindingService/v1`. Returns HTTP 500 + `errorId=10001, domain=Security` on every call, including the first call of a fresh run. This is not quota exhaustion — it is a permanently rejected legacy endpoint. The Finding API used a legacy auth method (`SECURITY-APPNAME` query param, not Bearer token) on the legacy `svcs.ebay.com` domain. It is gone.
+**eBay Finding API is permanently dead.** `svcs.ebay.com/services/search/FindingService/v1` returns HTTP 500 + errorId=10001 on every call including the first of a fresh session. Not quota exhaustion — permanent endpoint rejection confirmed 2026-05-14 via forensic probe (details in git history commit `9a6e9e6`).
 
-**Verification evidence (forensic audit 2026-05-14):** Full HTTP response body confirmed via direct probe:
-```
-HTTP 500 — 485 bytes
-<errorId>10001</errorId><domain>Security</domain><subdomain>RateLimiter</subdomain>
-<message>Service call has exceeded the number of times the operation is allowed to be called</message>
-<parameter name="Param1">findCompletedItems</parameter>
-<parameter name="Param2">FindingService</parameter>
-```
-The official meaning of errorId 10001 is "rate limit exceeded." However: this error fires on the **first call of a fresh session**, with zero prior calls in the window. Genuine quota exhaustion resets daily and succeeds on the first post-reset call. First-call failure is behaviorally inconsistent with real rate limiting — it is consistent with the endpoint permanently rejecting all traffic. **The date 2025-02-05 is from internal notes (commit `9a6e9e6` context); no official eBay developer announcement was located.** The behavioral conclusion (endpoint permanently blocked) is verified. The specific decommission date is not.
+**eBay Browse API** (`api.ebay.com/buy/browse/v1`) returns active listings, not sold prices. Must NOT be written to `price_history`. Ask prices → `listing_snapshot` table only (not yet built).
 
-**The April 27 13:33 UTC "cliff" explained:** `last_ebay_sold_captured_at = 2026-04-27 13:33:14` is NOT the moment eBay ingest stopped writing. It is the timestamp of the last **valid** (non-future-dated) row. Commit `4d63362` (2026-04-27 13:43 UTC, 10 minutes after that timestamp) deleted 749 future-dated rows (captured_at up to 2026-05-06) and added a filter to reject them going forward. Before this fix, eBay auctions with future end times were being written to `price_history`. The "cliff" is the deletion of those rows, not a stop in eBay activity. The Finding API was already returning 10001 by this date (commit `9a6e9e6`, 2026-04-29, explicitly documents "YGO spike failed with all 14 assets returning ebay_api_error (errorId 10001)").
+**`_parse_insights_items` in `ebay_sold.py` is dead code** — never called. Do not wire up.
 
-**Scheduler run gap April 27–May 8:** No `scheduler_run_log` entries exist for `ebay-ingestion` during this 11-day window despite multiple deploys. Root cause not fully confirmed from available data (no direct DB row-level access). Most likely cause: `46af80b` (2026-04-30) introduced a broken budget counter that caused the job to crash before `start_run()`, fixed by `f4bcd8d` (2026-05-01). April 28–29 gap cause undetermined. Runs resumed May 9 after a scheduler restart from the `signal-history-prune` job deploy (`72c0e1c`). All runs since May 9 write 0 records because the Finding API returns 10001 immediately.
+**Historical `ebay_sold` data (1,380 rows, 2026-04-21 to 2026-04-27):** grade-mix contaminated, junk prices confirmed. Do NOT use for signal threshold calibration. Excluded at code level in `signal_service._compute_delta_batch` and `liquidity_service`.
 
-**eBay Browse API (`api.ebay.com/buy/browse/v1`) returns active listings, not sold prices.** Browse API data is ask/listing price. It must NOT be written to `price_history`. If Browse API data is ever ingested, it goes to a separate `listing_snapshot` table (not yet built) with explicit labelling as ask price.
-
-**`_parse_insights_items` in `ebay_sold.py` is dead code** — never called from the ingestion flow. Do not wire it up without architecture approval.
-
-**eBay sold-price channel permanently deprecated.** Browse API ask-price feasibility tested 2026-05-14 (Q1, n=30 cards, 5,914 listings): 90% of high/mid-tier sample is grade-mixed, median IQR 189%/129%. Ask price is not a viable sold-price substitute on cards that matter for signal output. Going forward: Pokemon TCG API is the sole sold-price source for Pokémon. Yu-Gi-Oh sold-price source remains unresolved — see §13 Active experiments.
-
-**Partial reversal — `ebay_web_sold` (YGO only, 2026-05-17):** Web scraping of eBay completed-listings pages is live in code (`backend/app/ingestion/ebay_web_scrape.py`) but gated behind `EBAY_WEB_SOLD_ENABLED=false`. This path is scoped to YGO assets only, uses per-rarity search queries, filters to EN ungraded singles, and writes one median-price row per asset per run. It does NOT revive the `ebay_sold` source or the Finding API path. Activation requires dry-run IQR validation to pass (IQR < 100% on ≥50% of sampled assets). See `docs/adr/ADR-001-ebay-web-sold-scoped-signal-source.md` for full rationale and activation gate.
-
-**Historical `ebay_sold` data contamination (verified 2026-05-14):** 1,380 rows, 2026-04-21 to 2026-04-27, are grade-mix contaminated and contain junk prices (verified $11k+ junk outliers, sealed product mixed in, international condition strings unfiltered). Do NOT use as signal threshold calibration baseline. Retain rows for audit trail; exclude from analytical use. Affected analyses: any signal engine threshold derived pre-2026-05-13 may be biased.
-
-**Code-level exclusion enforced 2026-05-14** in `signal_service._compute_delta_batch` (baseline + current window WHERE clauses) and `liquidity_service.get_liquidity_snapshots` (sales metrics zeroed, `history_depth` excludes ebay_sold rows). Latent contamination of 426 Pokémon assets (baseline computation when `pokemon_tcg_api` data is sparse) is now blocked at code level, not relying on date arithmetic. `signal_delta_source_weights` default updated to remove `ebay_sold=2.0` to prevent latent-trap re-introduction. Related: Issue B (still pending 7-day SQL evidence) may have masked latent contamination risk.
+**`ebay_web_sold` (YGO only, 2026-05-17 activated):** GitHub Actions scraper (`scripts/github_ebay_scrape.py`, runs 17:00 UTC daily via `.github/workflows/ebay-scrape.yml`). Scoped to YGO assets, EN ungraded singles, 1st Edition only, writes one median-price row per asset per run. Railway IP blocked by Akamai — GitHub Actions IP works (confirmed 2026-05-18). See `docs/adr/ADR-001-ebay-web-sold-scoped-signal-source.md`.
 
 ### YGO data source semantics — critical, read before any YGO expansion work
 
@@ -350,165 +332,31 @@ In these cases, **pause**, write a summary of your analysis + codex's position, 
 
 ---
 
-## 6. History: two painful lessons from 2026-04-21/22
+## 6. History: production lessons
 
-Read these. They're the reasons several rules above exist.
+Full narratives in `.claude/LESSONS.md`. Quick reference:
 
-### Lesson 1: "Merged ≠ deployed ≠ working"
-
-On 2026-04-21, the operator believed 429 retry fixes were live for ~10 hours. They were not. The code was uncommitted on a local branch while PR #10 (a different feature — Pokémon expansion) shipped the same day. Advisor (claude.ai) accepted "I fixed it" at face value. Only post-hoc log review caught the gap: 10:32 UTC ingestion ran on old code and broke the same pool in the same way.
-
-**Result**: `git status` / `git log main..HEAD` / Railway Deployments tab are now the three sources of truth. No verbal "it's done" is accepted without at least one of these. That's why §3's "Verified-not-assumed" rule is enforced.
-
-### Lesson 2: Invisible dependencies are the dangerous ones
-
-eBay scheduler was registered with APScheduler for weeks but **never executed**. Reason: `cron='0 3 * * *'` + multiple daily deploys = startup always recomputed `next_run` to tomorrow's 03:00, which the next deploy missed. Fix was simple (switch to interval trigger). But the failure mode was invisible because the registration log line was loud while the execution absence was silent.
-
-**Result**: All scheduled jobs must write `scheduler_run_log` entries. The heartbeat now checks for >25h absences and alerts Discord. When you add a new scheduled job, it must include both (execution log + absence detection) from day one. **But note**: `scheduler_run_log` only catches variants 1 (never ran) and 2 (silently misconfigured). It does not catch variant 4 (ran successfully but downstream-filtered) — see Lesson 4 for that.
-
-### Lesson 3 (subtler): Dead config misleads
-
-`rate_limit_per_second = 5.0` was declared on `PokemonClient` but never read. The operator and advisor both assumed it was enforcing rate limiting. It wasn't. Day 2 activation closed this gap — but the pattern recurred in `EBAY_INGEST_CRON` env var (still referenced after migration to interval trigger). Both deleted.
-
-**Result**: See §3 "Dead config" rule.
-
-### Lesson 4: "Designed, ran, written, but downstream-filtered silently"
-
-This is the fourth variant of the "designed but never X" failure class. Earlier variants are each detectable at a distinct layer: Lesson 1 catches deployment gaps (code not on the running instance); Lesson 2 catches scheduler gaps (job never executing, visible through missing or zero-records `scheduler_run_log` entries); Lesson 3 catches config gaps (attribute declared, never read). The fourth variant passes all three layers — `scheduler_run_log` shows 100% success — but is invisible at the product layer.
-
-YGO ingestion was registered, scheduled, executing, and writing to `price_history` — `scheduler_run_log` showed 100% success for two weeks. But every YGO row was being silently dropped at the signal computation layer because `market_segment` was NULL and PR B's signal filter required `market_segment = 'raw'`. The data was reaching the database; the database just wasn't reaching the product.
-
-**Result**: end-to-end verification cannot stop at "data hits the DB." It must trace through to product output. For new data sources, the verification SQL must include: (a) row count grew in `price_history`, (b) row count grew in `asset_signals` for that game/source, (c) Card Detail page renders for sample assets from that source. If any of these three fail despite (a) succeeding, the source is in the "fourth variant" state. The full chain is:
-
-1. Ingest writes
-2. Schema invariants hold (segment populated, FKs valid, etc.)
-3. Filter layer includes the data
-4. Compute layer produces signals
-5. Display layer renders to product
-6. Regression check: existing data sources unaffected
-
-A new data source is not "live" until all six layers show evidence.
-
-### Lesson 5: Surface-level bugs surface deeper bugs
-
-Activating YGO and opening YGO Card Detail pages exposed two bugs that also existed for Pokemon: Signal History showed identical "50 changes" on every card (placeholder rows from pre-migration data leaking through), and the TCGPlayer column was hardcoded to `pokemon_tcg_api` source. Both bugs had been present since their respective code paths were written, but the conditions that triggered them — assets with no real signal transitions, assets whose primary price source isn't TCGPlayer — were rare for Pokemon's active flow.
-
-**Result**: each new game / data source exposure is implicitly an audit of empty-state and non-default code paths. Treat the "secondary bugs surfaced during activation" not as scope creep but as the activation's main deliverable for code quality — specifically bugs that block accurate activation verification or expose source/game assumptions baked into the code. Defer unrelated polish to follow-up issues. Budget for this category when planning new game launches. **Follow-on example (2026-04-27)**: the §7 production refresh — a routine docs calibration task — surfaced the `ebay_sold` future-dated rows pollution that was 9 days from entering the signal baseline window. The surface task was as mundane as possible; the latent bug was not. The more ordinary the audit, the more likely it reaches non-critical-path code that nobody is actively watching.
-
-### Lesson 6: Catalog source ≠ price source — never couple them
-
-`fetch_set_entries` was designed to simultaneously serve as catalog source (which cards exist) and price source (what they sell for). For sets released 2020–2022 (POTE, TOCH) this worked — YGOPRODeck has price data for those sets. For all 11 sets released 2023 onward, YGOPRODeck returns `set_price = "0"` for every entry. The ingest filter `if price <= 0: continue` was correct in isolation — empty prices shouldn't write `price_history` rows. But because the same loop also created the asset row, **price filtering silently dropped the catalog**.
-
-Production state confirmed 2026-04-29 via `/admin/diag/ygo-13set-coverage` (binary distribution, no partial coverage):
-
-| | Year range | sets_in_code | sets_with_assets |
-|---|---|---|---|
-| Pre-2023 (POTE, TOCH) | 2020–2022 | 2 | 2 |
-| 2023+ (AGOV, BLTR, CYAC, DUNE, INFO, LEDE, MZMI, PHNI, RA01, RA02, WISU) | 2023–2025 | 11 | **0** |
-
-The `scheduler_run_log` shows `status=success, sets_failed=[]` for all 50+ runs — the ingest is "working" in every observable sense while systematically omitting 11 of 13 configured sets.
-
-**Detection test**: when a single source serves dual roles (catalog + price), ask: *if the price source returned empty for a real card, would the asset still exist in the database?* If no, the source is fatally coupled.
-
-**Resolution pattern**: split into two ingest passes. Pass 1 writes the catalog (asset rows, no price filtering). Pass 2 writes prices, and is allowed to write zero rows without affecting the asset's existence. This applies to all current and future game integrations.
-
-**Result**: any price-source coupling in a catalog-building function creates a silent data gap invisible to all existing monitoring. The planned Phase B fix: replace `fetch_set_entries` (which filters price=0) with a catalog-only `fetch_set_cards` that builds all assets first, then let eBay be the price source. Because the gap is binary (not partial), Phase B-1 migration is pure addition — no merge logic, no conflict resolution. Running the diagnostic first (`/admin/diag/ygo-13set-coverage`) converted this from inference into fact before writing the migration, which simplified the PR scope considerably.
-
-### Lesson 7: External upstream outage ≠ our system broken — distinguish them before diagnosing
-
-2026-04-26 to ~2026-04-30: eBay experienced a multi-day outage (suspected DDoS by hacktivist group "313 Team"). eBay's official status page showed all-green throughout. Impact on Flashcard Planet:
-
-1. `ebay-ingestion` ran 3+ hours instead of normal <30 min — per-call latency degraded from ~3s to ~18s (timeout edge). `scheduler_run_log` showed the job was running; nothing in our code was broken.
-2. YGO eBay spike blocked with HTTP 500 + errorId `10001` on every call. `10001` normally means "quota exceeded" but during the outage eBay returned it as a generic failure code for any request. Our quota detection code (`if "10001" in resp.text`) was correct for normal operation — it became misleading only because eBay was reusing the error code.
-3. `calls_today` counter (based on `metadata->>'ebay_sold_last_ingested_at'`) only counts successful writes, not attempted API calls. During the outage, many calls were attempted but failed before write — counter underreported actual usage.
-
-**Key diagnostic signals that distinguish "upstream broken" from "our system broken":**
-- HTTP 500 from eBay across ALL queries (not just specific cards) → upstream
-- HTTP 429 with normal latency → our quota
-- Generic eBay error codes (e.g. `10001`) become unreliable during outages — cross-check with Down Detector
-- Down Detector + StatusGator are more trustworthy than vendor status pages during incidents
-- Job duration anomaly without error status (3h run that logged `success`) → upstream latency, not logic bug
-
-**Pre-spike gating (replaces "wait for quota reset" heuristic):** Before running any eBay-dependent diagnostic, all three must pass:
-1. eBay Down Detector shows operational > 1 hour
-2. Production `ebay-ingestion` last cycle `finished_at - started_at < 15 min`
-3. `/admin/diag/ebay-budget` shows healthy `calls_today` accumulation pattern
-
-**What didn't break:** multi-source architecture held — Pokemon ingest (pokemon_tcg_api), YGO catalog (ygoprodeck_api), signal sweep, Discord heartbeats all continued normally. A single upstream outage degrades but does not halt the platform.
-
-**Result**: when a scheduler job shows anomalous duration or a diagnostic tool returns unexpected errors, check external dependency health (Down Detector, StatusGator) before diagnosing internal code. The job behaving correctly under degraded upstream is a success mode, not a failure mode — don't send a PR to "fix" it.
-
-### Lesson 8: External dependency failures are free fault-injection tests — ask "is our system still correct?"
-
-The April 2026 eBay outage forced the signal system to operate on TCG API data only. This made Bug 1 (liquidity_service counting TCG polls as "sales") visible: without eBay data, every card had `liquidity_score=95-98` and `alert_confidence=83-86` driven entirely by hourly TCGPlayer polling. The leaderboard filled with "0 sales, BREAKOUT" entries that were pure TCGPlayer listing price movements.
-
-If the outage hadn't happened, Bug 1 might have persisted for months: eBay data would have been sparse but present, partially suppressing the worst false positives, and the core logic error would have stayed invisible.
-
-**Pattern to apply**: whenever an external dependency goes down or degrades, before restoring it, ask: *"Is our system producing correct output right now, or is the dependency's absence exposing a logic error in how we use it?"* If the output looks wrong with the dependency absent, the dependency was probably masking a bug — fix the bug before restoring the dependency.
-
-**Specific signal to watch**: if `scheduler_run_log` shows `status=success, records_written=0` for a job that calls an external API, and this persists for multiple consecutive runs — don't assume the API is healthy just because our code is running. The zero-output pattern requires its own alert category (see `get_zero_output_jobs` in `scheduler.py`). A job that burns API quota and writes nothing is in the "ran usefully" vs "ran uselessly" gap that `status=success` cannot distinguish.
-
-### Lesson 9: `status=success` ≠ useful output — monitor the gap separately
-
-`scheduler_run_log.status` only answers "did the job run to completion without exceptions." It says nothing about whether the job produced any value. The gap between "ran" and "ran usefully" is invisible to the existing 25h-absence alert.
-
-Canonical example: eBay ingest with `api_calls_used=201, records_written=0, status=success` for 14 consecutive runs over 2+ days. Monitoring was silent throughout.
-
-**Detection pattern**: for every job that calls an external API and writes to the DB, define a "useful output" metric (`records_written > 0` for ingest jobs). Alert separately when ALL completed runs in a sliding window have zero useful output. Implemented as `get_zero_output_jobs()` in `scheduler.py`, called from the heartbeat. Default window: 24h, configurable via `ZERO_OUTPUT_ALERT_WINDOW_HOURS`.
-
-**Addition rule**: whenever a new scheduled job is added that calls an external API, add it to `_monitored_jobs` in `_send_heartbeat`. "Job runs without errors" ≠ "job is working."
-
-### Lesson 10: Symptom timeline alignment across ≥3 independent sources is causal evidence
-
-During the eBay investigation, three independent anchors aligned:
-1. eBay outage reported externally: 2026-04-26 ~22:30 ET
-2. Last productive eBay ingest: 2026-04-27 08:37 UTC (47 records)
-3. `match_status_counts: {}` pattern began: 2026-04-28 03:22 UTC
-
-This upgraded "strongly consistent with outage" to "confirmed root cause" without needing direct HTTP response logs from eBay's API.
-
-**Rule**: when ≥3 independent anchors align coherently (outage starts → last success just before → first failure just after), accept this as causal evidence. Two-point alignment (only external report + our failure) requires more investigation before declaring root cause.
-
-### Lesson 11: Audit artifacts and fix PRs are separate — never mix them
-
-This audit ran: investigation → SQL evidence → Codex methodology review → reconciliation → findings report → separate fix PRs (P0, P1, P2, DC-2). Each step produced a durable artifact in `audits/2026-05-01/`. The pre-fix evidence (`p0-pre-fix-evidence.md`) is permanent; each fix is reversible and traceable back to the audit report.
-
-Mixing audit evidence with fix code makes the audit unverifiable. For future bugs: (1) document SQL evidence separately before touching code, (2) confirm root cause with runtime evidence, (3) open the fix in a dedicated PR referencing the evidence. Do not write fix code before step (2) completes.
-
-### Lesson 12: Adjacent spec decisions can produce silent contradictions
-
-TASK-301d (2026-05-03) decided watchlist runs client-side. TASK-301e (written later the same day) spec'd "Section 2: watchlist movers" assuming server-side watchlist data existed. Both decisions were individually correct; together they were inconsistent — invisible to anyone reading only one spec.
-
-**Pattern**: when a task spec references another system, table, service, or capability, verify that the referenced thing exists *and behaves as the spec assumes* before writing any implementation. "It should exist" is not verification. Use grep / SQL / code-read to confirm current state. If a contradiction surfaces, stop, name both conflicting decisions, and wait for operator resolution — do not pick a side silently.
-
-**Trigger**: any spec that references another task's output, another service's API, a schema column introduced by a different PR, or a behaviour owned by a different task. These are cross-boundary assumptions that can diverge without either side knowing.
-
-### Lesson 13: A new enum value silently coerced to default is a silent tier downgrade
-
-PR #43 (2026-05-04) added `Tier.PLUS` on the backend. `UserContext.tsx` on the frontend had two ternary coercion sites that pattern-matched on `'pro'` only — anything else fell through to `'free'`. Every `plus` subscriber saw free-tier UI. The backend change was correct; the bug was entirely in the frontend coercion layer, and no test covered the `plus` value because it hadn't existed when the tests were written.
-
-The gap: enum values added on one side of the stack are invisible to other sides unless explicitly grepped. The backend `Tier` class, the DB CHECK constraint, the TypeScript union type, and every conditional or ternary that switches on tier are four separate surfaces that must all be updated atomically. Missing even one is a silent regression.
-
-**Result**: see "Enum extension verification" in §3 Code patterns. Every PR that introduces a new enum value must enumerate all handling sites in its description and verify each was updated. Codex Cloud caught this as P1 in review — the pattern is predictable enough that Codex can be relied on to flag it, but the checklist should be run before opening the PR, not after.
+| # | Lesson | Rule |
+|---|---|---|
+| 1 | Merged ≠ deployed ≠ working | `git status`/`git log main..HEAD`/Railway Deployments are the three truth sources. No verbal "done". |
+| 2 | Invisible dependencies | All scheduled jobs must write `scheduler_run_log`. Heartbeat checks >25h gaps. |
+| 3 | Dead config misleads | Any declared-but-unread setting is debt. Activate it or delete it. |
+| 4 | Downstream-filtered silently | Verify all 6 layers: ingest → schema → filter → compute → display → regression. |
+| 5 | Surface bugs surface deeper bugs | New game/source activation audits empty-state and non-default code paths. Budget for it. |
+| 6 | Catalog source ≠ price source | Never couple catalog creation with price filtering. Two-pass: catalog first, prices second. |
+| 7 | External outage ≠ our system broken | Check Down Detector / StatusGator before diagnosing internal code. |
+| 8 | Failures are free fault-injection tests | When a dependency degrades, ask: "Is our output still correct without it?" |
+| 9 | `status=success` ≠ useful output | Monitor `records_written=0` separately. Add new API jobs to `_monitored_jobs`. |
+| 10 | ≥3 anchors = causal evidence | Three independent timeline anchors aligned coherently is sufficient to declare root cause. |
+| 11 | Audit artifacts and fix PRs are separate | Document SQL evidence first. Confirm root cause second. Fix in dedicated PR third. |
+| 12 | Adjacent specs can silently contradict | When a spec references another system, verify it exists and behaves as assumed before coding. |
+| 13 | New enum value → silent tier downgrade | Grep all handling sites (TypeScript unions, ternaries, DB constraints, UI) before merging. |
 
 ---
 
 ## 7. Current state anchors
 
-Things that are true as of 2026-04-29 and unlikely to change soon:
-
-- **Assets**: ~4,304 Pokemon + 67 YGO = ~4,371 total (338 without price history). Pokemon expanded via eBay ingestion since 2026-04-22 creating new asset records; local DB snapshot (~2,898) is stale. YGO: **production has 67 assets across 2 sets only — POTE (40) + TOCH (27)**. `YGO_PHASE2_SETS` in code = 13 sets (5 original + 8 added in PR #28), but 11 of those 13 produce 0 assets because YGOPRODeck returns `set_price = "0"` for all their entries. Root cause: `fetch_set_entries` uses YGOPRODeck as both catalog source AND price source; the 11 empty sets are AGOV, BLTR, CYAC, DUNE, INFO, LEDE, MZMI, PHNI, RA01, RA02, WISU — all 2023+. Distribution is binary (no partial coverage cases). Verified 2026-04-29 via `/admin/diag/ygo-13set-coverage`. **Do not write "13 sets seeded" anywhere** — code config ≠ production reality.
-- **Price history**: ~797k rows total (production, 2026-04-27). `pokemon_tcg_api` dominant (bulk-refresh writes ~94k rows/day for all curated sets + scheduled-ingestion ~17k/day). `ebay_sold` 1,380 rows, 426 distinct assets, captured 2026-04-21 to 2026-04-27 only (verified 2026-05-14 against production endpoints + backup-14; the earlier ~5.5k figure was a carried-forward estimate, never a verified SQL count). `ygoprodeck_api` ~1k (67 assets × ~16 ingest cycles since activation). All production rows have `market_segment` populated as of 2026-04-27 — alembic 0025 migration (PR #26) backfilled original 134 YGO rows; `/trigger/backfill-ygo-segment` one-shot cleared the 2,814 post-migration NULLs that accumulated while ingest fix was not yet deployed. `null_audit` confirmed zero NULLs. Note: `max(captured_at)` shows `2026-05-06` — likely naive datetime storage artifact; does not affect signal windows (computed relative to `NOW()`).
-- **Signal state** (4,033 assets with signals, 338 without): BREAKOUT 110, MOVE 190, WATCH 127, IDLE 487, INSUFFICIENT_DATA 3,119 (77.3%). INSUFFICIENT breakdown not available from existing admin endpoints — local snapshot had `bulk_baseline_price` ~1,125 / `no_current_data` ~547 / `no_baseline_data` ~100 but local asset count is ~1,400 lower so ratios don't transfer. YGO contributes 67 to INSUFFICIENT (all 67 assets; expected — only 4 days of data as of 2026-04-27, baseline window requires ~7-14 days). Non-INSUFFICIENT YGO signals expected to appear around 2026-05-07.
-- **Known open problems** (see session handoff for the latest — may be stale by the time you read this):
-  - Orphaned `running` rows in `scheduler_run_log` are now cleaned up at startup via `cleanup_stale_runs` (120-min threshold). New orphans from container crash are auto-closed on next deploy.
-  - `pokemon_tcg_api` price data "3 days stale" on 2026-04-22 was a false alarm. SQL confirmed data flowing continuously 8–37k rows/day every day. Root cause: `scheduler_run_log` visibility gap (no run_log rows for `scheduled-ingestion` before its instrumentation was confirmed working). Resolved by PR #13.
-  - All 6 scheduler jobs now write `scheduler_run_log` (resolved 2026-04-23).
-  - **Backup system live.** GitHub Actions `daily-backup.yml` runs at 04:00 UTC daily → `backup.sql.gz` asset on `ivancjz/flashcard-planet-backups` GitHub Releases. 30-day rolling retention. Discord alert on failure. APScheduler watchdog (`backup-freshness-check`, interval/4h, first run startup+15000s) verifies a fresh backup appeared and alerts if not. 4h cadence caps detection latency regardless of deploy time. Quarterly local download via `backend/scripts/backup_to_local.sh`. Restore: `docs/runbooks/restore-from-backup.md`. **First restore drill: 2026-05-13** — backup-14 (449 MB), 53.9s download + 11.3s gunzip + 49.3s restore = ~115s RTO. Row counts matched within expected 28h drift. See `docs/runbooks/restore-from-backup.md` drill log.
-  - `start_run` outside `try` block for all scheduler jobs — if `start_run` itself raises (DB pool exhaustion, transient network issue), the job crashes without leaving a `scheduler_run_log` row AND without triggering a Discord alert. Accepted tradeoff on 2026-04-23; 25h heartbeat alert provides eventual detection. See PR #13 Codex Review Finding #3 for full rationale. Proper fix: wrap `start_run` in its own try/except with separate alerting path; treat as hardening work, not urgent. **Re-evaluate if**: (a) scheduler_run_log shows unexplained gaps >2h for any job, (b) production Postgres moves off Railway-internal (latency/reliability profile changes), or (c) a second scheduler job is added that cannot tolerate silent failure.
-  - 2026-05-04 throughput collapse from 429 storm in `_run_bulk_set_price_refresh` (PR #12 fix coverage gap): bulk-refresh path called `PokemonTCGImporter._sleep_for_retry` with no Retry-After cap. PR #12's 60s cap only covered `pokemon_tcg.py`. Resolution: `cap_and_backoff` applied to bulk-refresh path (commits 636da83–e453e8b, audit record: GitHub issue #46). **Mark resolved** once 48h post-deploy SQL shows bulk-refresh failure count < 2/day.
-  - **Issue E — RESOLVED (by design, calibration deferred)** (diagnosed 2026-05-07): Three hypotheses tested and refuted via SQL: (1) `MIN_CURRENT_N_FOR_SIGNAL` too high — REFUTED (current_n=10 for all affected assets); (2) baseline coverage gap — REFUTED (baseline_n=5-6, all assets >14d old); (3) data freshness lag — REFUTED (no new assets, no ingest gap). Actual root cause: 2,353 of 2,390 INSUFFICIENT_DATA assets are downgraded for `bulk_baseline_price` — intentional filter suppressing spurious +1000% BREAKOUT signals from $0.01–$0.10 bulk commons. NOT a bug. Open product question (deferred, NOT a code fix): is 58% bulk-commons rate the right tradeoff? Could floor be tier-based? **Do not adjust `_apply_signal_downgrade` without explicit calibration design and operator approval.**
-  - **Issue D (P0) — `asset_signal_history` disk growth** (discovered 2026-05-07): `_append_history` in `signal_service.py` (lines 622, 641, 660, 709) writes one row per asset per sweep unconditionally — not only on label transitions. DB is 3.3 GB total; `asset_signal_history` alone is 2.6 GB (79%), 5.8 M rows. Growth rate ~174 MB/day (~387k rows/day at 96 sweeps/day × 4,033 assets). Headroom to full: TBD — confirm Railway Postgres volume limit in Railway dashboard → Postgres → Storage tab. **Audit findings (2026-05-07):** All 4 callsites are transition-safe — all write INSUFFICIENT_DATA or a classified label for every asset every sweep; a transition guard is semantically correct for all four. All 5 product queries (`/cards?sort=recent`, watchlist export, batch cards sort=recent, card detail signal history, `/alerts`) already filter `WHERE previous_label IS NOT NULL AND label IS DISTINCT FROM previous_label` — none depend on every-sweep rows. `get_daily_snapshot_signals` (signal_service.py:753) is confirmed dead code: its only caller (`site.py:signals_page`) was removed in the SPA migration commit 2b84b10; no production path calls it. Dead-code confirmation clears the one audit blocker. **Phase 1 (transition guard) deployed 2026-05-06 in commit `78bd30b`** — guard placed inside `_append_history` itself (returns early when `previous_label == signal.label.value`); single function-level site covers all 4 callsites, no per-callsite logic. **Phase 2 (retention prune) tracked as TASK-105 in `BACKLOG.md`**, blocked on 48h verification gates (see below). The original fix-path constraint still holds: do NOT prune before verification confirms inflow reduced — only buys ~10 days otherwise and the problem recurs. **48h verification gates (all must hold after deploy):** rows_written/day drops from ~387k toward transition rate; ratio rows_written:transitions approaches 1:1 via `/admin/diag/signal-history-stats`; DB total size growth rate drops from ~174 MB/day to <10 MB/day. `observation_match_logs` (127 MB, no purge) is a secondary concern — growth currently paused while eBay ingest is dark, but needs a purge policy before Browse API is wired.
+See `BACKLOG.md` for current task queue, asset counts, signal state, and open issues. The data in this section was accurate 2026-04-29; BACKLOG.md is the authoritative live state.
 
 ---
 
@@ -549,7 +397,6 @@ For non-trivial work spanning reference extraction, generation, verification, an
 
 Stages typically follow: pre-flight checks → reference extraction (PAUSE) → generation → visual/structural inspection (PAUSE) → structural grep / diff → final verdict.
 
-*Derived from: Pencil.dev evaluation (2026-05-13). Re-applied successfully in eBay forensic, eBay feasibility, CardMarket landscape audit. Transferable to any "should we adopt tool X" investigation or any task where verifiable intermediate outputs exist.*
 
 ---
 
@@ -569,7 +416,6 @@ For each, ask the implementer to answer one of:
 - "plan implicitly assumes `<X>`, code matches assumption"
 - "not handled, would surface as `<symptom>`, deferred backlog item"
 
-*Derived from: CardMarket ingest Task 2 audit (2026-05-14). Surfaced zero/negative price guard gap + 304-skip audit-trail gap that subagent did not flag spontaneously.*
 
 ---
 
@@ -583,7 +429,6 @@ When a numerical parameter (threshold, weight, ratio, timeout) is derived from i
 
 This applies the "merge ≠ deploy ≠ verified" principle to numerical parameters: a parameter is not verified until production data has calibrated it. Fake-precision gives false confidence that the parameter is doing useful work.
 
-*Derived from: CardMarket dispersion threshold (Task 4, 2026-05-14). 67-asset cohort gave insufficient sample for p90/p95 percentile estimation; 74K full-catalog gave wrong-cohort distribution. Neither was production-ready. Shipped `Decimal("999")` fail-open with Task 8 calibration scheduled 2026-06-14.*
 
 ---
 
@@ -597,7 +442,6 @@ When deprecating a data source, documentation alone leaves the door open for acc
 
 Documentation alone is "polite request not to use this". Layers 2 and 3 are "code-enforced cannot use this even if you try". The full three-layer approach prevents latent traps when future code, migrations, or ad-hoc scripts inadvertently write to the deprecated source.
 
-*Derived from: ebay_sold deprecation (2026-05-13 doc, 2026-05-14 code + config enforcement). Documentation alone left a latent contamination risk affecting 426 Pokémon assets via signal baseline computation. Three-layer fix landed as commits 7ac9561 + 387c367 on main.*
 
 ---
 
@@ -612,7 +456,6 @@ Implementation form:
 - A helper function or inline conversion at every threshold comparison
 - A regression test that uses a boundary input to prove the conversion is applied (e.g. value just below threshold in source unit becomes just above threshold in target unit, classification changes accordingly)
 
-*Derived from: CardMarket EUR vs signal USD thresholds (Task 5, 2026-05-14). €1.95 was being downgraded from BREAKOUT to MOVE because `SIGNAL_BREAKOUT_MIN_PRICE_USD = 2.00` compared against EUR directly. Fix: `CARDMARKET_EUR_TO_USD = Decimal("1.09")` + `_eur_to_usd()` helper at every threshold comparison. Regression test `test_cardmarket_thresholds_use_eur_to_usd_conversion`.*
 
 ---
 
@@ -627,7 +470,6 @@ Standard form for calibration tasks:
 > Fallback 2 if both unavailable: `<Z>`, with rationale
 > If all fallbacks unavailable: STOP and flag, do not substitute alternative dataset.
 
-*Derived from: CardMarket dispersion threshold (Task 4, 2026-05-14). Plan specified 67 POTE/TOCH cards as primary cohort; YGOPRODeck returned 403, backup container unavailable; subagent substituted 74K full YGO catalog as fallback. Substitution was reasonable in isolation but produced wrong-cohort distribution. Plan should have prescribed fallback behavior explicitly (or stop-and-flag).*
 
 ---
 
@@ -641,7 +483,6 @@ When verifying behavior of newly-merged work:
 - If PR description claims behavior X and code shows behavior Y, trust the code, but ALSO patch the PR description / release notes so future archaeologists don't get misled
 - Treat PR description as a hypothesis that needs verification, not a ground-truth source
 
-*Derived from: CardMarket Phase 2 production deploy (2026-05-15). PR #62 description claimed `CARDMARKET_INGEST_ENABLED` defaults to False. Plan, code, and production all consistently defaulted to True — the PR description was the lone wrong artifact, written by Claude Code from misremembered intent at PR creation time. Discovered 5 minutes before first scheduled run; no production impact, but verification protocol had been designed around the wrong premise.*
 
 ---
 
@@ -668,118 +509,26 @@ No data supports adding hysteresis bands. Re-evaluate if:
 
 ---
 
-## 12. Backlog: Deferred restores from testing phase
 
-### Restore Pro gate on AI Analysis panel (PR #34)
+## 12. Active experiments
 
-Currently temporarily open for testing phase. To restore the Pro tier gate:
-1. Search for `-- TEMP` in `backend/app/api/routes/web.py` containing "Restore when commercial tier is finalized" — the `s.explanation AS ai_analysis` SELECT line
-2. Remove that line from the unconditional SELECT
-3. Add `access_tier` param to `web_card_detail` (match existing auth pattern in the codebase)
-4. Gate the field: `s.explanation AS ai_analysis` only when `can(access_tier, Feature.SIGNAL_EXPLANATION)`
-5. Update the 3 TEMP test cases in `tests/test_web_routes.py::WebCardDetailTests` to assert tier-gated behaviour
+### YGO Phase 2: CardMarket (live 2026-05-15)
 
-All supporting infrastructure (`Feature.SIGNAL_EXPLANATION`, `can()`, the pattern in `signals_feed_service.py:63`) is already in place.
-
-### RESOLVED 2026-05-15: Issue B — "3 days no data" forensic
-
-RESOLVED 2026-05-15: Issue B forensic verified Pokemon TCG API continuous operation throughout May 2026. The "3 days no data" claim was session-handoff exaggeration of the 2026-05-04 to 05-06 bulk-refresh 429 storm (fixed in `b2204c3`, PR #12), which affected `bulk-set-price-refresh` only — `scheduled-ingestion` continued running with the 60s cap already in place from the earlier PR #12 fix. `price_history` never stopped receiving Pokemon TCG rows. No recurring gap pattern. `last_priced_at` does not exist in the codebase; no automated alert ever fired for this incident.
-
-### Backlog: move PokemonTCGImporter out of scripts/
-
-`PokemonTCGImporter` lives in `scripts/import_pokemon_cards.py` but is called directly by the production scheduler (`_run_bulk_set_price_refresh` in `scheduler.py`). `scripts/` is the conventional location for one-off CLI tools; placing production scheduler dependencies there breaks the expectation that everything under `backend/app/` is the production package boundary. Move to `backend/app/ingestion/` when convenient (no urgency — separate PR).
-
-### Backlog: revisit main-direct policy for retry/backoff/rate-limiting changes
-
-Current policy ("Operator trusts you to push to main directly") is correct for velocity and fits the solo-dev Railway auto-deploy setup. But there is a category of change where main-direct is higher risk: **production retry/backoff/rate-limiting logic**. This category has a history of "designed but never ran" / "fixed but not on all paths" failure modes — eBay ingest, signal sweep, PR #12 coverage gap (bulk-refresh), and the 2026-05-04 incident. The gap between push and first visible alert can be minutes to hours.
-
-Consider requiring feature-branch + Codex-review-before-merge specifically for changes to: retry budgets, backoff delays, rate-limit guards, and circuit-breaker logic. Not blocking velocity for other change types.
-
-This backlog item is a "someday / Sunday decision" — do not implement without explicit operator decision. It is recorded here so the next session has the context.
+CardMarket public S3 price guide is the active YGO price source (see §2 for configuration details). Initial seed: 8 cards seeded 2026-05-17 via TASK-801. Signals expected ~2026-05-25 after 7-day data accumulation window. Next check: day-7 2026-05-24.
 
 ---
 
-## 13. Active experiments
+## 13. Operational tooling gaps
 
-### YGO Phase 2 unblock — final criteria (2026-05-14)
-
-Source resolved: CardMarket public price guide (see §2 CardMarket data source). No further reframes expected.
-
-**1. CardMarket JSON ingest job**
-- Fetch `https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_3.json` daily ~04:00 AEST (after CET ~02:43 daily refresh)
-- Store `avg1`, `avg7`, `avg30`, `trend` as four separate sources: `cardmarket_avg1`, `cardmarket_avg7`, `cardmarket_avg30`, `cardmarket_trend`
-- Do NOT blend. Each source independently tracked.
-- Budget: single ~16 MB download, negligible cost.
-
-**2. Signal engine source-awareness**
-- Per-source thresholds (`cardmarket_avg7` will be primary, `cardmarket_avg30` baseline)
-- Volume-proxy quality flag: high dispersion between `avg1`/`avg7`/`avg30` → `insufficient_data`
-- Documented in code, not just CLAUDE.md
-
-**3. YGO seed cards**
-- 50–100 cards drawn from CardMarket high-coverage modern sets
-- Avoid vintage tier where EU/US gap > 30%
-- Avoid cards with <10 entries in `avg30` (proxy for liquidity)
-
-**4. 7-day CardMarket data accumulation before signal sweep enabled**
-
-**5. Discord alert format**
-- Source-agnostic alerts: "YGO breakout detected on Card X"
-- No CardMarket price figures displayed
-- Link to Flashcard Planet card page for detail
-
-Estimated 3–5 days solo dev work. No external dependencies blocking. Triggerable whenever Pokémon baseline is stable (depends on Issue B resolution).
-
----
-
-## 14. Operational tooling gaps
-
-### scheduler_run_log per-row queries unavailable in production
-
-Existing `/admin/diag` endpoints expose aggregates only (`/diag/scheduler-history` groups by `(job_name, day)`). Forensic investigations requiring per-row inter-run spacing — e.g. the May 11 2026 anomaly where `ebay-ingestion` logged 30 runs vs 6–8 for other jobs — cannot be completed without either:
-
-- **(a)** Railway Postgres TCP proxy + `railway run` access to `psql` or a Python DB connection (currently blocked: `postgres.railway.internal` is not resolvable from local; no public TCP proxy configured), or
-- **(b)** A generic `/admin/diag/scheduler-runs?job_name=<name>&date=<YYYY-MM-DD>` endpoint returning per-row `started_at`, `finished_at`, `status`, `records_written`, `meta_json`.
-
-**Deferred.** Do not implement (b) until the next forensic investigation also stalls on this same gap. At that point, the accumulated cost justifies the endpoint.
-
-### CLAUDE.md statistical claims not systematically dated
-
-Carryover-from-old-revision risk verified 2026-05-14 (ebay_sold count was stale by ~4x). Future statistical claims should be tagged with verification date inline. Backlog item: audit existing claims, no time pressure.
-
-### User-facing source attribution policy (pending)
-
-When external sources contribute to a signal but data is not displayed directly to users, the about page should list contributing sources for transparency (Pokemon TCG API, CardMarket public price guide, etc.) without quoting prices. Pending UX/legal hygiene item, deferred until YGO Phase 2 ships.
-
-### metadata_json as cross-source asset identifier store
-
-`metadata_json` is the current catch-all for cross-source asset identifiers: `set_id` for Pokémon (set by YGOPRODeck ingest), `cm_product_ids` for CardMarket (added by Phase 2 CardMarket ingest), future sources will continue to add keys. Pattern accepted at 2-source scale. Trigger to extract to a dedicated `asset_external_ids` table: when adding a 3rd source, OR when any source needs multi-id per asset (currently all are 1:1 between source and list of IDs).
-
-### Latent-trap audit pattern for source deprecations
-
-When deprecating a data source, code-level exclusion + weight removal must accompany documentation. Documentation alone leaves the door open for accidental re-introduction. Future source deprecations must: (1) add explicit `source != X` to all analytical query WHERE clauses, (2) remove source weight from `signal_delta_source_weights`, (3) update relevant tests to assert the new exclusion behavior, (4) update this doc. Verified necessary 2026-05-14 when `ebay_sold` audit found 1,380 rows reachable by baseline computation for 426 assets despite months of doc-stated deprecation.
-
-### CardMarket EUR/USD hardcoded conversion rate
-
-`CARDMARKET_EUR_TO_USD = Decimal("1.09")` in `signal_service.py` (set 2026-05-14) converts CardMarket EUR prices to USD-equivalent before comparing against `signal_breakout_min_price_usd`, `signal_move_min_price_usd`, and `SIGNAL_BULK_FLOOR_PRICE`. These thresholds are USD-denominated; CardMarket reports in EUR.
-
-Threshold misclassification risk if rate drifts beyond ±10%. Trigger to update: (a) EUR/USD observed outside 0.98–1.20 range, OR (b) adding a third currency-denominated source. Long-term fix: per-source currency configuration + live exchange rate (e.g. ECB daily reference rates).
-
-### CardMarket source weights are provisional
-
-`cardmarket_avg7=1.0, cardmarket_avg30=0.5, cardmarket_avg1=0.0, cardmarket_trend=0.0` in `signal_delta_source_weights` default (set 2026-05-15). Weights are provisional pending production data. avg1 and trend carry 0.0 weight: avg1 is only used in the dispersion gate; trend uses an opaque CardMarket algorithm not suitable for direct signal weighting. Revisit alongside dispersion threshold calibration (Task 8) at 2026-06-14. Note: CM sources are excluded from `_compute_delta_batch()` WHERE clauses (EUR-denominated); current weights only apply if routing logic changes.
-
-### _parse_source_weights silently drops malformed entries
-
-`_parse_source_weights()` in `signal_service.py` splits on commas then `=`. Any segment without `=` (e.g. a typo in the `SIGNAL_DELTA_SOURCE_WEIGHTS` env var) is silently discarded — no warning, no error. Benign for the current default string; dangerous if the env var is misconfigured in production (misconfigured source gets default weight 1.0 instead of the intended value, with no alert). Fix: add a `logger.warning` for malformed segments. Low priority — fix opportunistically when editing `_parse_source_weights`.
-
-### Health diagnostics monitoring blindspot (discovered 2026-05-15)
-
-`/admin/diagnostics/json` health section reports `total_assets=0` and `recent_real_price_rows_last_24h=0` for all queries. Cause: `PROVIDER_EXTERNAL_ID_PREFIX = "pokemontcg:%"` in `data_health_service.py:21` doesn't match production asset external_ids (stored as `base1-1`, `sv8pt5-148`, etc. — not `pokemontcg:base1-1`). Has been silently broken since the service was written. Severity: medium — does not affect ingest or signal computation, but invalidates the health dashboard as a verification surface. Future forensic work should not trust the `health` section of this endpoint. Fix is a one-line prefix correction; deferred to next maintenance window.
-
-### Sample tiering by sold-count over-indexes on query-fuzzy matches
-
-Verified 2026-05-14 during eBay Q1 analysis: "Pokemon Pikachu Base" matched Shadowless, 1st Edition, Unlimited, and Yellow Cheeks Pikachu variants as one card because `_build_search_query` does not include card number. Sold-count-based tier assignment treats multi-variant query matches as one card — the high sold count reflects query fuzziness, not single-card liquidity. Future eBay or market analyses should tier by realized-price tier and collectibility category (e.g. vintage holo / modern rare / modern common), not raw sold-row count.
+- **Per-row scheduler queries**: `/diag/scheduler-history` aggregates only. Add `/admin/diag/scheduler-runs?job_name=<name>&date=<YYYY-MM-DD>` when next forensic stalls on this same gap.
+- **Health dashboard blindspot**: `/admin/diagnostics/json` health fields return 0 — `PROVIDER_EXTERNAL_ID_PREFIX` prefix mismatch in `data_health_service.py:21`. Do not trust `health.*` fields. Fix is one-line correction; deferred.
+- **CardMarket EUR/USD hardcoded**: `CARDMARKET_EUR_TO_USD = Decimal("1.09")` in `signal_service.py`. Update if EUR/USD observed outside 0.98–1.20. Long-term: ECB reference rates.
+- **CardMarket source weights provisional**: `cardmarket_avg7=1.0, cardmarket_avg30=0.5`. Revisit with TASK-8 calibration at 2026-06-14.
+- **`_parse_source_weights` swallows malformed env var segments**: add `logger.warning` opportunistically.
+- **`metadata_json` as cross-source ID store**: accepted at 2-source scale. Extract to `asset_external_ids` table at 3rd source or multi-id-per-asset.
+- **Source deprecation pattern**: deprecation requires three layers — doc + code-level exclusion (WHERE clauses) + config removal (weights/flags). Documentation alone is not sufficient.
+- **eBay sold-count tiering flaw**: query fuzziness inflates counts for multi-variant cards. Future analyses: tier by price/collectibility, not raw sold-row count.
+- **Statistical claims**: tag future claims with inline verification date.
 
 ---
 
