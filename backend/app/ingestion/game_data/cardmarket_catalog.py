@@ -71,7 +71,11 @@ class CardmarketCatalog:
 
         name_to_ids: dict[str, list[int]] = {}
         for product in catalog_data.get("products", []):
-            name_key = product["name"].lower().strip()
+            # CM catalog uses "" to escape " in some product names (e.g. "Infernoble Arms - Durendal"
+            # is stored as ""Infernoble Arms - Durendal""). Unescape one layer so lookups work
+            # with the canonical card name (one set of quotes, not two).
+            raw_name = product["name"].replace('""', '"')
+            name_key = raw_name.lower().strip()
             name_to_ids.setdefault(name_key, []).append(product["idProduct"])
 
         prices: dict[int, dict[str, float | None]] = {}

@@ -1572,6 +1572,74 @@ _YGO_SPIKE_LISTINGS_PER_ASSET = 20
 _YGO_SPIKE_MAX_API_CALLS = 30
 
 
+_TASK801_SEED_CARDS = [
+    # (name, card_number, set_code, set_name, rarity)
+    # Names must match CardMarket catalog exactly (case-insensitive).
+    # Seeded 2026-05-18 for TASK-801 (YGO Phase 2b seed expansion).
+    ("Promethean Princess, Bestower of Flames", "PHNI-EN043", "PHNI", "Phantom Nightmare",          "Ultra Rare"),
+    ('"Infernoble Arms - Durendal"',            "PHNI-EN057", "PHNI", "Phantom Nightmare",          "Secret Rare"),
+    ("Snake-Eye Ash",                           "LEDE-EN003", "LEDE", "Legacy of Destruction",      "Super Rare"),
+    ("Snake-Eyes Flamberge Dragon",             "LEDE-EN034", "LEDE", "Legacy of Destruction",      "Secret Rare"),
+    ("Unchained Abomination",                   "AGOV-EN026", "AGOV", "Age of Overlord",             "Secret Rare"),
+    ("Chaos Ruler, the Chaotic Magical Dragon", "AGOV-EN038", "AGOV", "Age of Overlord",             "Super Rare"),
+    ("Blue-Eyes White Dragon",                  "RA01-EN000", "RA01", "Rarity Collection Quarter Century Edition", "Quarter Century Secret Rare"),
+    ("Dark Magician",                           "RA01-EN001", "RA01", "Rarity Collection Quarter Century Edition", "Quarter Century Secret Rare"),
+]
+
+
+@router.post("/trigger/seed-ygo-cardmarket-cards")
+def admin_trigger_seed_ygo_cardmarket_cards(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    """Seed 8 high-liquidity YGO cards for CardMarket price signal tracking (TASK-801).
+
+    Idempotent: uses ON CONFLICT DO NOTHING on the 10-column unique constraint.
+    Safe to run multiple times; each run reports created vs already-existing.
+    """
+    created = 0
+    already_existed = 0
+
+    for name, card_number, set_code, set_name, rarity in _TASK801_SEED_CARDS:
+        existing = db.execute(
+            select(Asset).where(
+                Asset.game == "yugioh",
+                Asset.card_number == card_number,
+                Asset.name == name,
+            )
+        ).scalar_one_or_none()
+
+        if existing:
+            already_existed += 1
+            continue
+
+        asset = Asset(
+            id=uuid.uuid4(),
+            asset_class="TCG",
+            game="yugioh",
+            category="Yu-Gi-Oh",
+            name=name,
+            set_name=set_name,
+            card_number=card_number,
+            variant=rarity,
+            external_id=f"task801:{card_number}",
+            metadata_json={
+                "set": {"id": set_code, "name": set_name},
+                "task": "TASK-801",
+            },
+        )
+        db.add(asset)
+        created += 1
+
+    db.commit()
+    return {
+        "ok": True,
+        "created": created,
+        "already_existed": already_existed,
+        "total_seeded": len(_TASK801_SEED_CARDS),
+    }
+
+
 @router.post("/trigger/ygo-ebay-spike")
 def admin_trigger_ygo_ebay_spike(
     confirm: str = Query(default=""),
