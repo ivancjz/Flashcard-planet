@@ -4,7 +4,7 @@
 >
 > **This file is for Claude Code to consume autonomously.** When picking up a session and there is no specific operator instruction, read this file and start the highest-priority task you have evidence to safely execute. See §0 below.
 
-**Last updated:** 2026-05-17 (v9 — TASK-802 YGO edition-aware asset model added)
+**Last updated:** 2026-05-17 (v10 — TASK-505 + TASK-506 marked complete; both already implemented)
 **Maintained by:** Ivan (operator) with proposed updates from Claude Code via PR
 
 ---
@@ -583,15 +583,15 @@ Code PR (≤2 files, ~10 lines):
 #### TASK-505 — Extend trial duration to 14 days
 
 **Priority:** P1
-**Status:** ready
+**Status:** complete — verified 2026-05-17
 **Owner:** Claude Code
-**Definition of Done:** ALL 5 propagation sites updated atomically in one PR:
-- `backend/app/api/routes/trial.py:12` → `TRIAL_DURATION_DAYS = 14`
-- `backend/app/email/resend_client.py` → email subject line
-- `backend/app/email/templates/trial_started.html` → body text
-- `frontend/src/pages/PricingPage.tsx` → 3 user-facing strings
-- Review scheduler log comments for "day-6" references
-**Estimated effort:** XS
+**Definition of Done — verified 2026-05-17:**
+- ✅ `trial.py:12` → `TRIAL_DURATION_DAYS = 14`
+- ✅ `resend_client.py` subject → "Your 14-day Pro trial has started"
+- ✅ `trial_started.html` → "Your 14-day Pro trial has started."
+- ✅ `PricingPage.tsx` → 3 user-facing strings updated
+- ✅ No "day-6" references in scheduler.py
+- ✅ 9/9 tests pass (`tests/test_trial_14day.py`)
 **Reference:** CEO plan 2026-05-12, D3 decision
 
 ---
@@ -599,13 +599,14 @@ Code PR (≤2 files, ~10 lines):
 #### TASK-506 — Disable trial auto-start until LemonSqueezy is wired
 
 **Priority:** P1
-**Status:** ready
+**Status:** complete — verified 2026-05-17
 **Owner:** Claude Code
-**Definition of Done:**
-- `TRIAL_AUTO_START` bool field added to `Settings` in `config.py` (default `False`)
-- `google_oauth.py:68` and `magic_link.py:54` gated: `if settings.trial_auto_start: _start_trial_for_user(user)`
-- `TRIAL_AUTO_START=1` Railway env var set by Ivan when LemonSqueezy is wired
-**Estimated effort:** XS
+**Definition of Done — verified 2026-05-17:**
+- ✅ `config.py:110` → `trial_auto_start: bool = False`
+- ✅ `google_oauth.py:69` gated: `if settings.trial_auto_start`
+- ✅ `magic_link.py:55` gated: `if settings.trial_auto_start`
+- ✅ 9/9 tests pass (shared test file with TASK-505)
+- Set `TRIAL_AUTO_START=1` in Railway when LemonSqueezy is wired
 **Reference:** CEO plan 2026-05-12, D1 decision
 
 ---
@@ -808,6 +809,8 @@ When a task ships, move it here with PR number and merge date. Keep this section
 
 | TASK | Title | PR | Merged | Outcome |
 |---|---|---|---|---|
+| TASK-505 | Extend trial to 14 days | tests/test_trial_14day.py | 2026-05-17 | All 5 propagation sites verified (trial.py, resend_client.py, trial_started.html, PricingPage.tsx). 9/9 tests pass. No day-6 refs in scheduler. |
+| TASK-506 | Disable trial auto-start until LemonSqueezy | config.py + oauth gates | 2026-05-17 | `trial_auto_start: bool = False` in Settings; both google_oauth.py and magic_link.py gated. 9/9 tests pass. |
 | — | Fix digest MOVE ordering noise + display cap on extreme deltas | PR fix/digest-move-ordering | 2026-05-16 | Re-ordered MOVE candidates by signal_score DESC (was ABS(price_delta_pct)); capped triple-digit deltas to ▲+100%+ / ▼-100%+ in email template. 43 tests pass. |
 | TASK-T06 | Delete stale /admin/diag/ingestion-history | commit 2176d0f | 2026-05-12 | Deleted 30-line endpoint with hardcoded 2026-04-23 timestamps. |
 | TASK-T07 | health_warnings in /admin/stats + /admin/diagnostics/json | commit 2176d0f | 2026-05-12 | Added health_warnings[] to /admin/stats (calls get_zero_output_jobs). Added /admin/diagnostics/json JSON endpoint. |
