@@ -24,4 +24,4 @@ frontend/dist/
 .claude/agents/.current-role
 experiments/data-landscape/
 .gstack/
-.claude/agents/.current-role
+scripts/.db_public_url
