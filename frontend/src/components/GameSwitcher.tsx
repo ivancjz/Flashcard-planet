@@ -46,7 +46,7 @@ export default function GameSwitcher({ activeGame, onGameChange }: Props) {
         ) : (
           <button
             key={g.id}
-            style={ghostPill}
+            style={{ ...ghostPill, cursor: g.status === 'active' ? 'pointer' : 'not-allowed' }}
             title={g.status === 'coming_soon' ? `Coming soon — ${g.label} support is in development` : undefined}
             onClick={() => g.status === 'active' && onGameChange(g.id)}
           >
