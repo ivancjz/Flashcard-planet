@@ -1,0 +1,34 @@
+name: eBay Sold Price Scraper
+
+on:
+  schedule:
+    # 17:00 UTC daily = 03:00 AEST — scrapes overnight, results ready by morning
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no writes to Railway)'
+        type: boolean
+        default: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45  # 67 assets × ~22s/asset ≈ 25 min; 45 min is safe ceiling
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install httpx curl_cffi
+
+      - name: Run eBay scraper
+        env:
+          FLASHCARD_APP_URL: ${{ secrets.FLASHCARD_APP_URL }}
+          FLASHCARD_ADMIN_KEY: ${{ secrets.FLASHCARD_ADMIN_KEY }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: python scripts/github_ebay_scrape.py

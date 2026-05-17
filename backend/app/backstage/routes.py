@@ -9,7 +9,9 @@ import httpx
 from fastapi import APIRouter, Depends, Form, Header, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, RedirectResponse
+from decimal import Decimal
 from sqlalchemy import func, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_database
@@ -28,6 +30,9 @@ from backend.app.models.pro_waitlist import ProWaitlist
 from backend.app.models.user import User
 from backend.app.backstage.scheduler import get_zero_output_jobs
 from backend.app.services.scheduler_run_log_service import (
+    finish_run,
+    prune_old_runs,
+    start_run,
     JOB_BULK_REFRESH,
     JOB_CARDMARKET,
     JOB_DIGEST,
@@ -1183,6 +1188,102 @@ def admin_ygo_verify_26(
         "E_move": next((r[1] for r in pokemon_signals if r[0] == "MOVE"), 0),
         "E_pass": None,  # manual: compare to PR B baseline (BREAKOUT~115, MOVE~188)
     }
+
+
+@router.get("/diag/ygo-scrape-targets")
+def admin_diag_ygo_scrape_targets(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    """Return YGO assets eligible for eBay web scraping.
+
+    Used by the GitHub Actions ebay-scrape workflow to get the asset list
+    without needing direct DB access.
+    """
+    assets = db.execute(
+        select(Asset.id, Asset.name, Asset.card_number, Asset.variant)
+        .where(
+            Asset.game == "yugioh",
+            Asset.variant.isnot(None),
+            Asset.card_number.isnot(None),
+        )
+        .order_by(Asset.card_number)
+    ).all()
+    return {
+        "assets": [
+            {"id": str(r.id), "name": r.name, "card_number": r.card_number, "variant": r.variant}
+            for r in assets
+        ],
+        "count": len(assets),
+    }
+
+
+@router.post("/trigger/ebay-sold-write")
+def admin_trigger_ebay_sold_write(
+    body: dict[str, Any],
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict[str, Any]:
+    """Write eBay sold prices from the GitHub Actions scraper into price_history.
+
+    Accepts the result payload from scripts/github_ebay_scrape.py and:
+    1. Upserts price_history rows (source='ebay_web_sold', market_segment='raw').
+    2. Writes a scheduler_run_log row so heartbeat monitoring sees this as a
+       regular ebay-web-sold job run.
+    """
+    prices: list[dict] = body.get("prices", [])
+    meta: dict = body.get("meta", {})
+
+    run_id = start_run(db, JOB_EBAY_WEB_SOLD)
+    written = 0
+    captured_at = datetime.now(timezone.utc).replace(microsecond=0)
+
+    try:
+        for entry in prices:
+            asset_id = uuid.UUID(entry["asset_id"])
+            price = Decimal(str(entry["price_usd"]))
+            stmt = pg_insert(PriceHistory).values(
+                id=uuid.uuid4(),
+                asset_id=asset_id,
+                source="ebay_web_sold",
+                currency="USD",
+                price=price,
+                captured_at=captured_at,
+                market_segment="raw",
+            ).on_conflict_do_nothing()
+            rows = db.execute(stmt)
+            if rows.rowcount:
+                written += 1
+
+        db.flush()
+
+        assets_written = meta.get("assets_written", written)
+        assets_attempted = meta.get("assets_attempted", len(prices))
+        http_errors = meta.get("assets_skipped_http_error", 0)
+
+        if http_errors > 0 and written == 0:
+            status = "partial"
+        elif written == 0:
+            status = "no_op"
+        else:
+            status = "success"
+
+        finish_run(
+            db, run_id,
+            status=status,
+            records_written=written,
+            errors=http_errors,
+            meta_json={**meta, "written_by": "github_actions"},
+        )
+        prune_old_runs(db, JOB_EBAY_WEB_SOLD)
+        db.commit()
+    except Exception as exc:
+        finish_run(db, run_id, status="error", records_written=0, errors=1,
+                   error_message=str(exc))
+        db.commit()
+        raise
+
+    return {"status": status, "written": written, "assets_attempted": assets_attempted}
 
 
 # TEMP — PR #29 verification: YGO metadata.set nested block fix
