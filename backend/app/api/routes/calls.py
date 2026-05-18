@@ -8,9 +8,8 @@ All endpoints return only is_paper=FALSE predictions.
 """
 from __future__ import annotations
 
-import subprocess
+import os
 import uuid as _uuid
-from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -25,19 +24,13 @@ from backend.app.services.prediction_service import (
 
 router = APIRouter(prefix="/calls", tags=["calls"])
 
+# RAILWAY_GIT_COMMIT_SHA is injected by Railway at build time.
+# Falls back to 'unknown' in local dev (no .git in deployed image).
+_METHODOLOGY_VERSION = f"v0.1-{os.getenv('RAILWAY_GIT_COMMIT_SHA', 'unknown')[:7]}"
 
-@lru_cache(maxsize=1)
+
 def _methodology_version() -> str:
-    """Derive 'v0.1-{7-char git hash}'. Cached for process lifetime."""
-    try:
-        sha = subprocess.check_output(
-            ["git", "rev-parse", "--short=7", "HEAD"],
-            stderr=subprocess.DEVNULL,
-            timeout=2,
-        ).decode().strip()
-        return f"v0.1-{sha}"
-    except Exception:
-        return "v0.1-unknown"
+    return _METHODOLOGY_VERSION
 
 
 def _serialize_prediction(p: Prediction) -> dict:
