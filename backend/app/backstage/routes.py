@@ -2913,3 +2913,87 @@ def admin_diag_digest_move_ordering_verify(
         "top_5_move_by_abs_delta_old": by_delta,
         "overlap_count": len(names_confidence & names_delta),
     }
+
+
+# REMOVE AFTER: Phase 1 production verification confirmed (all gates pass in production)
+@router.get("/diag/public-calls-phase1-verify")
+def public_calls_phase1_verify(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict:
+    """Phase 1 verification endpoint — checks schema, trigger, and seed data.
+
+    Returns a dict; all gates must be true before merging feat/public-calls-phase-1.
+    """
+    import uuid as _uuid
+    from datetime import UTC, datetime, timedelta
+
+    from backend.app.models.predictions import MarketEvent, Prediction, PredictionAudit
+
+    results: dict = {}
+
+    # A: tables exist and are queryable
+    try:
+        results["A_tables_exist"] = True
+        results["A_prediction_count"] = db.scalar(select(func.count()).select_from(Prediction)) or 0
+        results["A_audit_count"] = db.scalar(select(func.count()).select_from(PredictionAudit)) or 0
+        results["A_event_count"] = db.scalar(select(func.count()).select_from(MarketEvent)) or 0
+    except Exception as exc:
+        results["A_tables_exist"] = False
+        results["A_error"] = str(exc)
+        return results
+
+    # B: seed gate — market_events must have >= 20 rows
+    results["B_seed_gate_20_events"] = results["A_event_count"] >= 20
+
+    # C: immutability trigger present in pg_trigger
+    trigger_count = db.execute(
+        text("SELECT COUNT(*) FROM pg_trigger WHERE tgname = 'predictions_block_immutable'")
+    ).scalar()
+    results["C_trigger_exists"] = int(trigger_count or 0) > 0
+
+    # D: live trigger test — insert a test row, try to mutate predicted_at, expect exception
+    now = datetime.now(UTC)
+    test_id = str(_uuid.uuid4())
+    trigger_fired = False
+    try:
+        db.execute(
+            text("""
+                INSERT INTO predictions
+                  (id, predicted_at, resolution_date, asset_id, prediction_text,
+                   threshold_value, threshold_direction, stated_probability,
+                   methodology_version, is_paper, resolution_status, created_at)
+                SELECT
+                  :id::uuid, :now, :res_date,
+                  id,
+                  'DIAG test prediction — safe to delete',
+                  1.00, 'above', 0.50, 'diag-test', true, 'PENDING', :now
+                FROM assets LIMIT 1
+            """),
+            {"id": test_id, "now": now, "res_date": now + timedelta(days=30)},
+        )
+        db.flush()
+        try:
+            db.execute(
+                text(
+                    "UPDATE predictions SET predicted_at = predicted_at + interval '1 second' "
+                    "WHERE id = :id::uuid"
+                ),
+                {"id": test_id},
+            )
+            db.flush()
+        except Exception:
+            trigger_fired = True
+    except Exception as exc:
+        results["D_insert_error"] = str(exc)
+    finally:
+        db.rollback()
+    results["D_immutability_trigger_fires"] = trigger_fired
+
+    # E: event_type distribution
+    type_rows = db.execute(
+        text("SELECT event_type, COUNT(*) FROM market_events GROUP BY event_type ORDER BY event_type")
+    ).fetchall()
+    results["E_event_type_distribution"] = {row[0]: int(row[1]) for row in type_rows}
+
+    return results
