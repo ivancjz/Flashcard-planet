@@ -3049,7 +3049,7 @@ def fix_market_events_2026_05_19(
                 'Chaos Rising worldwide release - 4th Mega Evolution set, chase cards: Mega Greninja ex SIR/MHR',
                 'https://www.pokemon.com/us/pokemon-news/the-pokemon-tcg-mega-evolution-chaos-rising-expansion-arrives-on-may-22-2026',
                 90,
-                '["sv11"]'::jsonb
+                CAST('["sv11"]' AS jsonb)
             )
             ON CONFLICT DO NOTHING
         """)),
