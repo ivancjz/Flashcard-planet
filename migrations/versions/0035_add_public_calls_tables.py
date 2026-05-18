@@ -78,7 +78,7 @@ def upgrade() -> None:
             name="ck_predictions_driver_confidence",
         ),
         sa.CheckConstraint(
-            "threshold_direction != 'within_band' OR threshold_band_high IS NOT NULL",
+            "threshold_direction IS DISTINCT FROM 'within_band' OR threshold_band_high IS NOT NULL",
             name="ck_predictions_band_high_required",
         ),
     )
