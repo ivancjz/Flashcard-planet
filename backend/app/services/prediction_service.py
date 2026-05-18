@@ -276,3 +276,34 @@ def get_calibration_metrics(
         reliability_bins=_build_reliability_bins(pairs),
         methodology_version=methodology_version,
     )
+
+
+def list_predictions(
+    db: Session,
+    *,
+    status: str = "all",
+    only_public: bool = True,
+    limit: int = 200,
+) -> list[Prediction]:
+    """Return predictions for the public /calls page.
+
+    status: 'all' | 'pending' | 'resolved' (HIT or MISS only)
+    Resolved sorted first, then pending; within each group by resolution_date asc.
+    """
+    from sqlalchemy import case
+
+    q = select(Prediction)
+    if only_public:
+        q = q.where(Prediction.is_paper.is_(False))
+    if status == "pending":
+        q = q.where(Prediction.resolution_status == "PENDING")
+    elif status == "resolved":
+        q = q.where(Prediction.resolution_status.in_(["HIT", "MISS"]))
+    # "all": no additional status filter
+
+    resolved_first = case(
+        (Prediction.resolution_status.in_(["HIT", "MISS"]), 0),
+        else_=1,
+    )
+    q = q.order_by(resolved_first, Prediction.resolution_date.asc()).limit(limit)
+    return list(db.scalars(q).all())
