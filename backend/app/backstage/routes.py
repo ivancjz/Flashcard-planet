@@ -2964,9 +2964,9 @@ def public_calls_phase1_verify(
                    threshold_value, threshold_direction, stated_probability,
                    methodology_version, is_paper, resolution_status, created_at)
                 SELECT
-                  :id::uuid, :now, :res_date,
+                  CAST(:id AS UUID), :now, :res_date,
                   id,
-                  'DIAG test prediction — safe to delete',
+                  'DIAG test prediction - safe to delete',
                   1.00, 'above', 0.50, 'diag-test', true, 'PENDING', :now
                 FROM assets LIMIT 1
             """),
@@ -2977,7 +2977,7 @@ def public_calls_phase1_verify(
             db.execute(
                 text(
                     "UPDATE predictions SET predicted_at = predicted_at + interval '1 second' "
-                    "WHERE id = :id::uuid"
+                    "WHERE id = CAST(:id AS UUID)"
                 ),
                 {"id": test_id},
             )
