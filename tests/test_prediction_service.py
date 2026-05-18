@@ -391,3 +391,47 @@ class TestCalibrationMetrics:
         p.is_paper = False
         metrics = get_calibration_metrics(self._db([p]))
         assert metrics.brier_score == pytest.approx((0.8 - 1.0) ** 2)
+
+
+# ── list_predictions ───────────────────────────────────────────────────────
+
+class TestListPredictions:
+    def test_returns_list(self):
+        from backend.app.services.prediction_service import list_predictions
+        from backend.app.models.predictions import Prediction
+        p = Prediction()
+        p.id = uuid.uuid4()
+        p.resolution_status = "PENDING"
+        p.is_paper = False
+        db = MagicMock()
+        db.scalars.return_value.all.return_value = [p]
+        result = list_predictions(db)
+        assert len(result) == 1
+
+    def test_excludes_paper_by_default(self):
+        from backend.app.services.prediction_service import list_predictions
+        db = MagicMock()
+        db.scalars.return_value.all.return_value = []
+        list_predictions(db)
+        assert db.scalars.called
+
+    def test_status_all(self):
+        from backend.app.services.prediction_service import list_predictions
+        db = MagicMock()
+        db.scalars.return_value.all.return_value = []
+        list_predictions(db, status="all")
+        assert db.scalars.called
+
+    def test_status_pending(self):
+        from backend.app.services.prediction_service import list_predictions
+        db = MagicMock()
+        db.scalars.return_value.all.return_value = []
+        list_predictions(db, status="pending")
+        assert db.scalars.called
+
+    def test_status_resolved(self):
+        from backend.app.services.prediction_service import list_predictions
+        db = MagicMock()
+        db.scalars.return_value.all.return_value = []
+        list_predictions(db, status="resolved")
+        assert db.scalars.called
