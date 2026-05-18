@@ -3042,16 +3042,15 @@ def fix_market_events_2026_05_19(
             WHERE description LIKE '%Pokemon YouTuber coordinated box break%'
         """)),
         ("chaos_rising_release_insert", text("""
-            INSERT INTO market_events (event_date, event_type, description, source_url, expected_window_days, affected_set_ids)
-            VALUES (
-                '2026-05-22',
-                'RELEASE',
+            INSERT INTO market_events (id, event_date, event_type, description, source_url, expected_window_days, affected_set_ids)
+            SELECT gen_random_uuid(), '2026-05-22', 'RELEASE',
                 'Chaos Rising worldwide release - 4th Mega Evolution set, chase cards: Mega Greninja ex SIR/MHR',
                 'https://www.pokemon.com/us/pokemon-news/the-pokemon-tcg-mega-evolution-chaos-rising-expansion-arrives-on-may-22-2026',
                 90,
                 CAST('["sv11"]' AS jsonb)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM market_events WHERE description LIKE '%Chaos Rising worldwide release%'
             )
-            ON CONFLICT DO NOTHING
         """)),
         ("prismatic_evolutions_launch", text("""
             UPDATE market_events SET
