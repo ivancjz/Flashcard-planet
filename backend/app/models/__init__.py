@@ -13,5 +13,6 @@ from backend.app.models.subscription_event import SubscriptionEvent
 from backend.app.models.upgrade_request import UpgradeRequest
 from backend.app.models.user import User
 from backend.app.models.watchlist import Watchlist
+from backend.app.models.predictions import MarketEvent, Prediction, PredictionAudit
 
-__all__ = ["Alert", "AlertHistory", "Asset", "AssetSignal", "FailedBackfillQueue", "GradedObservationAudit", "ListingSnapshot", "ObservationMatchLog", "PriceHistory", "ProWaitlist", "SchedulerRunLog", "SubscriptionEvent", "UpgradeRequest", "User", "Watchlist"]
+__all__ = ["Alert", "AlertHistory", "Asset", "AssetSignal", "FailedBackfillQueue", "GradedObservationAudit", "ListingSnapshot", "MarketEvent", "ObservationMatchLog", "Prediction", "PredictionAudit", "PriceHistory", "ProWaitlist", "SchedulerRunLog", "SubscriptionEvent", "UpgradeRequest", "User", "Watchlist"]
