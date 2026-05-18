@@ -14,6 +14,8 @@ import PricingPage from './pages/PricingPage'
 import SealedPage from './pages/SealedPage'
 import DevTierSwitcher from './components/DevTierSwitcher'
 import { UserProvider } from './contexts/UserContext'
+import PublicCallsLayout from './pages/calls/PublicCallsLayout'
+import CallsPage from './pages/calls/CallsPage'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -30,6 +32,9 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/account/digest-preferences" element={<DigestPreferencesPage />} />
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/sealed" element={<SealedPage />} />
+        <Route path="/calls" element={<PublicCallsLayout />}>
+          <Route index element={<CallsPage />} />
+        </Route>
       </Routes>
       <DevTierSwitcher />
     </BrowserRouter>
