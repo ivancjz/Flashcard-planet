@@ -58,7 +58,7 @@ export default function CallsTable({ predictions }: Props) {
         fontFamily: "'Space Mono', monospace",
         fontSize: 13,
       }}>
-        No calls yet.
+        First cohort drops June 14.
       </div>
     )
   }
