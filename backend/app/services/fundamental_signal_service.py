@@ -182,11 +182,14 @@ def compute_fundamental_signal(
     events = _matching_events(db, asset_id=asset_id, set_name=set_name)
     windows = _contamination_windows(events)
 
-    # All price history for this asset (excluding source-mixed rows)
+    # All price history for this asset (raw segment only, non-excluded sources).
+    # market_segment = 'raw' matches the invariant in signal_service: graded
+    # observations must never contribute to signal or fundamental delta math.
     price_rows = db.scalars(
         select(PriceHistory).where(
             PriceHistory.asset_id == asset_id,
             PriceHistory.source.not_in(_EXCLUDE_SOURCES),
+            PriceHistory.market_segment == "raw",
         ).order_by(PriceHistory.captured_at)
     ).all()
 

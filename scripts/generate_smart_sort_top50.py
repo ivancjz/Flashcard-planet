@@ -133,7 +133,9 @@ def build_top50(db: Session, top_n: int = 50) -> list[SmartSortRow]:
         .where(Asset.game == "pokemon")
     ).all()
 
-    # Price stats per asset (last 30 days, non-excluded sources)
+    # Price stats per asset (last 30 days, raw segment only, non-excluded sources).
+    # market_segment = 'raw' matches the signal_service invariant — graded prices
+    # must not inflate n_points, price_floor, or freshness scores.
     price_stats = db.execute(
         select(
             PriceHistory.asset_id,
@@ -144,6 +146,7 @@ def build_top50(db: Session, top_n: int = 50) -> list[SmartSortRow]:
         .where(
             PriceHistory.captured_at >= cutoff_30d,
             PriceHistory.source.not_in(_EXCLUDED_SOURCES),
+            PriceHistory.market_segment == "raw",
         )
         .group_by(PriceHistory.asset_id)
     ).all()
