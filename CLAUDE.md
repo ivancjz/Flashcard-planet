@@ -486,6 +486,20 @@ When verifying behavior of newly-merged work:
 
 ---
 
+**Pattern: PR description / changelog as derivative artifact**
+
+PR descriptions, release notes, and ad-hoc summaries written by humans or LLMs at submission time are derivative artifacts — they describe code but are not synced with code. They can be wrong even when code, plan, and tests are all consistent.
+
+When verifying behavior of newly-merged work:
+- Read PR description for INTENT, not for FACT
+- Verify facts directly against code (grep, config inspection, runtime probes)
+- If PR description claims behavior X and code shows behavior Y, trust the code, but ALSO patch the PR description / release notes so future archaeologists don't get misled
+- Treat PR description as a hypothesis that needs verification, not a ground-truth source
+
+*Derived from: CardMarket Phase 2 production deploy (2026-05-15). PR #62 description claimed `CARDMARKET_INGEST_ENABLED` defaults to False. Plan, code, and production all consistently defaulted to True — the PR description was the lone wrong artifact, written by Claude Code from misremembered intent at PR creation time. Discovered 5 minutes before first scheduled run; no production impact, but verification protocol had been designed around the wrong premise.*
+
+---
+
 ## 10. Getting started when you pick up this project
 
 1. Read `.claude/session-handoff-<latest>.md` for the most recent state.
