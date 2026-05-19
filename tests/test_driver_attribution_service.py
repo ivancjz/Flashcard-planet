@@ -293,6 +293,72 @@ def test_supply_confidence_lower_than_influencer():
     assert r_inf.confidence > r_sup.confidence
 
 
+# ── attribute_signal: Rule 4 — card-specific RELEASE → EVENT_DRIVEN ──────────
+
+def test_release_on_specific_card_triggers_event_driven():
+    """A RELEASE event with asset_id in affected_asset_ids → EVENT_DRIVEN."""
+    a = _asset(set_name="Chaos Rising")
+    db = _db_returning(a)
+    # Event has this card's UUID in affected_asset_ids
+    release_ev = _event(event_type="RELEASE", days_ago=2, asset=a, description="Chaos Rising - Mega Greninja ex SIR")
+
+    def _mock_matching(*args, **kwargs):
+        return [release_ev]
+
+    with (
+        patch.object(_das, "_matching_events", side_effect=_mock_matching),
+        patch.object(_das, "_check_macro_breadth", return_value=None),
+    ):
+        result = attribute_signal(db, asset_id=a.id, signal_move_pct=Decimal("18"), signal_window_days=7)
+
+    assert result.driver == "EVENT_DRIVEN"
+    assert result.event_type == "RELEASE"
+    assert result.confidence > 0
+
+
+def test_release_set_wide_only_does_not_trigger_rule4():
+    """A RELEASE event with only set_name match (no asset_id) does NOT trigger Rule 4."""
+    a = _asset(set_name="Chaos Rising")
+    db = _db_returning(a)
+    # Event touches set-wide only; affected_asset_ids is empty
+    release_ev = _event(event_type="RELEASE", days_ago=2, set_name="Chaos Rising")
+    assert release_ev.affected_asset_ids == []
+
+    # Use side_effect so each call gets appropriate events per event_types filter
+    def _side_effect(*args, **kwargs):
+        event_types = kwargs.get("event_types") or []
+        if set(event_types) & {"INFLUENCER", "TOURNAMENT"}:
+            return []   # Rule 1: no hype events
+        if set(event_types) & {"SUPPLY"}:
+            return []   # Rule 3: no supply events
+        if set(event_types) & {"RELEASE"}:
+            return [release_ev]  # Rule 2 & 4: set-wide release found
+        return []
+
+    with (
+        patch.object(_das, "_matching_events", side_effect=_side_effect),
+        patch.object(_das, "_check_macro_breadth", return_value=None),
+    ):
+        result = attribute_signal(db, asset_id=a.id, signal_move_pct=Decimal("10"), signal_window_days=7)
+
+    # affected_asset_ids=[] → card_specific_releases=[] → Rule 4 doesn't fire → UNKNOWN
+    assert result.driver == "UNKNOWN"
+
+
+def test_release_confidence_uses_updated_weight():
+    """RELEASE event_type_weight is 0.75 (not 0.55), giving meaningful confidence."""
+    a = _asset(set_name="Chaos Rising")
+    db = _db_returning(a)
+    # Very recent release (recency ≈ 1.0) → confidence ≈ 0.75
+    release_ev = _event(event_type="RELEASE", days_ago=0, asset=a)
+
+    with patch.object(_das, "_matching_events", return_value=[release_ev]):
+        result = attribute_signal(db, asset_id=a.id, signal_move_pct=Decimal("20"), signal_window_days=7)
+
+    assert result.driver == "EVENT_DRIVEN"
+    assert result.confidence >= 0.70  # recency≈1.0 × weight=0.75
+
+
 # ── priority ordering ─────────────────────────────────────────────────────────
 
 def test_event_driven_beats_macro():

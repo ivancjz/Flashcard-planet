@@ -3,10 +3,13 @@
 Rule engine v1: attributes a price signal to its primary driver.
 
 Priority order:
-  1. EVENT_DRIVEN  — market_event within the signal window touching this asset
-  2. MACRO         — >60% of cards in same set show same signal direction
-  3. SUPPLY_SHOCK  — SUPPLY-type market_event within ±14 days (wider scan)
-  4. UNKNOWN       — no attribution found
+  1. EVENT_DRIVEN  — INFLUENCER or TOURNAMENT event within the signal window
+  2. MACRO         — >60% of same-set cards show same signal direction
+  3. SUPPLY_SHOCK  — SUPPLY-type event within signal window + 14d extension
+  4. EVENT_DRIVEN  — RELEASE event that names this specific card in affected_asset_ids
+                     (set-wide RELEASE without card-level specificity doesn't trigger this;
+                      card-level release hype is distinct from set-wide MACRO movement)
+  5. UNKNOWN       — no attribution found
 
 Driver taxonomy:
   MACRO               overall market / set-level trend
@@ -46,7 +49,11 @@ _EVENT_TYPE_CONFIDENCE_WEIGHT: dict[str, float] = {
     "INFLUENCER": 0.90,
     "TOURNAMENT": 0.70,
     "SUPPLY": 0.85,
-    "RELEASE": 0.55,
+    # RELEASE=0.75: predictable, scheduled, well-documented (Pokemon.com source of truth),
+    # high market impact. Higher than SUPPLY (0.68 effective) because releases are
+    # announced months in advance and the investor community tracks them closely.
+    # Decision 2026-05-19: bumped from 0.55 → 0.75.
+    "RELEASE": 0.75,
 }
 
 # Fraction of same-set assets with the same signal direction that triggers MACRO.
@@ -299,12 +306,49 @@ def attribute_signal(
             event_type=best.event_type,
         )
 
-    # ── Rule 4: UNKNOWN default ──────────────────────────────────────────────
+    # ── Rule 4: EVENT_DRIVEN via card-specific RELEASE ───────────────────────
+    # A RELEASE event that names this specific asset in affected_asset_ids signals
+    # the card is a featured chase card (e.g. Mega Greninja ex on Chaos Rising launch).
+    # Set-wide RELEASE events (affected_set_ids only) do NOT trigger this path —
+    # those already had a chance to corroborate MACRO above.
+    release_events = _matching_events(
+        db,
+        asset_id=asset_id,
+        set_name=set_name,
+        window_start=window_start,
+        window_end=window_end,
+        event_types=["RELEASE"],
+    )
+    asset_id_str = str(asset_id)
+    card_specific_releases = [
+        ev for ev in release_events
+        if asset_id_str in [str(a) for a in (ev.affected_asset_ids or [])]
+    ]
+    if card_specific_releases:
+        best = max(card_specific_releases, key=lambda e: e.event_date)
+        recency = _recency_score(best.event_date, now, best.expected_window_days)
+        weight = _EVENT_TYPE_CONFIDENCE_WEIGHT["RELEASE"]
+        confidence = round(recency * weight, 3)
+        return DriverAttribution(
+            driver="EVENT_DRIVEN",
+            confidence=confidence,
+            reason=(
+                f"RELEASE event '{best.description[:80]}' "
+                f"explicitly targets this card "
+                f"(recency={recency:.2f}, weight={weight})"
+            ),
+            event_id=best.id,
+            event_description=best.description,
+            event_type=best.event_type,
+        )
+
+    # ── Rule 5: UNKNOWN default ───────────────────────────────────────────────
     return DriverAttribution(
         driver="UNKNOWN",
         confidence=UNKNOWN_CONFIDENCE,
         reason=(
-            f"No matching market event or set-breadth pattern found "
+            f"No matching market event (INFLUENCER/TOURNAMENT/card-specific RELEASE) "
+            f"or set-breadth or SUPPLY pattern found "
             f"within {signal_window_days}d window "
             f"(move={signal_move_pct:+.1f}%, set={set_name!r})"
         ),
