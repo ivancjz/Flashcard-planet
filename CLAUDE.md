@@ -201,6 +201,32 @@ Any setting / env var / class attribute that is declared but not read is **debt*
 
 Current known dead configs: none. Keep it that way.
 
+### Evidence Discipline
+
+Any research output claiming "verified" facts must include source URL(s) for each claim.
+
+Structured format for factual research outputs:
+```
+{claim, source_url, source_date, confidence}
+```
+
+**Naked claims without URLs are unverified by default**, regardless of confidence language used. This applies to:
+- Event dates
+- Prices and price changes
+- Attribution claims ("this caused that")
+- Market data
+- Domain ownership / WHOIS information
+- Any factual claim that could be checked against an authoritative source
+
+If a source cannot be found:
+- Mark explicitly as `confidence: unverified`
+- Do not include in production data (especially `market_events` table)
+- Surface to Ivan with note "could not find authoritative source"
+
+The "trust me, I searched" pattern is rejected. Either provide the source or flag the gap. Claude's training data has a cutoff date — generating coherent-sounding details to fill knowledge gaps is the failure mode, not malicious fabrication. Source URLs are the cheapest safeguard. Cost of including one: zero. Cost of a contaminated `market_events` row: broken driver attribution, undermined calibration.
+
+*Rule added 2026-05-19. Origin: Phase 3 event date verification exposed the pattern.*
+
 ### Code patterns to follow
 - **HTTP retries**: use the pattern from `fetch_card` — read `Retry-After` header first, fallback to `[2.0, 5.0, 15.0]` exponential. See `_parse_retry_after` and `_compute_retry_delay` in `backend/app/ingestion/pokemon_tcg.py`.
 - **Ingestion error handling**: per-card `except ProviderUnavailableError: continue` (not `break`). Collect failed IDs, emit single `logger.error` summary at end of loop.

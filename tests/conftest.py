@@ -6,8 +6,44 @@ Shared pytest fixtures for all tests.
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import Session
 
+# Import all models so Base.metadata is fully populated before create_all
+import backend.app.models  # noqa: F401
+
+from backend.app.db.base import Base
 from backend.app.models.game import Game
+
+
+@pytest.fixture(scope="module")
+def sqlite_engine():
+    """SQLite in-memory engine with all schema tables created.
+
+    Used by tests that need a real DB session but cannot connect to Postgres.
+    All Postgres-specific dialect types (UUID, JSONB) fall back gracefully to
+    VARCHAR/JSON on SQLite.
+    """
+    eng = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+    )
+    # Emit PRAGMA foreign_keys=OFF so FK constraints don't block test setup
+    # (we insert child rows without parent rows in some unit tests).
+    @event.listens_for(eng, "connect")
+    def _fk_pragma(dbapi_conn, _record):
+        dbapi_conn.execute("PRAGMA foreign_keys=OFF")
+
+    Base.metadata.create_all(eng)
+    return eng
+
+
+@pytest.fixture
+def sqlite_db(sqlite_engine):
+    """Fresh Session per test; rolls back after each test for isolation."""
+    with Session(sqlite_engine) as session:
+        yield session
+        session.rollback()
 
 
 class MockGameDataClient:
