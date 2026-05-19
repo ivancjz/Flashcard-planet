@@ -88,6 +88,30 @@ def _recency_score(
     return max(0.0, 1.0 - days_elapsed / window)
 
 
+def _best_event(
+    events: list,
+    now: datetime,
+    *,
+    extra_multiplier: float = 1.0,
+):
+    """Pick the event that produces the highest confidence score.
+
+    confidence = recency × event_type_weight × extra_multiplier
+
+    Confidence already incorporates recency via the decay function, so using
+    confidence as the tiebreaker avoids double-counting recency (the original
+    'most recent wins' approach did this). When two events produce identical
+    confidence, fall back to most recent (event_date DESC) for determinism.
+    """
+    def _key(ev):
+        recency = _recency_score(ev.event_date, now, ev.expected_window_days)
+        weight = _EVENT_TYPE_CONFIDENCE_WEIGHT.get(ev.event_type, 0.6)
+        confidence = recency * weight * extra_multiplier
+        return (confidence, ev.event_date)
+
+    return max(events, key=_key)
+
+
 def _matching_events(
     db: Session,
     *,
@@ -224,8 +248,7 @@ def attribute_signal(
     )
 
     if ed_events:
-        # Pick the most recent event for attribution
-        best = max(ed_events, key=lambda e: e.event_date)
+        best = _best_event(ed_events, now)
         recency = _recency_score(best.event_date, now, best.expected_window_days)
         weight = _EVENT_TYPE_CONFIDENCE_WEIGHT.get(best.event_type, 0.6)
         confidence = round(recency * weight, 3)
@@ -263,7 +286,7 @@ def attribute_signal(
         event_note = ""
         best_release = None
         if release_events:
-            best_release = max(release_events, key=lambda e: e.event_date)
+            best_release = _best_event(release_events, now)
             event_note = f" (corroborated by RELEASE event: {best_release.description[:60]})"
         return DriverAttribution(
             driver="MACRO",
@@ -289,7 +312,7 @@ def attribute_signal(
     )
 
     if supply_events:
-        best = max(supply_events, key=lambda e: e.event_date)
+        best = _best_event(supply_events, now, extra_multiplier=0.8)
         recency = _recency_score(best.event_date, now, best.expected_window_days)
         weight = _EVENT_TYPE_CONFIDENCE_WEIGHT["SUPPLY"]
         confidence = round(recency * weight * 0.8, 3)
@@ -325,7 +348,7 @@ def attribute_signal(
         if asset_id_str in [str(a) for a in (ev.affected_asset_ids or [])]
     ]
     if card_specific_releases:
-        best = max(card_specific_releases, key=lambda e: e.event_date)
+        best = _best_event(card_specific_releases, now)
         recency = _recency_score(best.event_date, now, best.expected_window_days)
         weight = _EVENT_TYPE_CONFIDENCE_WEIGHT["RELEASE"]
         confidence = round(recency * weight, 3)

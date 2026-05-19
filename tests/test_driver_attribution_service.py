@@ -145,18 +145,41 @@ def test_event_driven_influencer_confidence_decays_with_age():
     assert r1.confidence > r2.confidence
 
 
-def test_event_driven_picks_most_recent_event():
-    """If multiple events match, the most recent should be picked."""
+def test_event_driven_picks_highest_confidence_not_most_recent():
+    """Tiebreaker is highest confidence (recency × weight), NOT most recent date.
+
+    Regression: original code used max(events, key=e.event_date) which double-counts
+    recency since recency is already in the confidence formula.
+
+    Scenario: older INFLUENCER (weight=0.90, long window → still high confidence)
+    vs newer TOURNAMENT (weight=0.70, short window → lower confidence despite being newer).
+    Highest confidence should win.
+    """
     a = _asset()
     db = _db_returning(a)
-    ev_recent = _event(event_type="INFLUENCER", days_ago=1, description="recent")
-    ev_old = _event(event_type="INFLUENCER", days_ago=5, description="old")
 
-    with patch.object(_das, "_matching_events", return_value=[ev_old, ev_recent]):
-        result = attribute_signal(db, asset_id=a.id, signal_move_pct=Decimal("10"), signal_window_days=7)
+    # INFLUENCER 12 days ago, 30d window → recency = 1 - 12/30 = 0.60, conf = 0.60 × 0.90 = 0.54
+    ev_older_influencer = _event(
+        event_type="INFLUENCER", days_ago=12,
+        expected_window_days=30, description="older_influencer",
+    )
+    # TOURNAMENT 1 day ago, 7d window → recency = 1 - 1/7 ≈ 0.86, conf = 0.86 × 0.70 ≈ 0.60
+    # Actually this makes tournament win. Adjust: use a 3d window for tournament.
+    # TOURNAMENT 1 day ago, 3d window → recency = 1 - 1/3 ≈ 0.67, conf = 0.67 × 0.70 ≈ 0.47
+    ev_newer_tournament = _event(
+        event_type="TOURNAMENT", days_ago=1,
+        expected_window_days=3, description="newer_tournament",
+    )
+    # Expected: INFLUENCER wins (0.54 > 0.47). Old code would pick TOURNAMENT (newer date).
+
+    with patch.object(_das, "_matching_events", return_value=[ev_older_influencer, ev_newer_tournament]):
+        result = attribute_signal(db, asset_id=a.id, signal_move_pct=Decimal("10"), signal_window_days=14)
 
     assert result.driver == "EVENT_DRIVEN"
-    assert result.event_description == "recent"
+    assert result.event_description == "older_influencer", (
+        "Highest confidence should win over most recent date. "
+        "INFLUENCER (0.54) beats short-window TOURNAMENT (0.47)."
+    )
 
 
 def test_event_driven_tournament():
