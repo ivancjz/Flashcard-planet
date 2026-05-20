@@ -11,10 +11,18 @@ inputs before INSERT to surface errors early.
 """
 from __future__ import annotations
 
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
+
+# Guard against accidentally creating public calls before Phase 4 launch.
+# Set PUBLIC_PREDICTIONS_ENABLED=true in Railway env only after Gate 9 fresh
+# call cohort is approved by Ivan. Default is off — safe for all environments.
+_PUBLIC_PREDICTIONS_ENABLED: bool = (
+    os.getenv("PUBLIC_PREDICTIONS_ENABLED", "false").lower() == "true"
+)
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -137,6 +145,12 @@ def create_prediction(
     predicted_at: datetime | None = None,
 ) -> uuid.UUID:
     """Insert a new prediction + audit row. Returns the prediction UUID."""
+    if not is_paper and not _PUBLIC_PREDICTIONS_ENABLED:
+        raise ValueError(
+            "Public predictions are disabled. "
+            "Set PUBLIC_PREDICTIONS_ENABLED=true in Railway env after "
+            "Gate 9 fresh call cohort is approved by Ivan."
+        )
     if threshold_direction not in _VALID_DIRECTIONS:
         raise ValueError(
             f"threshold_direction must be one of {sorted(_VALID_DIRECTIONS)}, "

@@ -2916,6 +2916,287 @@ def admin_diag_digest_move_ordering_verify(
 
 
 # REMOVE AFTER: Phase 1 production verification confirmed (all gates pass in production)
+@router.get("/predictions/new", response_class=HTMLResponse)
+def admin_predictions_new_form(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+    asset_id: str = Query(default=""),
+    signal_move_pct: float = Query(default=0.0),
+    signal_window_days: int = Query(default=7),
+    success: str = Query(default=""),
+):
+    """Admin form to create a new paper prediction (is_paper=TRUE always).
+
+    GET  /admin/predictions/new?asset_id=<uuid>        → render form
+    GET  /admin/predictions/new?asset_id=<uuid>&signal_move_pct=10.0  → pre-fill + attribution suggestion
+    POST /admin/predictions/new                        → create prediction, redirect back with success=1
+    """
+    from html import escape as _escape
+    import os as _os
+    from backend.app.models.predictions import MarketEvent, Prediction
+
+    methodology_version = f"v0.1-{_os.getenv('RAILWAY_GIT_COMMIT_SHA', 'unknown')[:7]}"
+
+    # Driver attribution suggestion (only when asset_id provided)
+    attribution_html = ""
+    if asset_id:
+        try:
+            from backend.app.services.driver_attribution_service import attribute_signal
+            import uuid as _uuid
+            uid = _uuid.UUID(asset_id)
+            attr = attribute_signal(
+                db,
+                asset_id=uid,
+                signal_move_pct=__import__("decimal").Decimal(str(signal_move_pct)),
+                signal_window_days=signal_window_days,
+            )
+            attribution_html = f"""
+            <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:12px;margin-bottom:16px;">
+              <strong>Driver Attribution Suggestion</strong>
+              <p>Driver: <strong>{_escape(attr.driver)}</strong>
+                 &nbsp;(confidence: {attr.confidence:.2f})</p>
+              <p style="color:#6b7280;font-size:0.9em;">{_escape(attr.reason)}</p>
+              {f'<p style="color:#6b7280;font-size:0.9em;">Event: {_escape(attr.event_description or "")}</p>' if attr.event_description else ""}
+            </div>
+            """
+        except Exception as exc:
+            attribution_html = f'<p style="color:#dc2626;">Attribution error: {_escape(str(exc))}</p>'
+
+    # Recent paper predictions (last 5)
+    recent = db.scalars(
+        select(Prediction).where(Prediction.is_paper.is_(True))
+        .order_by(Prediction.created_at.desc())
+        .limit(5)
+    ).all()
+    if recent:
+        recent_rows = "".join(
+            f"""<tr>
+              <td>{_escape(str(p.id)[:8])}…</td>
+              <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                {_escape(p.prediction_text[:60])}
+              </td>
+              <td>{p.threshold_direction} {_escape(str(p.threshold_value))}</td>
+              <td>{float(p.stated_probability):.0%}</td>
+              <td>{_escape(p.resolution_date.strftime("%Y-%m-%d") if p.resolution_date else "")}</td>
+              <td>{_escape(p.resolution_status)}</td>
+            </tr>"""
+            for p in recent
+        )
+        recent_html = f"""
+        <details style="margin-top:24px;">
+          <summary style="cursor:pointer;font-weight:600;">Recent paper predictions (last 5)</summary>
+          <table border="1" cellpadding="6" style="border-collapse:collapse;margin-top:8px;width:100%;font-size:0.85em;">
+            <thead><tr><th>ID</th><th>Text</th><th>Threshold</th><th>Prob</th><th>Resolves</th><th>Status</th></tr></thead>
+            <tbody>{recent_rows}</tbody>
+          </table>
+        </details>
+        """
+    else:
+        recent_html = "<p style='color:#6b7280;'>No paper predictions yet.</p>"
+
+    success_html = (
+        '<p style="background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:10px;color:#166534;">'
+        '&#10003; Prediction created (paper).</p>'
+        if success else ""
+    )
+
+    form_html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <title>Admin — New Paper Prediction</title>
+  <style>
+    body {{ font-family: system-ui, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; color: #111; }}
+    h1 {{ font-size: 1.4em; margin-bottom: 4px; }}
+    .notice {{ background: #fef3c7; border: 1px solid #fcd34d; border-radius: 6px;
+               padding: 10px; margin-bottom: 20px; font-size: 0.9em; }}
+    label {{ display: block; margin-top: 14px; font-weight: 600; font-size: 0.9em; }}
+    input, textarea, select {{ width: 100%; padding: 6px 8px; border: 1px solid #d1d5db;
+                               border-radius: 4px; font-size: 0.9em; box-sizing: border-box; }}
+    .hint {{ font-size: 0.78em; color: #6b7280; margin-top: 2px; }}
+    .row {{ display: flex; gap: 12px; }}
+    .row > div {{ flex: 1; }}
+    button {{ margin-top: 20px; background: #1d4ed8; color: white; border: none;
+              padding: 10px 24px; border-radius: 6px; cursor: pointer; font-size: 1em; }}
+    button:hover {{ background: #1e40af; }}
+  </style>
+</head>
+<body>
+  <h1>New Paper Prediction</h1>
+  <div class="notice">
+    &#128274; <strong>is_paper = TRUE always.</strong>
+    Paper predictions are invisible to the public /calls page.
+    They are for model validation only and are never converted to public calls.
+  </div>
+
+  {success_html}
+  {attribution_html}
+
+  <form method="POST" action="/admin/predictions/new">
+    <label>Asset ID (UUID)</label>
+    <input name="asset_id" value="{_escape(asset_id)}" placeholder="e.g. 3fa85f64-5717-4562-b3fc-2c963f66afa6" required>
+    <div class="hint">UUID of the card from the assets table.</div>
+
+    <label>Prediction text (public-facing statement)</label>
+    <textarea name="prediction_text" rows="3" required placeholder="e.g. Mega Greninja ex SIR will be above $120 by August 22, 2026"></textarea>
+
+    <div class="row">
+      <div>
+        <label>Threshold value (USD)</label>
+        <input name="threshold_value" type="number" step="0.01" min="0" required placeholder="120.00">
+      </div>
+      <div>
+        <label>Direction</label>
+        <select name="threshold_direction">
+          <option value="above">above</option>
+          <option value="below">below</option>
+          <option value="within_band">within_band</option>
+        </select>
+      </div>
+    </div>
+
+    <label>Threshold band high (only if within_band)</label>
+    <input name="threshold_band_high" type="number" step="0.01" min="0" placeholder="leave blank unless direction=within_band">
+
+    <div class="row">
+      <div>
+        <label>Stated probability (0.0 – 1.0)</label>
+        <input name="stated_probability" type="number" step="0.01" min="0" max="1" required placeholder="0.65">
+        <div class="hint">0.65 = 65% confidence the threshold is hit.</div>
+      </div>
+      <div>
+        <label>Resolution date</label>
+        <input name="resolution_date" type="date" required>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Driver attribution</label>
+        <select name="driver_attribution">
+          <option value="">— leave blank (auto-suggest) —</option>
+          <option value="MACRO">MACRO</option>
+          <option value="META_SHIFT">META_SHIFT</option>
+          <option value="SUPPLY_SHOCK">SUPPLY_SHOCK</option>
+          <option value="EVENT_DRIVEN">EVENT_DRIVEN</option>
+          <option value="INFLUENCER_PROVENANCE">INFLUENCER_PROVENANCE</option>
+          <option value="UNKNOWN">UNKNOWN</option>
+        </select>
+      </div>
+      <div>
+        <label>Driver confidence (0.0 – 1.0)</label>
+        <input name="driver_confidence" type="number" step="0.01" min="0" max="1" placeholder="0.80">
+      </div>
+    </div>
+
+    <label>Methodology version</label>
+    <input name="methodology_version" value="{_escape(methodology_version)}" required>
+    <div class="hint">Auto-filled from git commit SHA. Only change for explicit version bumps.</div>
+
+    <label>Notes (optional — internal only)</label>
+    <textarea name="notes" rows="2" placeholder="Context, reasoning, or caveats for this paper call."></textarea>
+
+    <input type="hidden" name="is_paper" value="true">
+
+    <button type="submit">Create Paper Prediction</button>
+  </form>
+
+  {recent_html}
+
+  <p style="margin-top:32px;"><a href="/admin/diagnostics">← Back to Diagnostics</a></p>
+</body>
+</html>"""
+
+    return HTMLResponse(form_html)
+
+
+@router.post("/predictions/new")
+def admin_predictions_new_submit(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+    asset_id: str = Form(...),
+    prediction_text: str = Form(...),
+    threshold_value: str = Form(...),
+    threshold_direction: str = Form(...),
+    threshold_band_high: str = Form(default=""),
+    stated_probability: str = Form(...),
+    resolution_date: str = Form(...),
+    driver_attribution: str = Form(default=""),
+    driver_confidence: str = Form(default=""),
+    methodology_version: str = Form(...),
+    notes: str = Form(default=""),
+):
+    """Process paper prediction creation form. Always creates with is_paper=TRUE."""
+    import uuid as _uuid
+    from decimal import Decimal, InvalidOperation
+    from datetime import timezone as _tz
+
+    from backend.app.services.prediction_service import create_prediction
+
+    # Parse asset_id
+    try:
+        uid = _uuid.UUID(asset_id.strip())
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid asset_id UUID format")
+
+    # Parse numeric fields
+    try:
+        thresh_val = Decimal(threshold_value.strip())
+    except (InvalidOperation, ValueError):
+        raise HTTPException(status_code=422, detail="Invalid threshold_value")
+
+    try:
+        prob = Decimal(stated_probability.strip())
+    except (InvalidOperation, ValueError):
+        raise HTTPException(status_code=422, detail="Invalid stated_probability")
+
+    band_high: Decimal | None = None
+    if threshold_band_high.strip():
+        try:
+            band_high = Decimal(threshold_band_high.strip())
+        except (InvalidOperation, ValueError):
+            raise HTTPException(status_code=422, detail="Invalid threshold_band_high")
+
+    driver_conf: Decimal | None = None
+    if driver_confidence.strip():
+        try:
+            driver_conf = Decimal(driver_confidence.strip())
+        except (InvalidOperation, ValueError):
+            raise HTTPException(status_code=422, detail="Invalid driver_confidence")
+
+    # Parse resolution_date (YYYY-MM-DD from date input)
+    try:
+        res_date = datetime.strptime(resolution_date.strip(), "%Y-%m-%d").replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid resolution_date (expected YYYY-MM-DD)")
+
+    driver_attr: str | None = driver_attribution.strip() or None
+    notes_val: str | None = notes.strip() or None
+
+    create_prediction(
+        db,
+        asset_id=uid,
+        prediction_text=prediction_text.strip(),
+        threshold_value=thresh_val,
+        threshold_direction=threshold_direction.strip(),
+        threshold_band_high=band_high,
+        stated_probability=prob,
+        resolution_date=res_date,
+        driver_attribution=driver_attr,
+        driver_confidence=driver_conf,
+        methodology_version=methodology_version.strip(),
+        is_paper=True,
+        notes=notes_val,
+    )
+
+    return RedirectResponse(
+        url=f"/admin/predictions/new?success=1",
+        status_code=303,
+    )
+
+
+# REMOVE AFTER: Phase 1 production verification confirmed (all gates pass in production)
 @router.get("/diag/public-calls-phase1-verify")
 def public_calls_phase1_verify(
     _: None = Depends(require_admin_key),

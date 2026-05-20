@@ -83,15 +83,72 @@ class TestCreatePrediction:
         assert added.is_paper is True
 
     def test_paper_flag_can_be_false(self):
-        db = MagicMock()
-        create_prediction(
-            db=db, asset_id=_asset_id(), prediction_text="Public call",
-            threshold_value=Decimal("1.00"), threshold_direction="above",
-            stated_probability=Decimal("0.50"), resolution_date=_future(),
-            methodology_version="v0.1", is_paper=False,
-        )
-        added = db.add.call_args_list[0][0][0]
-        assert added.is_paper is False
+        import backend.app.services.prediction_service as _ps
+        original = _ps._PUBLIC_PREDICTIONS_ENABLED
+        _ps._PUBLIC_PREDICTIONS_ENABLED = True  # required since gate 2026-05-19
+        try:
+            db = MagicMock()
+            create_prediction(
+                db=db, asset_id=_asset_id(), prediction_text="Public call",
+                threshold_value=Decimal("1.00"), threshold_direction="above",
+                stated_probability=Decimal("0.50"), resolution_date=_future(),
+                methodology_version="v0.1", is_paper=False,
+            )
+            added = db.add.call_args_list[0][0][0]
+            assert added.is_paper is False
+        finally:
+            _ps._PUBLIC_PREDICTIONS_ENABLED = original
+
+    def test_public_prediction_blocked_when_flag_off(self):
+        """is_paper=False raises if PUBLIC_PREDICTIONS_ENABLED is not set."""
+        import backend.app.services.prediction_service as _ps
+        original = _ps._PUBLIC_PREDICTIONS_ENABLED
+        _ps._PUBLIC_PREDICTIONS_ENABLED = False
+        try:
+            db = MagicMock()
+            with pytest.raises(ValueError, match="PUBLIC_PREDICTIONS_ENABLED"):
+                create_prediction(
+                    db=db, asset_id=_asset_id(), prediction_text="Public call",
+                    threshold_value=Decimal("100.00"), threshold_direction="above",
+                    stated_probability=Decimal("0.60"), resolution_date=_future(),
+                    methodology_version="v0.1", is_paper=False,
+                )
+        finally:
+            _ps._PUBLIC_PREDICTIONS_ENABLED = original
+
+    def test_public_prediction_allowed_when_flag_on(self):
+        """is_paper=False succeeds when PUBLIC_PREDICTIONS_ENABLED=True."""
+        import backend.app.services.prediction_service as _ps
+        original = _ps._PUBLIC_PREDICTIONS_ENABLED
+        _ps._PUBLIC_PREDICTIONS_ENABLED = True
+        try:
+            db = MagicMock()
+            result = create_prediction(
+                db=db, asset_id=_asset_id(), prediction_text="Public call",
+                threshold_value=Decimal("100.00"), threshold_direction="above",
+                stated_probability=Decimal("0.60"), resolution_date=_future(),
+                methodology_version="v0.1", is_paper=False,
+            )
+            assert isinstance(result, uuid.UUID)
+        finally:
+            _ps._PUBLIC_PREDICTIONS_ENABLED = original
+
+    def test_paper_prediction_never_blocked_by_flag(self):
+        """is_paper=True always succeeds regardless of PUBLIC_PREDICTIONS_ENABLED."""
+        import backend.app.services.prediction_service as _ps
+        original = _ps._PUBLIC_PREDICTIONS_ENABLED
+        _ps._PUBLIC_PREDICTIONS_ENABLED = False
+        try:
+            db = MagicMock()
+            result = create_prediction(
+                db=db, asset_id=_asset_id(), prediction_text="Paper call",
+                threshold_value=Decimal("100.00"), threshold_direction="above",
+                stated_probability=Decimal("0.60"), resolution_date=_future(),
+                methodology_version="v0.1", is_paper=True,
+            )
+            assert isinstance(result, uuid.UUID)
+        finally:
+            _ps._PUBLIC_PREDICTIONS_ENABLED = original
 
     def test_rejects_invalid_threshold_direction(self):
         db = MagicMock()
