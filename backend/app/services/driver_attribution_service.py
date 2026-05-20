@@ -119,11 +119,10 @@ def _matching_events(
     set_name: str | None,
     window_start: datetime,
     window_end: datetime,
+    now: datetime,
     event_types: list[str] | None = None,
 ) -> list[MarketEvent]:
     """Return market_events that overlap the given time window and touch this asset."""
-    now = datetime.now(UTC)
-
     q = select(MarketEvent).where(
         # Event started before the window ended
         MarketEvent.event_date <= window_end,
@@ -209,6 +208,7 @@ def attribute_signal(
     asset_id: uuid.UUID,
     signal_move_pct: Decimal,
     signal_window_days: int,
+    reference_time: datetime | None = None,
 ) -> DriverAttribution:
     """
     Attribute a price signal to its primary driver.
@@ -218,11 +218,13 @@ def attribute_signal(
         asset_id:           UUID of the asset whose signal we are attributing.
         signal_move_pct:    Signed price change percentage (+ = up, - = down).
         signal_window_days: Number of look-back days the signal was computed over.
+        reference_time:     Override "now" for historical validation. Production
+                            callers omit this (defaults to datetime.now(UTC)).
 
     Returns:
         DriverAttribution with driver, confidence, reason, and event reference.
     """
-    now = datetime.now(UTC)
+    now = reference_time or datetime.now(UTC)
     window_start = now - timedelta(days=signal_window_days)
     window_end = now
 
@@ -244,6 +246,7 @@ def attribute_signal(
         set_name=set_name,
         window_start=window_start,
         window_end=window_end,
+        now=now,
         event_types=event_driven_types,
     )
 
@@ -280,6 +283,7 @@ def attribute_signal(
             set_name=set_name,
             window_start=window_start,
             window_end=window_end,
+            now=now,
             event_types=["RELEASE"],
         )
         confidence = round(min(0.85, 0.50 + breadth * 0.50), 3)
@@ -308,6 +312,7 @@ def attribute_signal(
         set_name=set_name,
         window_start=supply_window_start,
         window_end=window_end,
+        now=now,
         event_types=["SUPPLY"],
     )
 
@@ -340,6 +345,7 @@ def attribute_signal(
         set_name=set_name,
         window_start=window_start,
         window_end=window_end,
+        now=now,
         event_types=["RELEASE"],
     )
     asset_id_str = str(asset_id)

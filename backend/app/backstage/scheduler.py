@@ -25,6 +25,7 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_EXPLANATION,
     JOB_BACKUP_FRESHNESS,
     JOB_SEALED_INGEST,
+    JOB_RESOLVE,
     finish_run,
     get_last_run,
     prune_old_runs,
@@ -123,6 +124,7 @@ _STARTUP_DELAY: dict[str, int] = {
     "trial-expiry-sweep":     900,   # 15 min — subscription maintenance, no upstream dependency
     "sealed-ingest":          840,   # 14 min — eBay Browse API, after heartbeat registered
     "ebay-web-sold":          870,   # 14.5 min — eBay HTML scrape, 24h interval
+    "resolve-predictions":    660,   # 11 min — after signal-sweep so prices are fresh
     "backup-freshness-check": 15000, # 4h 10min — runs every 4h so detection latency is ≤4h
                                      # regardless of deploy time. A fixed 24h startup delay would
                                      # allow the watchdog to fire before the 04:00 UTC backup if
@@ -1217,6 +1219,157 @@ def _register_ebay_job(scheduler: BackgroundScheduler, settings: object) -> None
     )
 
 
+def _run_resolve_predictions() -> None:
+    """Resolve PENDING predictions whose resolution_date has passed.
+
+    Interval: 4 hours. Startup offset: +660s (after signal-sweep so prices are fresh).
+    Kill switch: RESOLVE_PREDICTIONS_ENABLED env var (default False — Category β).
+    Kill switch reason: triggers Discord alerts to users and writes irreversible audit rows.
+
+    For each eligible prediction:
+      1. Fetch latest raw market price from price_history (market_segment='raw').
+      2. Evaluate threshold_direction (above/below/within_band).
+      3. Write HIT/MISS to predictions + predictions_audit.
+      4. Send Discord embed with resolution summary.
+
+    Predictions with no price data in the last 7 days are skipped (logged as warning).
+    AMBIGUOUS/VOIDED statuses are out of scope for this scheduler — set manually.
+    """
+    from decimal import Decimal
+
+    from sqlalchemy import select, text as sa_text
+
+    from backend.app.models.predictions import Prediction, PredictionAudit
+    from backend.app.services.prediction_service import resolve_prediction
+
+    settings = get_settings()
+    if not getattr(settings, "resolve_predictions_enabled", False):
+        logger.info("resolve_predictions_skipped reason=kill_switch")
+        return
+
+    try:
+        with SessionLocal() as _log_session:
+            _run_id = start_run(_log_session, JOB_RESOLVE)
+    except Exception as exc:
+        logger.exception("start_run_failed job=%s", JOB_RESOLVE)
+        send_discord_alert(
+            "error",
+            f"CRITICAL: start_run 失败 — {JOB_RESOLVE}",
+            f"error={exc}\nJob 已跳过，本次无 run_log 记录",
+        )
+        return
+
+    _resolved = 0
+    _skipped_no_price = 0
+    _errors = 0
+    _error_message: str | None = None
+    _exc: BaseException | None = None
+
+    try:
+        now = datetime.now(UTC)
+
+        with SessionLocal() as session:
+            pending = session.scalars(
+                select(Prediction).where(
+                    Prediction.resolution_status == "PENDING",
+                    Prediction.resolution_date <= now,
+                )
+            ).all()
+
+        logger.info("resolve_predictions_tick eligible=%d", len(pending))
+
+        for prediction in pending:
+            try:
+                # Fetch latest raw price within the last 7 days
+                with SessionLocal() as session:
+                    row = session.execute(
+                        sa_text("""
+                            SELECT price
+                            FROM price_history
+                            WHERE asset_id = :asset_id
+                              AND market_segment = 'raw'
+                              AND captured_at >= NOW() - INTERVAL '7 days'
+                            ORDER BY captured_at DESC
+                            LIMIT 1
+                        """),
+                        {"asset_id": str(prediction.asset_id)},
+                    ).fetchone()
+
+                if row is None:
+                    logger.warning(
+                        "resolve_predictions_no_price prediction_id=%s asset_id=%s",
+                        prediction.id, prediction.asset_id,
+                    )
+                    _skipped_no_price += 1
+                    continue
+
+                actual_value = Decimal(str(row.price))
+
+                with SessionLocal() as session:
+                    result = resolve_prediction(
+                        session,
+                        prediction_id=prediction.id,
+                        actual_value=actual_value,
+                        resolved_at=now,
+                    )
+
+                _resolved += 1
+                logger.info(
+                    "resolve_predictions_resolved id=%s status=%s actual=%.2f threshold=%.2f direction=%s",
+                    prediction.id, result.resolution_status, actual_value,
+                    prediction.threshold_value, prediction.threshold_direction,
+                )
+
+                # Discord embed per resolution
+                icon = "✅" if result.resolution_status == "HIT" else "❌"
+                paper_tag = " [PAPER]" if prediction.is_paper else ""
+                send_discord_alert(
+                    "success" if result.resolution_status == "HIT" else "warning",
+                    f"{icon} Prediction {result.resolution_status}{paper_tag}",
+                    f"Prediction resolved: {prediction.prediction_text[:120]}\n"
+                    f"Stated probability: {float(prediction.stated_probability):.0%} → "
+                    f"Actual: ${actual_value:.2f} | "
+                    f"Threshold: ${float(prediction.threshold_value):.2f} {prediction.threshold_direction}\n"
+                    f"Driver: {prediction.driver_attribution or 'N/A'} | "
+                    f"ID: {str(prediction.id)[:8]}",
+                )
+
+            except Exception as exc:
+                _errors += 1
+                _error_message = str(exc)
+                logger.exception(
+                    "resolve_predictions_error prediction_id=%s error=%s",
+                    prediction.id, exc,
+                )
+
+    except BaseException as exc:
+        _exc = exc
+        _error_message = str(exc)
+        raise
+
+    finally:
+        log_status = (
+            "error" if (_exc is not None or (_errors > 0 and _resolved == 0))
+            else "partial" if _errors > 0
+            else "success"
+        )
+        meta = {
+            "resolved": _resolved,
+            "skipped_no_price": _skipped_no_price,
+            "errors": _errors,
+        }
+        with SessionLocal() as _log_session:
+            finish_run(
+                _log_session, _run_id,
+                status=log_status,
+                records_written=_resolved,
+                errors=_errors,
+                error_message=_error_message,
+                meta_json=meta,
+            )
+            prune_old_runs(_log_session, JOB_RESOLVE)
+
+
 def build_scheduler() -> BackgroundScheduler:
     settings = get_settings()
     scheduler = BackgroundScheduler(timezone="UTC")
@@ -1465,6 +1618,26 @@ def build_scheduler() -> BackgroundScheduler:
         "backup-freshness-check registered. trigger=interval/4h first_run=startup+%ds",
         _STARTUP_DELAY.get("backup-freshness-check", 15000),
     )
+
+    # Category β kill switch: default off. Set RESOLVE_PREDICTIONS_ENABLED=true
+    # only after Gate 4 (7-day staging validation) passes per quality-gates.md.
+    if getattr(settings, "resolve_predictions_enabled", False):
+        scheduler.add_job(
+            _run_resolve_predictions,
+            "interval",
+            hours=4,
+            id="resolve-predictions",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            next_run_time=None,
+        )
+        logger.info(
+            "resolve-predictions registered. trigger=interval/4h first_run=startup+%ds",
+            _STARTUP_DELAY.get("resolve-predictions", 660),
+        )
+    else:
+        logger.info("resolve-predictions disabled — set RESOLVE_PREDICTIONS_ENABLED=true after Gate 4.")
 
     return scheduler
 

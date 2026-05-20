@@ -18,7 +18,7 @@ against current DB state — no synthetic data.
 from __future__ import annotations
 
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -114,8 +114,13 @@ def run_validation(db: Session) -> dict:
             })
             continue
 
-        # Use event's expected_window_days as signal_window_days
+        # Use event's expected_window_days as signal_window_days.
+        # reference_time = event_date + 1 day: simulates the signal firing one
+        # day after the event started (well within its impact window). This is
+        # necessary because attribute_signal defaults to datetime.now(UTC),
+        # which places all historical events outside the current window.
         window_days = ev.expected_window_days or 14
+        reference_time = ev.event_date + timedelta(days=1)
 
         for asset in sample_assets:
             result = attribute_signal(
@@ -123,6 +128,7 @@ def run_validation(db: Session) -> dict:
                 asset_id=asset.id,
                 signal_move_pct=Decimal("10"),  # positive synthetic move
                 signal_window_days=window_days,
+                reference_time=reference_time,
             )
             total += 1
             passed = result.driver in acceptable_set

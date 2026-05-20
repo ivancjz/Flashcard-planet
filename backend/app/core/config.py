@@ -110,6 +110,9 @@ class Settings(BaseSettings):
     trial_auto_start: bool = False  # set True (TRIAL_AUTO_START=1) once LemonSqueezy is wired
     signal_sweep_enabled: bool = True          # kill switch: set False to pause sweeps
     retry_pass_enabled: bool = True            # kill switch: set False to pause retry-pass
+    # Category β — off by default. Enable after Gate 4 (7-day staging validation) passes.
+    # Triggers Discord alerts to users and writes irreversible predictions_audit rows.
+    resolve_predictions_enabled: bool = False
     alert_heartbeat_enabled: bool = True
     alert_heartbeat_interval_minutes: int = Field(default=60, ge=1)
     deploy_observation_mode_until: str | None = None  # ISO 8601 UTC — dense heartbeats until this time
