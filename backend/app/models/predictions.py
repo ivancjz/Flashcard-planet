@@ -62,6 +62,8 @@ class MarketEvent(Base):
     affected_asset_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     affected_set_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     expected_window_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verified_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -113,7 +113,7 @@ def _classify_exclusion(
             "add authoritative URL to market_events row to make testable",
         )
 
-    if event.event_type == "RELEASE":
+    if event.event_type == "RELEASE" and not (event.affected_asset_ids or []):
         return (
             "MACRO_RETROSPECTIVE",
             "MACRO attribution requires set-wide signal breadth at moment of event; "
@@ -151,6 +151,9 @@ def run_validation(db: Session) -> dict:
 
     for ev in events:
         expected = _EXPECTED_DRIVER.get(ev.event_type, "UNKNOWN")
+        # RELEASE with specific cards in affected_asset_ids → Rule 4 (EVENT_DRIVEN), not MACRO
+        if ev.event_type == "RELEASE" and ev.affected_asset_ids:
+            expected = "EVENT_DRIVEN"
         acceptable_set = _ACCEPTABLE_DRIVERS.get(ev.event_type, {expected})
 
         sample_assets, asset_source = _find_sample_assets(db, ev, limit=2)

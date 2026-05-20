@@ -3,7 +3,7 @@
 **Status:** Draft for implementation
 **URL:** `/methodology`
 **Purpose:** Credibility anchor for Public Calls. Single source of truth for how Flashcard Planet generates, locks, resolves, and grades predictions.
-**Companion to:** `.claude/specs/public-calls-spec.md`, `.claude/specs/public-calls-quality-gates.md`
+**Companion to:** `.claude/public-calls-spec.md`, `.claude/public-calls-quality-gates.md`
 
 ---
 
@@ -100,18 +100,53 @@ For every signal we observe, we attempt to attribute the move to a primary drive
 | `MACRO` | Overall market or set-level trend affecting the card |
 | `META_SHIFT` | Competitive meta change (relevant primarily for play-driven TCGs) |
 | `SUPPLY_SHOCK` | Reprint announcement, grading population update, sealed product release dilution |
-| `EVENT_DRIVEN` | Influencer activity, content publication, tournament result within explicit event windows |
+| `EVENT_DRIVEN` | Influencer activity, content publication, tournament result, or release within explicit event windows |
 | `INFLUENCER_PROVENANCE` | Celebrity-owned card premium (e.g. Logan Paul "Break" pedigree) |
 | `UNKNOWN` | Abnormal move detected, attribution unclear |
 
 **Attribution method (v1):**
-Rule-based engine. For each significant price move, check in order:
-1. Is there a `market_event` within the move's time window touching this card? → `EVENT_DRIVEN` with confidence proportional to event recency
-2. Is >60% of the card's set showing similar signal direction? → `MACRO`
-3. Was a supply event recorded within ±14 days? → `SUPPLY_SHOCK`
-4. None of the above → `UNKNOWN` with low confidence
+Rule-based engine. For each signal, evaluate these rules **in order**, stop at first match:
 
-Each attribution carries confidence (0.0-1.0). `UNKNOWN` is a valid output — we'd rather report honest uncertainty than fabricate a driver.
+1. **EVENT_DRIVEN (influencer/tournament)** — INFLUENCER or TOURNAMENT event matching this card within window
+2. **MACRO** — ≥60% of cards in the same set show same signal direction. RELEASE event corroborates if present.
+3. **SUPPLY_SHOCK** — SUPPLY event within window + 14-day trailing buffer
+4. **EVENT_DRIVEN (release-specific)** — RELEASE event explicitly listing this card's UUID in `affected_asset_ids`
+5. **Default: UNKNOWN** with low confidence
+
+**Confidence formula:**
+
+Each event match produces a confidence value:
+
+```
+recency(t)  = max(0, 1 − days_since_event / expected_window_days)
+confidence  = recency(t) × event_type_weight × extra_multiplier
+```
+
+Event type weights (calibrated v1):
+
+| Type | Weight | Notes |
+|---|---|---|
+| `INFLUENCER` | 0.90 | Highest signal-to-noise |
+| `RELEASE` | 0.75 | Predictable, well-documented, high impact |
+| `TOURNAMENT` | 0.70 | Meta-shift indicator |
+| `SUPPLY` | 0.68 | 0.85 base × 0.8 lookback adjustment for wider window |
+
+**Tiebreaker for multiple matching events:**
+When two or more events match the same card within their respective windows, the event with the **highest confidence** wins. Recency is used as a tiebreaker only when confidence values are equal. This prevents a recent low-weight event from overriding an older but structurally stronger driver.
+
+**Contamination window per event (for fundamental signal computation):**
+
+The contamination window around each event is **asymmetric**:
+
+- **Lead-in: 3 days before** `event_date` — captures anticipation effects (leaks, datamined content, scheduled marketing campaigns building hype)
+- **Tail: `expected_window_days` + 2 days** — buffer for delayed decay beyond the event's nominal window
+
+The asymmetry reflects observed market behavior: investor anticipation often begins before formally announced events, while price impact can persist slightly past the event's nominal window. Symmetric windows would either over-capture (false positives on the leading edge) or under-capture (missing the trailing decay).
+
+**`UNKNOWN` is a valid output.** We'd rather report honest uncertainty than fabricate a driver. Some fraction of attributions will be `UNKNOWN` — that's a floor we accept, not a bug to suppress.
+
+**Seeding discipline (RELEASE events):**
+For RELEASE events, only Pokemon-marketed headline chase cards are listed in `affected_asset_ids`. We do not pre-populate the affected list with every conceivable chase candidate, because doing so would force EVENT_DRIVEN attribution by data choice rather than letting the model arrive at it from price/breadth evidence. This preserves the integrity of MACRO and UNKNOWN attributions on the same set's non-headline cards.
 
 **Why this matters for predictions:**
 Driver attribution makes the prediction reasoning transparent. A `BREAKOUT` tier card driven by `EVENT_DRIVEN` (e.g. a one-off YouTube video) should be expected to revert. A `BREAKOUT` driven by `SUPPLY_SHOCK` (e.g. confirmed reprint cancellation) is structural.
@@ -210,6 +245,10 @@ Stated openly. This section will grow over time.
 
 7. **Sample size grows slowly.** We don't generate predictions on every card — only on cards where our model has confidence the prediction is meaningful. This means `n` grows at maybe 5-20 predictions per month, not hundreds. Calibration significance takes time.
 
+8. **Hype premium math is directionally correct but not perfectly apples-to-apples.** The "actual delta" is computed by our standard signal pipeline (`asset_signals.price_delta_pct`), which uses its own baseline period that may include event-contaminated prices. The "fundamental delta" uses a cleaned baseline that strips contamination windows. The two algorithms operate on different baseline definitions. The difference between them indicates hype direction and approximate magnitude, but precise percentage-point values should be treated as estimates, not exact measurements. *Future improvement: unify both algorithms to use identical baseline windows so subtraction is mathematically pure. Tracked as TODO.*
+
+9. **Fundamental ≠ Actual even on uncontaminated cards.** As a consequence of (8), a card with no contamination events anywhere in its price history will not produce `fundamental_signal == actual_signal`. Small numerical differences arise from algorithmic divergence, not from genuine hype premium. **Hype premium values within roughly ±2 percentage points should be interpreted as "no meaningful hype" rather than "exact equilibrium".** Larger values (>5pp) indicate genuine divergence. UI treatment uses a ±2pp dead-band to visually communicate this.
+
 ### 10. Sources & references
 
 **Statistical methods:**
@@ -267,20 +306,21 @@ Stated openly. This section will grow over time.
 
 ## Open questions for Ivan
 
-1. **Should this page be public from Day 1 (even before first calls)?** Default: yes, publish at Gate 6.
+1. **Should this page be public from Day 1 (even before first calls)?** I'd say yes — it's the credibility anchor independent of calibration data. Default: yes, publish at Gate 6.
 
-2. **Should we include sample predictions / worked examples?** My recommendation: include 1-2 anonymized examples in section 3 only after Gate 9 has fresh calls.
+2. **Should we include sample predictions / worked examples?** Pros: clearer to readers. Cons: risks looking like marketing. My recommendation: include 1-2 anonymized examples in section 3 only after Gate 9 has fresh calls.
 
 3. **GitHub link for source code?** If repo eventually goes public, linking to immutability trigger code adds massive credibility. Defer this decision — link is optional in v1.
 
 4. **Chinese translation (闪卡星球 methodology)?** If your audience includes Chinese-language Pokemon collectors (likely), a `/methodology/zh` mirror is high-leverage. Defer to v2.
 
-5. **Methodology page changelog visibility?** My recommendation: section 8 above expands with each version, showing diff summary.
+5. **Methodology page changelog visibility?** Each methodology version bump should show what changed. Where does this live? My recommendation: section 8 above expands with each version, showing diff summary.
 
 ---
 
-## Done criteria (Gate 6)
+## Done criteria
 
+Methodology page is "done" (Gate 6 passes) when:
 - [ ] All 10 sections implemented per spec
 - [ ] Math formulas render correctly via KaTeX
 - [ ] All citations have working links (where possible)
