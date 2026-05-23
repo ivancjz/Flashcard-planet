@@ -313,7 +313,7 @@ TIER1_BULK_SET_IDS: str = ",".join([
     # Scarlet & Violet — in SUPPORTED_SETS
     "sv2", "sv3", "sv3pt5",
     # Scarlet & Violet — tracked in production (not yet in SUPPORTED_SETS)
-    "sv8pt5", "sv8", "sv9", "sv10",
+    "sv6", "sv6pt5", "sv7", "sv8pt5", "sv8", "sv9", "sv10",
     # Japanese Scarlet & Violet sets tracked in production
     "rsv10pt5", "zsv10pt5", "me1", "me2", "me2pt5", "me3", "me4",
 ])
