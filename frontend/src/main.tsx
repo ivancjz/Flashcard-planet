@@ -16,6 +16,7 @@ import DevTierSwitcher from './components/DevTierSwitcher'
 import { UserProvider } from './contexts/UserContext'
 import PublicCallsLayout from './pages/calls/PublicCallsLayout'
 import CallsPage from './pages/calls/CallsPage'
+import MethodologyPage from './pages/calls/MethodologyPage'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -34,6 +35,9 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/sealed" element={<SealedPage />} />
         <Route path="/calls" element={<PublicCallsLayout />}>
           <Route index element={<CallsPage />} />
+        </Route>
+        <Route path="/methodology" element={<PublicCallsLayout />}>
+          <Route index element={<MethodologyPage />} />
         </Route>
       </Routes>
       <DevTierSwitcher />
