@@ -1,6 +1,6 @@
 # Public Calls — Gate Status
 
-Last updated: 2026-05-21
+Last updated: 2026-05-23
 
 ---
 
@@ -8,22 +8,37 @@ Last updated: 2026-05-21
   - `driver_attribution_service.py`, `fundamental_signal_service.py`, admin UI live
   - Unit tests passing. Codex review clean.
 
-- [ ] **Gate 2: Driver attribution validation** (started 2026-05-21)
-  - Harness: `scripts/validate_driver_attribution.py`
-  - Report: `validation_reports/driver_attribution_v1.md`
-  - **Local DB result: 35.3% strict accuracy (12/34 cases)**
-  - SUPPLY_SHOCK: 83%. EVENT_DRIVEN: 40%. MACRO: 0% (local DB gap, not production result).
-  - **Blocker:** Railway CLI needs re-login. Re-run on production for authoritative MACRO numbers.
-  - **Ivan to decide:** accuracy threshold after reviewing report + production re-run.
+- [x] **Gate 2: Driver attribution validation** (2026-05-23, commits 61d5139–205c388)
+  - Production re-run: **7/7 testable cases PASS, 100% EVENT_DRIVEN accuracy**
+  - All 7 RELEASE events have verified headline card UUIDs in `affected_asset_ids`
+  - Validation report: `validation_reports/driver_attribution_v1.md`
+  - Ivan decision required: approve accuracy + close Gate 2 formally
 
-- [ ] **Gate 3: Fundamental signal sanity check** — awaiting Gate 2 pass
+- [ ] **Gate 3: Fundamental signal sanity check** — awaiting Gate 2 Ivan sign-off
 
-- [ ] **Gate 4: Resolution scheduler staging** (started 2026-05-21)
-  - `_run_resolve_predictions()` implemented in `scheduler.py`
-  - Kill switch: `RESOLVE_PREDICTIONS_ENABLED=false` (default off, Category β)
-  - **Staging blocker:** Project is Railway Hobby plan — no separate staging environment.
-  - **Ivan to decide:** staging strategy (see note below).
-  - Observation window: 7 consecutive days once enabled.
+- [ ] **Gate 4: Resolution scheduler staging** (test predictions injected 2026-05-23)
+  - `_run_resolve_predictions()` implemented in `scheduler.py` (PR #73)
+  - Kill switch: `RESOLVE_PREDICTIONS_ENABLED=false` (Category β, default off)
+  - **5 test predictions injected** (`methodology_version='gate4-b2-test'`, all PENDING):
+    - Charizard above $500 → expected HIT (actual $595.18)
+    - Alakazam below $100 → expected HIT (actual $76.62)
+    - Clefairy within $30–$45 → expected HIT (actual $36.51)
+    - Blastoise above $300 → expected MISS (actual $220.81)
+    - Chansey below $40 → expected MISS (actual $53.09)
+  - **Ivan action needed:** set `RESOLVE_PREDICTIONS_ENABLED=true` in Railway to start 7-day window
+  - Observation window: 7 consecutive days from when kill switch enabled
+
+- [ ] **Gate 5: Chaos Rising data baseline** — starts 2026-05-22 (set release). me4 in TIER1_BULK_SET_IDS since 2026-05-23 commit 05f2f28.
+
+- [ ] **Gate 6: Methodology page** — awaiting spec finalization
+
+- [ ] **Gate 7: Smart sort calibration** — depends on Gate 5
+
+- [ ] **Gate 8: Paper trade validation** — depends on Gates 2+3+5
+
+- [ ] **Gate 9: Fresh public calls cohort** — depends on Gates 1-8
+
+- [ ] **Gate 10: Frontend changes** — depends on Gates 6+7+9
 
 - [ ] **Gate 5: Chaos Rising data baseline** — starts 2026-05-22 (set release)
 
