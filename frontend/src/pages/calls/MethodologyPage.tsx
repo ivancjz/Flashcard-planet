@@ -6,6 +6,8 @@ const s = {
     maxWidth: 760,
     margin: '0 auto',
     padding: '56px 24px 96px',
+    color: 'var(--text-primary)',
+    background: 'var(--bg-base)',
   } as React.CSSProperties,
 
   h1: {
