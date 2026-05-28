@@ -67,6 +67,11 @@ export interface CardDetail extends CardSummary {
   spread_pct: number | null
   ai_analysis?: string | null
   signal_history?: SignalHistoryEvent[]
+  driver?: string | null
+  driver_confidence?: number | null
+  driver_event_description?: string | null
+  fundamental_delta_pct?: number | null
+  hype_premium_pct?: number | null
 }
 
 export interface AlertEvent {

@@ -422,6 +422,44 @@ export default function CardDetailPage() {
               </p>
             </div>
 
+            {card.driver && card.driver !== 'UNKNOWN' && (
+              <div className="surface" style={{ padding: 20 }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14, marginBottom: 10 }}>
+                  Driver Attribution
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)', marginRight: 8 }}>Driver</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{card.driver}</span>
+                    {card.driver_confidence != null && (
+                      <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>({Math.round(card.driver_confidence * 100)}% confidence)</span>
+                    )}
+                  </div>
+                  {card.driver_event_description && (
+                    <div style={{ color: 'var(--text-secondary)' }}>{card.driver_event_description}</div>
+                  )}
+                  {card.fundamental_delta_pct != null && (
+                    <div style={{ display: 'flex', gap: 20, marginTop: 4 }}>
+                      <div>
+                        <span style={{ color: 'var(--text-muted)', marginRight: 6 }}>Fundamental Δ</span>
+                        <span className={card.fundamental_delta_pct >= 0 ? 'up' : 'down'}>
+                          {card.fundamental_delta_pct >= 0 ? '+' : ''}{card.fundamental_delta_pct.toFixed(1)}%
+                        </span>
+                      </div>
+                      {card.hype_premium_pct != null && Math.abs(card.hype_premium_pct) >= 5 && (
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', marginRight: 6 }}>Hype premium</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', color: card.hype_premium_pct > 0 ? 'var(--gold)' : 'var(--text-secondary)' }}>
+                            {card.hype_premium_pct > 0 ? '+' : ''}{card.hype_premium_pct.toFixed(1)}pp
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="surface" style={{ padding: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                 <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14 }}>Signal History</span>

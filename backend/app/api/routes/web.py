@@ -1181,8 +1181,36 @@ def web_card_detail(
         except (ValueError, TypeError):
             return None
 
+    # Driver attribution + fundamental signal — best-effort (never blocks the detail page)
+    driver_info: dict = {
+        "driver": None,
+        "driver_confidence": None,
+        "driver_event_description": None,
+        "fundamental_delta_pct": None,
+        "hype_premium_pct": None,
+    }
+    try:
+        import uuid as _uuid_mod
+        from decimal import Decimal as _Decimal
+        from backend.app.services.driver_attribution_service import attribute_signal as _attr_fn
+        from backend.app.services.fundamental_signal_service import compute_fundamental_signal as _fund_fn
+        _asset_uuid = _uuid_mod.UUID(asset_id)
+        _pct = _Decimal(str(row.price_delta_pct)) if row.price_delta_pct is not None else _Decimal("0")
+        _attr = _attr_fn(db, asset_id=_asset_uuid, signal_move_pct=_pct, signal_window_days=7)
+        _fund = _fund_fn(db, asset_id=_asset_uuid)
+        driver_info = {
+            "driver": _attr.driver,
+            "driver_confidence": round(_attr.confidence, 2),
+            "driver_event_description": _attr.event_description,
+            "fundamental_delta_pct": float(_fund.fundamental_delta_pct) if _fund.fundamental_delta_pct is not None else None,
+            "hype_premium_pct": float(_fund.hype_premium_pct) if _fund.hype_premium_pct is not None else None,
+        }
+    except Exception:
+        pass
+
     return {
         **dict(row._mapping),
+        **driver_info,
         "ai_analysis": ai_analysis,   # overrides row.ai_analysis with auto-generated value
         "price_history": [
             {"date": str(h.date),
