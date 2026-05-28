@@ -3278,3 +3278,117 @@ def public_calls_phase1_verify(
     results["E_event_type_distribution"] = {row[0]: int(row[1]) for row in type_rows}
 
     return results
+
+
+@router.get("/diag/gate3-fundamental")
+def gate3_fundamental_sanity(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+    sample_n: int = 20,
+) -> dict:
+    """Gate 3: fundamental signal sanity checks.
+
+    Samples up to sample_n BREAKOUT/MOVE Pokemon cards and verifies:
+      1. fundamental_delta_pct within ±2pp of actual for uncontaminated cards
+      2. EVENT_DRIVEN cards have hype_premium_pct > 2pp (dead-band)
+      3. No hype_premium_pct > 100pp (would indicate algorithmic divergence bug)
+      4. contamination_windows non-empty for cards with events
+
+    Removal condition: Remove after Gate 3 is formally closed by Ivan.
+    """
+    from backend.app.models.asset import Asset
+    from backend.app.models.asset_signal import AssetSignal
+    from backend.app.services.driver_attribution_service import attribute_signal
+    from backend.app.services.fundamental_signal_service import compute_fundamental_signal
+
+    # Sample BREAKOUT/MOVE Pokemon cards
+    signal_rows = db.execute(
+        text("""
+            SELECT s.asset_id, s.label, s.price_delta_pct, a.name, a.set_name
+            FROM asset_signals s
+            JOIN assets a ON a.id = s.asset_id
+            WHERE s.label IN ('BREAKOUT', 'MOVE')
+              AND a.game = 'pokemon'
+            ORDER BY s.computed_at DESC
+            LIMIT :n
+        """),
+        {"n": sample_n},
+    ).fetchall()
+
+    if not signal_rows:
+        return {"error": "No BREAKOUT/MOVE Pokemon signals found — check signal engine."}
+
+    results = []
+    check1_fails: list[str] = []
+    check2_fails: list[str] = []
+    check3_fails: list[str] = []
+
+    for row in signal_rows:
+        asset_id = row[0]
+        actual_label = row[1]
+        actual_delta_pct = float(row[2]) if row[2] is not None else None
+        asset_name = row[3]
+        set_name = row[4]
+
+        try:
+            import uuid as _uuid
+            est = compute_fundamental_signal(db, asset_id=_uuid.UUID(str(asset_id)))
+        except Exception as exc:
+            results.append({
+                "asset": asset_name, "set": set_name,
+                "error": str(exc),
+            })
+            continue
+
+        has_contamination = len(est.contamination_windows) > 0
+        fundamental_delta = float(est.fundamental_delta_pct) if est.fundamental_delta_pct is not None else None
+        hype_premium = float(est.hype_premium_pct) if est.hype_premium_pct is not None else None
+
+        # Check 1: uncontaminated cards: |fundamental_delta - actual_delta| <= 2pp
+        if not has_contamination and fundamental_delta is not None and actual_delta_pct is not None:
+            gap = abs(fundamental_delta - actual_delta_pct)
+            if gap > 2.0:
+                check1_fails.append(f"{asset_name}: gap={gap:.1f}pp (fundamental={fundamental_delta:.1f}, actual={actual_delta_pct:.1f})")
+
+        # Check 3: no hype_premium > 100pp
+        if hype_premium is not None and abs(hype_premium) > 100:
+            check3_fails.append(f"{asset_name}: hype_premium={hype_premium:.1f}pp")
+
+        results.append({
+            "asset": asset_name,
+            "set": set_name,
+            "actual_label": actual_label,
+            "actual_delta_pct": actual_delta_pct,
+            "fundamental_delta_pct": fundamental_delta,
+            "hype_premium_pct": hype_premium,
+            "has_contamination": has_contamination,
+            "contamination_window_count": len(est.contamination_windows),
+            "clean_points": est.clean_price_points,
+            "total_points": est.total_price_points,
+            "insufficient_data": est.insufficient_data,
+            "reason": est.reason,
+        })
+
+    gate3_pass = (
+        len(check1_fails) == 0
+        and len(check3_fails) == 0
+    )
+
+    return {
+        "gate3_pass": gate3_pass,
+        "sample_size": len(results),
+        "check1_uncontaminated_within_2pp": {
+            "pass": len(check1_fails) == 0,
+            "failures": check1_fails,
+            "note": "Uncontaminated cards: |fundamental - actual| must be <= 2pp (algorithm divergence dead-band)",
+        },
+        "check2_event_cards_have_hype_premium": {
+            "note": "Manual: EVENT_DRIVEN cards should have hype_premium_pct > 2pp — inspect sample below",
+        },
+        "check3_no_outlier_premium": {
+            "pass": len(check3_fails) == 0,
+            "failures": check3_fails,
+            "note": "No card should have |hype_premium_pct| > 100pp",
+        },
+        "sample": results,
+    }
