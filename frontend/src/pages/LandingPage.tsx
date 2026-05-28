@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import TickerBar from '../components/TickerBar'
 import CardArt from '../components/CardArt'
-import { fetchStats, fetchTicker } from '../api/api'
+import { fetchStats, fetchTicker, fetchCalibration } from '../api/api'
 import type { MarketStats, TickerItem } from '../types/api'
 
 const FEATURES = [
@@ -12,38 +12,17 @@ const FEATURES = [
   { icon: '📈', title: 'Price History', desc: '30-day rolling price chart per card from both sources.' },
 ]
 
-type WaitlistState = 'idle' | 'loading' | 'joined' | 'already_joined' | 'error'
-
 export default function LandingPage() {
   const nav = useNavigate()
   const [stats, setStats] = useState<MarketStats | null>(null)
   const [ticker, setTicker] = useState<TickerItem[]>([])
-  const [waitlistEmail, setWaitlistEmail] = useState('')
-  const [waitlistState, setWaitlistState] = useState<WaitlistState>('idle')
-  const waitlistInputRef = useRef<HTMLInputElement>(null)
+  const [calibration, setCalibration] = useState<{ total_calls: number; total_resolved: number; brier_score: number | null } | null>(null)
 
   useEffect(() => {
     fetchStats().then(setStats)
     fetchTicker().then(setTicker)
+    fetchCalibration().then(setCalibration)
   }, [])
-
-  async function handleWaitlistSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!waitlistEmail) return
-    setWaitlistState('loading')
-    try {
-      const res = await fetch('/api/v1/waitlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: waitlistEmail, source_page: 'landing' }),
-      })
-      if (!res.ok) throw new Error('server_error')
-      const data = await res.json()
-      setWaitlistState(data.status === 'already_joined' ? 'already_joined' : 'joined')
-    } catch {
-      setWaitlistState('error')
-    }
-  }
 
   return (
     <div style={{ minHeight: '100vh' }}>
@@ -95,6 +74,21 @@ export default function LandingPage() {
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{label}</div>
                   </div>
                 ))}
+                {calibration && calibration.total_calls > 0 && (
+                  <div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {calibration.brier_score != null && calibration.total_resolved >= 3
+                        ? calibration.brier_score.toFixed(2)
+                        : '—'}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                      Brier score
+                      {calibration.total_resolved < 10 && (
+                        <span style={{ color: 'var(--text-muted)', opacity: 0.7 }}> · n={calibration.total_calls} pre-cal</span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -134,99 +128,27 @@ export default function LandingPage() {
           </div>
         </div>
 
-        {/* Plans */}
-        <div id="plus" style={{ marginTop: 80, scrollMarginTop: 80 }}>
-          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, marginBottom: 8, textAlign: 'center' }}>
-            Simple pricing
-          </h2>
-          <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 14, marginBottom: 40 }}>
-            Start free. Upgrade when you need more.
-          </p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, maxWidth: 720, margin: '0 auto' }}>
-            {/* Free */}
-            <div className="surface" style={{ padding: 28 }}>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Free</div>
-              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>Everything you need to start.</div>
-              {['Market signals for all cards', 'TCGPlayer + eBay prices', 'Discord alerts', 'Price history charts'].map(f => (
-                <div key={f} style={{ display: 'flex', gap: 8, marginBottom: 10, fontSize: 13 }}>
-                  <span style={{ color: 'var(--breakout)' }}>✓</span>
-                  <span style={{ color: 'var(--text-secondary)' }}>{f}</span>
-                </div>
-              ))}
-              {['AI trend analysis', 'Cross-game signals', 'Volume sort & advanced filters'].map(f => (
-                <div key={f} style={{ display: 'flex', gap: 8, marginBottom: 10, fontSize: 13 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>—</span>
-                  <span style={{ color: 'var(--text-muted)' }}>{f}</span>
-                </div>
-              ))}
-              <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center', marginTop: 24 }} onClick={() => nav('/market')}>
-                Start free
-              </button>
+        {/* Pricing CTA */}
+        <div id="pricing" style={{ marginTop: 80, scrollMarginTop: 80 }}>
+          <div className="surface" style={{ padding: '32px 40px', maxWidth: 640, margin: '0 auto', textAlign: 'center' }}>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, marginBottom: 8 }}>
+              Simple, transparent pricing
+            </h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 24, lineHeight: 1.6 }}>
+              Free forever. Plus $9.99/mo for real-time signals. Pro $30/mo for full analysis.
+            </p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>
+                First 100 Plus subscribers: $7/mo for life
+              </span>
+              <span style={{ color: 'var(--border-default)' }}>·</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>
+                First 50 Pro subscribers: $20/mo for life
+              </span>
             </div>
-
-            {/* Pro */}
-            <div className="surface" style={{ padding: 28, border: '1px solid var(--gold)', boxShadow: '0 0 32px var(--gold-glow)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Pro</div>
-                <span className="badge-gold" style={{ fontSize: 9 }}>COMING SOON</span>
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>For serious TCG investors.</div>
-              {[
-                'Everything in Free',
-                'AI-powered trend analysis per card',
-                'Cross-game Franchise signals',
-                'Advanced sorting & filters',
-                'Priority Discord alerts',
-                'Early access to new games',
-              ].map(f => (
-                <div key={f} style={{ display: 'flex', gap: 8, marginBottom: 10, fontSize: 13 }}>
-                  <span style={{ color: 'var(--gold)' }}>✓</span>
-                  <span style={{ color: 'var(--text-secondary)' }}>{f}</span>
-                </div>
-              ))}
-              {waitlistState === 'joined' || waitlistState === 'already_joined' ? (
-                <div style={{ marginTop: 24, padding: '10px 16px', borderRadius: 6, background: 'var(--gold-glow)', border: '1px solid var(--border-gold-strong)', textAlign: 'center' }}>
-                  <span style={{ color: 'var(--gold)', fontWeight: 700, fontSize: 13 }}>
-                    {waitlistState === 'already_joined' ? "You're already on the list." : "You're on the list — we'll be in touch."}
-                  </span>
-                </div>
-              ) : (
-                <form onSubmit={handleWaitlistSubmit} style={{ marginTop: 24 }}>
-                  <input
-                    ref={waitlistInputRef}
-                    type="email"
-                    required
-                    placeholder="your@email.com"
-                    value={waitlistEmail}
-                    onChange={e => setWaitlistEmail(e.target.value)}
-                    style={{
-                      width: '100%', boxSizing: 'border-box', padding: '9px 12px',
-                      borderRadius: 6, border: '1px solid var(--border-gold-strong)',
-                      background: '#1a1a1a', color: '#f0f0f0', fontSize: 13,
-                      marginBottom: 8, outline: 'none',
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    disabled={waitlistState === 'loading'}
-                    className="btn btn-gold-soft"
-                    style={{
-                      width: '100%', padding: '10px 16px', borderRadius: 6,
-                      fontWeight: 700, fontSize: 13,
-                      cursor: waitlistState === 'loading' ? 'wait' : 'pointer',
-                      fontFamily: 'var(--font-display)',
-                    }}
-                  >
-                    {waitlistState === 'loading' ? 'Joining…' : 'Join the waitlist →'}
-                  </button>
-                  {waitlistState === 'error' && (
-                    <p style={{ color: '#e55', fontSize: 12, marginTop: 6, textAlign: 'center' }}>
-                      Something went wrong — try again.
-                    </p>
-                  )}
-                </form>
-              )}
-            </div>
+            <button className="btn btn-primary" onClick={() => nav('/pricing')}>
+              See full pricing →
+            </button>
           </div>
         </div>
 

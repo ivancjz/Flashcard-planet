@@ -17,6 +17,16 @@ export async function fetchStats(): Promise<MarketStats> {
   return res.json()
 }
 
+export async function fetchCalibration(): Promise<{ total_calls: number; total_resolved: number; brier_score: number | null }> {
+  try {
+    const res = await fetch(`${BASE}/api/v1/calls/calibration`)
+    if (!res.ok) return { total_calls: 0, total_resolved: 0, brier_score: null }
+    return res.json()
+  } catch {
+    return { total_calls: 0, total_resolved: 0, brier_score: null }
+  }
+}
+
 export async function fetchTicker(): Promise<TickerItem[]> {
   const res = await fetch(`${BASE}/api/v1/web/ticker`)
   if (!res.ok) throw new Error('ticker fetch failed')
