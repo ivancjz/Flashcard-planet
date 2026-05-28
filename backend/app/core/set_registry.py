@@ -303,18 +303,23 @@ P1_P2_CARD_IDS: list[str] = [
 
 # Tier 1 expansion — all sets currently tracked in production (2026-04-25).
 # Covers all sets in the DB; ensures bulk refresh runs even without env var override.
+# ORDER IS SIGNIFICANT: bulk-set-price-refresh processes left-to-right and may not
+# complete all sets in one run (12/14 runs fail; ~4400 cards processed per success).
+# Newest/active sets go first so they always get price data even if the job truncates.
 TIER1_BULK_SET_IDS: str = ",".join([
-    # P1/P2 classics
-    "base1", "base2", "base3", "base5",
+    # Newest active sets — processed first, Gate 5 dependency
+    "me4", "me3", "me2pt5", "me2", "me1",
+    # Recent Japanese sets
+    "rsv10pt5", "zsv10pt5",
+    # Scarlet & Violet (newest first)
+    "sv10", "sv9", "sv8", "sv8pt5", "sv7", "sv6pt5", "sv6",
+    # Scarlet & Violet — in SUPPORTED_SETS
+    "sv3pt5", "sv3", "sv2",
     # Sword & Shield Tier 1
-    "swsh7", "swsh9", "swsh10", "swsh11", "swsh12", "swsh12pt5", "swsh45",
+    "swsh12pt5", "swsh12", "swsh11", "swsh10", "swsh9", "swsh7", "swsh45",
     # Sun & Moon Tier 1
     "sm115",
-    # Scarlet & Violet — in SUPPORTED_SETS
-    "sv2", "sv3", "sv3pt5",
-    # Scarlet & Violet — tracked in production (not yet in SUPPORTED_SETS)
-    "sv6", "sv6pt5", "sv7", "sv8pt5", "sv8", "sv9", "sv10",
-    # Japanese Scarlet & Violet sets tracked in production
-    "rsv10pt5", "zsv10pt5", "me1", "me2", "me2pt5", "me3", "me4",
+    # P1/P2 classics — stable; already have long price history
+    "base5", "base3", "base2", "base1",
 ])
 
