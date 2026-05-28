@@ -35,8 +35,8 @@ export async function fetchTicker(): Promise<TickerItem[]> {
 
 export async function fetchCards(params: {
   game?: string
-  signal?: Signal | 'ALL'
-  sort?: 'change' | 'price' | 'volume' | 'recent'
+  signal?: Signal | 'ALL' | 'INVESTMENT'
+  sort?: 'change' | 'price' | 'volume' | 'recent' | 'signal'
   search?: string
   set_id?: string[]
   rarity?: string[]

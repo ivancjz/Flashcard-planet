@@ -145,9 +145,14 @@ def web_cards(
     # Restore: if sort in _PRO_ONLY_SORTS and tier != "pro": sort = "change"
 
     primary_source = _GAME_PRIMARY_SOURCE.get(game, "pokemon_tcg_api")
-    signal_filter = "" if signal == "ALL" else "AND s.label = :signal"
+    if signal == "ALL":
+        signal_filter = ""
+    elif signal == "INVESTMENT":
+        signal_filter = "AND s.label IN ('BREAKOUT', 'MOVE')"
+    else:
+        signal_filter = "AND s.label = :signal"
     params: dict = {"limit": limit, "offset": offset, "game": game, "primary_source": primary_source}
-    if signal != "ALL":
+    if signal not in {"ALL", "INVESTMENT"}:
         params["signal"] = signal
 
     search_term = (search or "").strip()
@@ -190,7 +195,7 @@ def web_cards(
     price_filter = " ".join(price_parts)
 
     # Validate sort — unknown values fall back to change
-    if sort not in {"change", "price", "volume", "recent"}:
+    if sort not in {"change", "price", "volume", "recent", "signal"}:
         sort = "change"
 
     # COUNT does not need LATERAL join results — simple join is sufficient
@@ -243,6 +248,68 @@ def web_cards(
                   {rarity_filter}
                   {price_filter}
                         ORDER BY s.price_delta_pct DESC NULLS LAST
+                LIMIT :limit OFFSET :offset
+            ) sub
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = sub.asset_id AND source = :primary_source
+                ORDER BY captured_at DESC LIMIT 1
+            ) tcg ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT price FROM price_history
+                WHERE asset_id = sub.asset_id AND source = 'ebay_sold'
+                ORDER BY captured_at DESC LIMIT 1
+            ) ebay ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS cnt FROM price_history
+                WHERE asset_id = sub.asset_id AND source = 'ebay_sold'
+                  AND captured_at >= NOW() - INTERVAL '24 hours'
+            ) vol ON TRUE
+        """), params).fetchall()
+    elif sort == "signal":
+        # Sort by signal tier: BREAKOUT first, MOVE, WATCH, IDLE, INSUFFICIENT_DATA last.
+        # Secondary: price_delta_pct DESC within each tier.
+        rows = db.execute(text(f"""
+            SELECT
+                sub.asset_id::text,
+                sub.name,
+                sub.set_name,
+                sub.rarity,
+                sub.card_type,
+                sub.signal,
+                sub.price_delta_pct,
+                sub.liquidity_score,
+                sub.image_url,
+                tcg.price    AS tcg_price,
+                ebay.price   AS ebay_price,
+                vol.cnt      AS volume_24h
+            FROM (
+                SELECT
+                    a.id         AS asset_id,
+                    a.name,
+                    a.set_name,
+                    a.variant    AS rarity,
+                    a.category   AS card_type,
+                    s.label      AS signal,
+                    s.price_delta_pct,
+                    s.liquidity_score,
+                    a.metadata->'images'->>'small' AS image_url
+                FROM assets a
+                JOIN asset_signals s ON s.asset_id = a.id
+                WHERE a.game = :game
+                  {signal_filter}
+                  {search_filter}
+                  {set_filter}
+                  {rarity_filter}
+                  {price_filter}
+                ORDER BY CASE s.label
+                    WHEN 'BREAKOUT' THEN 1
+                    WHEN 'MOVE' THEN 2
+                    WHEN 'WATCH' THEN 3
+                    WHEN 'IDLE' THEN 4
+                    WHEN 'INSUFFICIENT_DATA' THEN 5
+                    ELSE 6
+                END, s.price_delta_pct DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             ) sub
             LEFT JOIN LATERAL (

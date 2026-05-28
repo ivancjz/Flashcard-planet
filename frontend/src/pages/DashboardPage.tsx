@@ -10,9 +10,11 @@ import type { FilterState } from '../components/FilterDrawer'
 import { fetchStats, fetchCards, fetchTicker, fetchSetOptions } from '../api/api'
 import type { Signal, CardSummary, MarketStats, TickerItem } from '../types/api'
 
-type SortKey = 'change' | 'price' | 'volume' | 'recent'
-const FILTERS: Array<{ value: Signal | 'ALL'; label: string }> = [
+type SortKey = 'change' | 'price' | 'volume' | 'recent' | 'signal'
+type SignalFilter = Signal | 'ALL' | 'INVESTMENT'
+const FILTERS: Array<{ value: SignalFilter; label: string }> = [
   { value: 'ALL', label: 'All' },
+  { value: 'INVESTMENT', label: '▲ Signals' },
   { value: 'BREAKOUT', label: '▲ Breakout' },
   { value: 'MOVE', label: '◆ Move' },
   { value: 'WATCH', label: '◆ Watch' },
@@ -25,7 +27,7 @@ export default function DashboardPage() {
   const [ticker, setTicker] = useState<TickerItem[]>([])
   const [cards, setCards] = useState<CardSummary[]>([])
   const [loading, setLoading] = useState(true)
-  const [signal, setSignal] = useState<Signal | 'ALL'>('ALL')
+  const [signal, setSignal] = useState<SignalFilter>('ALL')
   const [sort, setSort] = useState<SortKey>('change')
   const [activeGame, setActiveGame] = useState('pokemon')
   const [search, setSearch] = useState('')
@@ -242,6 +244,10 @@ export default function DashboardPage() {
             ))}
           </div>
           <div className="sort-row">
+            <button className="btn btn-ghost btn-sm" onClick={() => setSort('signal')}
+              style={sort === 'signal' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
+              Signal
+            </button>
             <button className="btn btn-ghost btn-sm" onClick={() => setSort('change')}
               style={sort === 'change' ? { background: 'var(--bg-elevated)', color: 'var(--gold)', borderColor: 'var(--gold-dim)' } : {}}>
               Change
