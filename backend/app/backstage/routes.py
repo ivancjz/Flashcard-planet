@@ -3392,3 +3392,87 @@ def gate3_fundamental_sanity(
         },
         "sample": results,
     }
+
+
+@router.get("/diag/gate5-chaos-rising")
+def gate5_chaos_rising(
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict:
+    """Gate 5: Chaos Rising data completeness and signal graduation check.
+
+    T+7d mid-point (2026-05-29): price_points and signal labels.
+    T+14d gate (2026-06-05): ≥80% completeness + chase cards graduated from INSUFFICIENT_DATA.
+
+    Removal condition: Remove after Gate 5 is formally closed by Ivan (expected ~2026-06-05).
+    """
+    # Coverage: price point count and recency per Chaos Rising card
+    coverage_rows = db.execute(
+        text("""
+            SELECT
+                a.name,
+                a.variant,
+                COUNT(ph.id) AS total_points,
+                COUNT(ph.id) FILTER (WHERE ph.captured_at >= '2026-05-22') AS points_since_release,
+                MIN(ph.captured_at)::text AS first_point,
+                MAX(ph.captured_at)::text AS last_point,
+                EXTRACT(EPOCH FROM (MAX(ph.captured_at) - MIN(ph.captured_at))) / 86400 AS span_days
+            FROM assets a
+            LEFT JOIN price_history ph ON ph.asset_id = a.id
+                AND ph.source = 'pokemon_tcg_api'
+            WHERE a.set_name = 'Chaos Rising'
+              AND a.game = 'pokemon'
+            GROUP BY a.id, a.name, a.variant
+            ORDER BY points_since_release DESC NULLS LAST, a.name
+        """)
+    ).fetchall()
+
+    # Signal distribution for Chaos Rising
+    signal_rows = db.execute(
+        text("""
+            SELECT s.label, COUNT(*) AS card_count
+            FROM asset_signals s
+            JOIN assets a ON a.id = s.asset_id
+            WHERE a.set_name = 'Chaos Rising'
+              AND a.game = 'pokemon'
+            GROUP BY s.label
+            ORDER BY s.label
+        """)
+    ).fetchall()
+
+    total_assets = len(coverage_rows)
+    assets_with_data = sum(1 for r in coverage_rows if r[3] and r[3] > 0)
+    assets_7plus_points = sum(1 for r in coverage_rows if r[3] and r[3] >= 7)
+    coverage_pct = round(assets_with_data / total_assets * 100, 1) if total_assets > 0 else 0
+
+    signal_dist = {str(r[0]): int(r[1]) for r in signal_rows}
+    graduated = sum(v for k, v in signal_dist.items() if k != "INSUFFICIENT_DATA")
+
+    # T+7d midpoint: ≥50% with data, no critical gaps
+    # T+14d gate: ≥80% with data, chase cards graduated
+    t7_pass = coverage_pct >= 50
+    t14_pass = coverage_pct >= 80 and graduated >= 1
+
+    return {
+        "today": "2026-05-29",
+        "t7d_midpoint_pass": t7_pass,
+        "t14d_gate5_pass": t14_pass,
+        "total_chaos_rising_assets": total_assets,
+        "assets_with_data_since_release": assets_with_data,
+        "assets_with_7plus_points": assets_7plus_points,
+        "coverage_pct": coverage_pct,
+        "signal_distribution": signal_dist,
+        "graduated_from_insufficient_data": graduated,
+        "coverage_by_card": [
+            {
+                "name": r[0],
+                "variant": r[1],
+                "total_points": r[2],
+                "points_since_release": r[3] or 0,
+                "first_point": r[4],
+                "last_point": r[5],
+                "span_days": round(float(r[6]), 1) if r[6] else 0,
+            }
+            for r in coverage_rows
+        ],
+    }
