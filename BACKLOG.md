@@ -4,7 +4,7 @@
 >
 > **This file is for Claude Code to consume autonomously.** When picking up a session and there is no specific operator instruction, read this file and start the highest-priority task you have evidence to safely execute. See §0 below.
 
-**Last updated:** 2026-05-18 (v11 — TASK-801 seeded; 8 assets in production, signals expected ~2026-05-25)
+**Last updated:** 2026-05-29 (v12 — Public Calls frontend shipped; Gate 3 datetime fix deployed; Gates 4–7 pending Ivan action)
 **Maintained by:** Ivan (operator) with proposed updates from Claude Code via PR
 
 ---
@@ -162,6 +162,65 @@ Format:
 ---
 
 ### P1 — should do this month
+
+#### TASK-GATE4 — Enable RESOLVE_PREDICTIONS_ENABLED in Railway (Ivan action required)
+
+**Priority:** P1
+**Status:** blocked — Ivan action
+**Owner:** Ivan
+**Preconditions:** Gate 2 pass (B2 test predictions injected — ✅ done commit 96091bb)
+
+**Action:** Set `RESOLVE_PREDICTIONS_ENABLED=true` in Railway backend env vars. This starts the Gate 4 observation window (7 days of resolve-predictions job running cleanly before Gate 5 check).
+
+**Definition of Done:**
+- `RESOLVE_PREDICTIONS_ENABLED=true` set in Railway
+- `/admin/diag/pred-accuracy` returns non-empty resolved predictions after next sweep
+- 7 days of `scheduler_run_log` `job_name='resolve-predictions'` showing `status='success'`
+
+**Gate 5 check date:** ~2026-06-05 via `/admin/diag/gate5-chaos-rising`
+
+**Notes:** Do NOT set this without explicit Ivan instruction — it changes production behavior (prediction resolution starts running, affecting calibration metrics).
+
+---
+
+#### TASK-GATE7 — Approve signal sort as default (Ivan review)
+
+**Priority:** P1
+**Status:** blocked — Ivan decision after Gate 5
+**Owner:** Ivan (decision) → Claude Code (1-line change)
+**Preconditions:** Gate 5 confirms Chaos Rising (sv6) has real price variance and non-INSUFFICIENT_DATA signals
+
+**Action:** Ivan reviews signal distribution via `/admin/diag/gate5-chaos-rising` ~2026-06-05. If BREAKOUT/MOVE signals present on Chaos Rising, approve flipping `sort='change'` default to `sort='signal'` in `DashboardPage.tsx`.
+
+**Claude Code action (1 line):**
+```
+// frontend/src/pages/DashboardPage.tsx:31
+const [sort, setSort] = useState<SortKey>('signal')  // was 'change'
+```
+
+**Estimated effort:** XS after Ivan approves.
+
+---
+
+#### TASK-GATE9 — Public Calls soft launch (Ivan action required)
+
+**Priority:** P1
+**Status:** blocked — Ivan action after Gates 4–8 pass
+**Owner:** Ivan
+**Preconditions:**
+- Gates 1–8 all pass (Gate 4 requires RESOLVE_PREDICTIONS_ENABLED; Gate 5 requires Chaos Rising data; Gates 6/7/8 per plan)
+- Ivan has 4–6 public predictions ready to inject
+
+**Actions:**
+1. Set `PUBLIC_PREDICTIONS_ENABLED=true` in Railway
+2. Use `POST /admin/trigger/inject-paper-prediction` to create 4–6 public predictions anchored to Destined Rivals (sv10, released 2026-05-30)
+3. Announce soft launch
+
+**Notes:**
+- Destined Rivals (sv10) is the best available launch anchor — releases 2026-05-30. 21-day contamination window means first sv10 predictions should close ~2026-06-20.
+- Do NOT set `PUBLIC_PREDICTIONS_ENABLED=true` without explicit Ivan instruction.
+
+---
 
 #### TASK-201 — YGO Tier 1 expansion to ~30 sets
 
@@ -810,6 +869,20 @@ When a task ships, move it here with PR number and merge date. Keep this section
 
 | TASK | Title | PR | Merged | Outcome |
 |---|---|---|---|---|
+| FE-6 | Card Detail driver attribution + fundamental delta panel | commit 39c148b | 2026-05-29 | Driver type, confidence %, event description, fundamental delta, hype premium shown on card detail when driver != UNKNOWN. |
+| FE-5 | INVESTMENT signal filter (BREAKOUT+MOVE shortcut) | commit 6348690 | 2026-05-29 | Frontend filter chip + backend `IN ('BREAKOUT','MOVE')` SQL; `signal` sort CASE WHEN ordering added. |
+| FE-2 | Signal sort (BREAKOUT-first ordering) | commit 6348690 | 2026-05-29 | Sort button + CASE WHEN ORDER BY on backend; default remains `change` until Gate 7 approved. |
+| FE-1 | Landing page live calibration metrics | commit 05bcba3 | 2026-05-29 | Brier score + honest-n pre-cal warning live on landing; waitlist form removed; pricing CTA added. |
+| Gate 3 fix | normalize naive captured_at to UTC in fundamental_signal_service | commit 6834b64 | 2026-05-29 | Added `_to_utc()` helper; fixed naive vs tz-aware comparison bug; fixed vacuous-true gate3_pass. |
+| Gate 6 | /methodology page live | commit 1cf152a + 545ec20 + d509f1c | 2026-05-28 | MethodologyPage.tsx at /methodology — signal engine methodology, dual-window algorithm, edge cases. |
+| Admin | POST /admin/trigger/inject-paper-prediction endpoint | commit a4c719f | 2026-05-28 | Allows operator to inject paper predictions via admin API for Gate 2/4 seeding. |
+| Admin | /diag/gate3-fundamental + /diag/pred-accuracy sanity endpoints | commit beb8def | 2026-05-28 | Gate 3 diagnostic samples 20 assets for fundamental signal computation; pred-accuracy endpoint for gate verification. |
+| Admin | /diag/gate5-chaos-rising endpoint | commit 5456e50 | 2026-05-28 | Checks Chaos Rising (sv6) assets for price variance after TIER1 reorder; target ~2026-06-05. |
+| Ingest | sv6/sv6pt5/sv7 added to TIER1_BULK_SET_IDS + reordered newest-first | commit 205c388 + 8a567c4 | 2026-05-28 | Chaos Rising, Stellar Crown, Stellar Miracle added; bulk refresh now prioritizes newest sets. |
+| Signal display | Dollar + percentage delta across all card surfaces | commit f530947 | 2026-05-28 | `formatDeltaDisplay(deltaAbs, deltaPct)` helper; suppression rule: |delta| < $0.50 → dollar only; `price_delta_abs` added to API response schema. |
+| FE-3 | 3-tier pricing page + landing hero grammar | commit 7290106 | 2026-05-28 | Free/$9.99/$24.99 tiers on PricingPage; signal intelligence terminal copy on landing. |
+| Scheduler | resolve-predictions writes scheduler_run_log on kill-switch path | commit 8b510f0 | 2026-05-28 | Unconditional start_run + finish_run on kill-switch path in resolve-predictions job. |
+| 12-month roadmap | Product roadmap + Public Calls track design | commit 69cf06b + efc711a | 2026-05-28 | 9-gate plan for Public Calls soft launch; 4-phase 12-month roadmap. |
 | TASK-507 | Sealed ingest observability | commit 6c3a9b2 | 2026-05-17 | sealed-ingest: run_count_24h=10, status=success, written=20/run. In _tracked_jobs, _monitored_jobs, _zero_output_monitored. |
 | TASK-505 | Extend trial to 14 days | tests/test_trial_14day.py | 2026-05-17 | All 5 propagation sites verified (trial.py, resend_client.py, trial_started.html, PricingPage.tsx). 9/9 tests pass. No day-6 refs in scheduler. |
 | TASK-506 | Disable trial auto-start until LemonSqueezy | config.py + oauth gates | 2026-05-17 | `trial_auto_start: bool = False` in Settings; both google_oauth.py and magic_link.py gated. 9/9 tests pass. |
