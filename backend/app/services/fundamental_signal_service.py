@@ -104,9 +104,17 @@ def _contamination_windows(events: list[MarketEvent]) -> list[tuple[datetime, da
     return merged
 
 
+def _to_utc(dt: datetime) -> datetime:
+    """Treat naive datetimes as UTC (DB stores TIMESTAMP WITHOUT TIME ZONE)."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
 def _is_contaminated(ts: datetime, windows: list[tuple[datetime, datetime]]) -> bool:
+    ts_utc = _to_utc(ts)
     for start, end in windows:
-        if start <= ts <= end:
+        if start <= ts_utc <= end:
             return True
     return False
 
@@ -203,11 +211,11 @@ def compute_fundamental_signal(
     # Separate into baseline (≥7d old) and current (≤48h old)
     baseline_points = [
         Decimal(str(r.price)) for r in clean_rows
-        if r.captured_at <= baseline_cutoff
+        if _to_utc(r.captured_at) <= baseline_cutoff
     ]
     current_points = [
         Decimal(str(r.price)) for r in clean_rows
-        if r.captured_at >= current_cutoff
+        if _to_utc(r.captured_at) >= current_cutoff
     ]
 
     if len(baseline_points) < MIN_BASELINE_POINTS:

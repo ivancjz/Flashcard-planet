@@ -3369,13 +3369,16 @@ def gate3_fundamental_sanity(
             "reason": est.reason,
         })
 
+    successful_samples = sum(1 for r in results if "error" not in r)
     gate3_pass = (
-        len(check1_fails) == 0
+        successful_samples > 0
+        and len(check1_fails) == 0
         and len(check3_fails) == 0
     )
 
     return {
         "gate3_pass": gate3_pass,
+        "successful_samples": successful_samples,
         "sample_size": len(results),
         "check1_uncontaminated_within_2pp": {
             "pass": len(check1_fails) == 0,
