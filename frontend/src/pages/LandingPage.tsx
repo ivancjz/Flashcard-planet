@@ -78,7 +78,7 @@ export default function LandingPage() {
               Platform
             </h1>
             <p style={{ fontSize: 16, color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: 460, marginBottom: 32 }}>
-              Track Pokemon TCG card prices across TCGPlayer and eBay. Get signal alerts before the market moves.
+              BREAKOUT / MOVE / WATCH / IDLE — momentum signals across Pokémon TCG. Classify opportunities before the market prices them in.
             </p>
 
             {/* Stats row */}
@@ -87,8 +87,8 @@ export default function LandingPage() {
                 {[
                   { label: 'Cards tracked', value: stats.total_assets.toLocaleString() },
                   { label: 'Breakout signals', value: stats.signal_counts.BREAKOUT },
-                  { label: 'Data sources', value: stats.sources_active.length },
-                  { label: 'Ingest interval', value: '24h' },
+                  { label: 'Move signals', value: stats.signal_counts.MOVE },
+                  { label: 'Signal sweep', value: '15m' },
                 ].map(({ label, value }) => (
                   <div key={label}>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>{value}</div>
@@ -98,9 +98,9 @@ export default function LandingPage() {
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <button className="btn btn-primary" onClick={() => nav('/market')}>View Market →</button>
-              <button className="btn btn-ghost" onClick={() => nav('/alerts')}>Price Alerts</button>
+              <button className="btn btn-ghost" onClick={() => nav('/calls')}>Public Calls</button>
             </div>
           </div>
 

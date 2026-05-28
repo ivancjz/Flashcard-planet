@@ -3,40 +3,47 @@ import NavBar from '../components/NavBar'
 import { useUser } from '../hooks/useUser'
 
 const FREE_FEATURES = [
-  'Signal labels (BREAKOUT / MOVE / WATCH / IDLE)',
-  'Up to 10 cards on your watchlist',
-  'Up to 5 price alerts',
+  'IDLE & WATCH signals (delayed 24h)',
+  '1 game (Pokémon)',
+  '1 watchlist slot',
   'Card detail pages with full price history',
-  '14-day free Pro trial — no credit card required',
+]
+
+const PLUS_FEATURES = [
+  'Everything in Free',
+  'Real-time BREAKOUT & MOVE signals',
+  'All 3 games (Pokémon, YGO, One Piece)',
+  'Discord DMs on every signal',
+  'Unlimited watchlist',
+  '1-sentence AI signal explanation',
+  '14-day free trial — no card required',
 ]
 
 const PRO_FEATURES = [
-  'Everything in Free',
-  'Confidence score on every signal',
-  'AI-written explanation — know WHY a card is moving',
-  'Unlimited watchlist',
-  'Unlimited alerts',
-  'Advanced sorting (Volume, Recent)',
-  'CSV export',
-  'Priority Discord alerts',
+  'Everything in Plus',
+  'Full AI analysis — drivers, risks, thesis',
+  'Japanese lead signals (4–8 week advance)',
+  'Pre-grading ROI calculator',
+  'Portfolio analytics & P&L tracking',
+  'API access for personal automation',
 ]
 
 const FAQ: { q: string; a: string }[] = [
   {
     q: 'Is there a free trial?',
-    a: '14 days of full Pro access, no credit card required. When your trial ends you automatically drop to the free tier. Upgrade any time during or after.',
+    a: '14 days of full Plus access, no credit card required. When your trial ends you drop to the Free tier automatically. Upgrade any time during or after.',
+  },
+  {
+    q: 'What are the founders prices?',
+    a: 'The first 100 Plus subscribers lock in at $7/month for life. The first 50 Pro subscribers lock in at $20/month for life. Founders pricing is permanent — it never expires.',
   },
   {
     q: 'What happens if I cancel?',
-    a: 'You keep Pro access until the end of your billing period. Your watchlist and alert settings are saved for 90 days — resubscribe and everything is exactly where you left it.',
+    a: 'You keep access until the end of your billing period. Your watchlist and settings are saved for 90 days — resubscribe and everything is exactly where you left it.',
   },
   {
     q: 'What currencies do you accept?',
     a: 'We bill in USD. LemonSqueezy (our payment provider) automatically shows your local currency at checkout.',
-  },
-  {
-    q: 'Is there a money-back guarantee?',
-    a: '14-day money-back guarantee, no questions asked. Email hello@flashcardplanet.com.',
   },
 ]
 
@@ -59,16 +66,15 @@ export default function PricingPage() {
       if (data.status === 'started') {
         window.location.href = '/market'
       } else {
-        // Already on an active subscription — go to checkout for payment
-        await handleCheckout()
+        await handleCheckout('plus')
       }
     } finally {
       setLoading(false)
     }
   }
 
-  async function handleCheckout() {
-    const resp = await fetch('/api/v1/account/checkout-url?variant=standard', {
+  async function handleCheckout(variant: 'plus' | 'pro') {
+    const resp = await fetch(`/api/v1/account/checkout-url?variant=${variant}`, {
       credentials: 'include',
     })
     if (!resp.ok) {
@@ -79,28 +85,33 @@ export default function PricingPage() {
     window.location.href = checkout_url
   }
 
+  const isFree = !tier || tier === 'free'
+  const isPlus = tier === 'plus'
+  const isPro = tier === 'pro'
+
   return (
     <div>
       <NavBar />
-      <div className="page-content" style={{ maxWidth: 820, margin: '0 auto', padding: '40px 24px' }}>
+      <div className="page-content" style={{ maxWidth: 940, margin: '0 auto', padding: '40px 24px' }}>
         {/* Hero */}
         <div style={{ textAlign: 'center', marginBottom: 48 }}>
           <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 36, fontWeight: 700, marginBottom: 12 }}>
-            Simple pricing.
+            Signal intelligence for TCG investors.
           </h1>
           <p style={{ fontSize: 16, color: 'var(--text-secondary)' }}>
-            Start free. Upgrade when you need the edge.
+            Start free. Upgrade when the edge matters.
           </p>
         </div>
 
-        {/* Plan cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 48 }}>
+        {/* Plan cards — 3 column */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, marginBottom: 48 }}>
+
           {/* Free */}
-          <div className="surface" style={{ padding: 28 }}>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, marginBottom: 4 }}>
+          <div className="surface" style={{ padding: 24 }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, marginBottom: 4 }}>
               Free
             </div>
-            <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 20 }}>$0</div>
+            <div style={{ fontSize: 28, fontWeight: 700, marginBottom: 20 }}>$0</div>
             <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
               {FREE_FEATURES.map(f => (
                 <li key={f} style={{ display: 'flex', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
@@ -109,40 +120,82 @@ export default function PricingPage() {
                 </li>
               ))}
             </ul>
-            {tier !== 'pro' && tier !== 'plus' && (
+            {isFree ? (
               <div
                 className="btn btn-ghost"
                 style={{ width: '100%', justifyContent: 'center', cursor: 'default' }}
               >
                 Current plan
               </div>
-            )}
+            ) : null}
           </div>
 
-          {/* Pro */}
+          {/* Plus — highlighted */}
           <div
             className="surface"
-            style={{ padding: 28, border: '1px solid var(--gold)', boxShadow: '0 0 32px var(--gold-glow)' }}
+            style={{ padding: 24, border: '1px solid var(--gold)', boxShadow: '0 0 32px var(--gold-glow)' }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700 }}>Pro</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Plus</div>
+              <span style={{ fontSize: 11, background: 'var(--gold)', color: '#000', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
+                POPULAR
+              </span>
             </div>
-            <div style={{ marginBottom: 4 }}>
-              <span style={{ fontSize: 32, fontWeight: 700 }}>$12</span>
-              <span style={{ fontSize: 14, color: 'var(--text-muted)', marginLeft: 4 }}>/month USD</span>
+            <div style={{ marginBottom: 2 }}>
+              <span style={{ fontSize: 28, fontWeight: 700 }}>$9.99</span>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)', marginLeft: 4 }}>/month</span>
             </div>
             <div style={{ fontSize: 12, color: 'var(--gold)', marginBottom: 20 }}>
-              Founders pricing: $9/month — limited spots
+              Founders: first 100 subscribers lock in at $7/mo for life
             </div>
             <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {PRO_FEATURES.map(f => (
+              {PLUS_FEATURES.map(f => (
                 <li key={f} style={{ display: 'flex', gap: 8, fontSize: 13 }}>
                   <span style={{ color: 'var(--gold)', flexShrink: 0 }}>✓</span>
                   {f}
                 </li>
               ))}
             </ul>
-            {tier === 'pro' || tier === 'plus' ? (
+            {isPlus ? (
+              <div
+                className="btn btn-ghost"
+                style={{ width: '100%', justifyContent: 'center', cursor: 'default' }}
+              >
+                Current plan
+              </div>
+            ) : isPro ? null : (
+              <button
+                className="btn btn-primary"
+                style={{ width: '100%', justifyContent: 'center' }}
+                disabled={loading}
+                onClick={handleStartTrial}
+              >
+                {loading ? 'Loading…' : 'Start 14-day free trial →'}
+              </button>
+            )}
+          </div>
+
+          {/* Pro */}
+          <div className="surface" style={{ padding: 24 }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, marginBottom: 4 }}>
+              Pro
+            </div>
+            <div style={{ marginBottom: 2 }}>
+              <span style={{ fontSize: 28, fontWeight: 700 }}>$30</span>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)', marginLeft: 4 }}>/month</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 20 }}>
+              Founders: first 50 subscribers lock in at $20/mo for life
+            </div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {PRO_FEATURES.map(f => (
+                <li key={f} style={{ display: 'flex', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
+                  <span style={{ color: 'var(--breakout)', flexShrink: 0 }}>✓</span>
+                  {f}
+                </li>
+              ))}
+            </ul>
+            {isPro ? (
               <div
                 className="btn btn-ghost"
                 style={{ width: '100%', justifyContent: 'center', cursor: 'default' }}
@@ -151,12 +204,12 @@ export default function PricingPage() {
               </div>
             ) : (
               <button
-                className="btn btn-primary"
+                className="btn btn-ghost"
                 style={{ width: '100%', justifyContent: 'center' }}
                 disabled={loading}
-                onClick={handleStartTrial}
+                onClick={() => handleCheckout('pro')}
               >
-                {loading ? 'Loading…' : 'Start 14-day free trial →'}
+                {loading ? 'Loading…' : 'Upgrade to Pro →'}
               </button>
             )}
           </div>
