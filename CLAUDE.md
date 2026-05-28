@@ -558,7 +558,28 @@ CardMarket public S3 price guide is the active YGO price source (see §2 for con
 
 ---
 
-## 13. Operational tooling gaps
+## 13. Frontend production verification discipline
+
+Frontend changes that introduce new routes or components are NOT complete until production verification — not just local testing.
+
+**Required for any commit that:**
+- Adds a new route to `frontend/src/main.tsx`
+- Adds a component referenced only from new routes
+
+**Verification sequence:**
+1. Run `npm run build` in `frontend/` after source changes
+2. Force-add dist: `git add -f frontend/dist/` (dist/ is gitignored; must be force-added)
+3. Smoke test: `npm run preview` at the new route + all existing routes
+4. Commit dist in the same PR as the source changes or in an immediate follow-up commit
+5. After Railway deploy, navigate to the new route in production — confirm it renders with no console errors
+
+**Anti-pattern (what caused Gate 6 failure 2026-05-28):** Commits `1cf152a` + `545ec20` added `/methodology` to source and routing. The dist was never rebuilt. Production bundle (`index-Dl2GptGj.js`) predated the route — blank screen for every visitor to `/methodology`. Resolved by dist rebuild in `d509f1c`.
+
+**Verification check:** If `git log --oneline -5 -- frontend/dist/` does not show a dist commit AFTER the most recent source route-addition commit, the feature is not deployed.
+
+---
+
+## 14. Operational tooling gaps
 
 - **Per-row scheduler queries**: `/diag/scheduler-history` aggregates only. Add `/admin/diag/scheduler-runs?job_name=<name>&date=<YYYY-MM-DD>` when next forensic stalls on this same gap.
 - **Health dashboard blindspot**: `/admin/diagnostics/json` health fields return 0 — `PROVIDER_EXTERNAL_ID_PREFIX` prefix mismatch in `data_health_service.py:21`. Do not trust `health.*` fields. Fix is one-line correction; deferred.

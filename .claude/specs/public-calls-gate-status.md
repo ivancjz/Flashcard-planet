@@ -1,6 +1,6 @@
 # Public Calls — Gate Status
 
-Last updated: 2026-05-28
+Last updated: 2026-05-28 (corrected Gate 6 status — dist rebuild required and applied)
 
 ---
 
@@ -30,9 +30,11 @@ Last updated: 2026-05-28
 
 - [ ] **Gate 5: Chaos Rising data baseline** — starts 2026-05-22 (set release). me4 in TIER1_BULK_SET_IDS since 2026-05-23 commit 05f2f28.
 
-- [x] **Gate 6: Methodology page** — LIVE 2026-05-28 (commits 1cf152a + 545ec20)
+- [x] **Gate 6: Methodology page** — LIVE 2026-05-28 (commits 1cf152a + 545ec20 + dist rebuild d509f1c)
   - All 10 spec sections implemented in `frontend/src/pages/calls/MethodologyPage.tsx`
   - Route `/methodology` live. Hardcoded methodology version "v0.1" (auto-pull from git SHA deferred).
+  - NOTE: dist was NOT rebuilt at 1cf152a/545ec20 — production had blank screen until d509f1c (dist rebuild).
+  - Production render: pending Railway deploy of d509f1c. Verify by navigating to /methodology in production.
 
 - [ ] **Gate 7: Smart sort calibration** — depends on Gate 5
 
