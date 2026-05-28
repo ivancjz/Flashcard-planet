@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import NavBar from '../components/NavBar'
 import SignalBadge from '../components/SignalBadge'
 import { fetchAlerts } from '../api/api'
-import { getReadAlertIds, markAlertRead, markAllAlertsRead, relativeTime, signalToMeta, formatDelta } from '../lib/utils'
+import { getReadAlertIds, markAlertRead, markAllAlertsRead, relativeTime, signalToMeta, formatDeltaDisplay } from '../lib/utils'
 import { alertSeverityStyles } from '../lib/alertSeverity'
 import type { AlertEvent } from '../types/api'
 
@@ -116,9 +116,9 @@ export default function AlertsPage() {
                     ) : (
                       <span style={{ color: meta.color }}>{meta.label}</span>
                     )}
-                    {alert.price_delta_pct != null && (
-                      <span style={{ marginLeft: 8 }} className={alert.price_delta_pct >= 0 ? 'up' : 'down'}>
-                        {formatDelta(alert.price_delta_pct)}
+                    {(alert.price_delta_pct != null || alert.price_delta_abs != null) && (
+                      <span style={{ marginLeft: 8 }} className={(alert.price_delta_pct ?? alert.price_delta_abs ?? 0) >= 0 ? 'up' : 'down'}>
+                        {formatDeltaDisplay(alert.price_delta_abs ?? null, alert.price_delta_pct)}
                       </span>
                     )}
                   </div>

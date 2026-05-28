@@ -25,6 +25,7 @@ export interface TickerItem {
   asset_id: string
   name: string
   price_delta_pct: number
+  price_delta_abs?: number | null
   signal: Signal
   current_price: number | null
 }
@@ -39,6 +40,7 @@ export interface CardSummary {
   ebay_price: number | null
   signal: Signal
   price_delta_pct: number | null
+  price_delta_abs?: number | null
   liquidity_score: number | null
   volume_24h: number | null
   image_url: string | null
@@ -56,6 +58,7 @@ export interface SignalHistoryEvent {
   current_label: Signal
   price_at_event: number | null
   price_delta_pct: number | null
+  price_delta_abs?: number | null
   computed_at: string
 }
 
@@ -73,6 +76,7 @@ export interface AlertEvent {
   previous_signal: Signal | null
   current_signal: Signal
   price_delta_pct: number | null
+  price_delta_abs?: number | null
   created_at: string
   severity: 'high' | 'medium' | 'low'
 }

@@ -4,7 +4,7 @@ import { useWatchlist } from '../hooks/useWatchlist'
 import CardArt from './CardArt'
 import SignalBadge from './SignalBadge'
 import Sparkline from './Sparkline'
-import { signalToMeta, formatDelta } from '../lib/utils'
+import { signalToMeta, formatDeltaDisplay } from '../lib/utils'
 import PlusUpgradeModal from './PlusUpgradeModal'
 
 interface CardGridProps {
@@ -87,7 +87,7 @@ function CardItem({ card, watched, onClick, onToggleWatch }: {
           </div>
           <div>
             <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>7d Δ</div>
-            <div className={up ? 'up' : 'down'}>{formatDelta(card.price_delta_pct)}</div>
+            <div className={up ? 'up' : 'down'}>{formatDeltaDisplay(card.price_delta_abs ?? null, card.price_delta_pct)}</div>
           </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

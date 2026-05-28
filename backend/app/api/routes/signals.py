@@ -25,6 +25,7 @@ class SignalResponse(BaseModel):
     label: str
     confidence: int | None
     price_delta_pct: Decimal | None
+    price_delta_abs: Decimal | None = None
     liquidity_score: int | None
     prediction: str | None
     computed_at: datetime
@@ -32,6 +33,18 @@ class SignalResponse(BaseModel):
     explained_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def model_validate(cls, obj: object, **kwargs: object) -> "SignalResponse":  # type: ignore[override]
+        instance = super().model_validate(obj, **kwargs)
+        # Derive price_delta_abs from signal_context if not already set
+        if instance.price_delta_abs is None:
+            ctx = getattr(obj, "signal_context", None) or {}
+            current = ctx.get("current_price")
+            baseline = ctx.get("baseline_price")
+            if current is not None and baseline is not None:
+                instance.price_delta_abs = Decimal(str(current - baseline)).quantize(Decimal("0.01"))
+        return instance
 
 
 class ExplainResponse(BaseModel):

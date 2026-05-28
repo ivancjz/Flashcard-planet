@@ -8,7 +8,7 @@ import SignalTimeline from '../components/SignalTimeline'
 import PlusUpgradeModal from '../components/PlusUpgradeModal'
 import ProGate from '../components/ProGate'
 import { fetchCard } from '../api/api'
-import { signalToMeta, formatDelta } from '../lib/utils'
+import { signalToMeta, formatDeltaDisplay } from '../lib/utils'
 import { useWatchlist } from '../hooks/useWatchlist'
 import { splitIntoSegments, findContinuousStart } from '../lib/chartUtils'
 import type { CardDetail, PricePoint } from '../types/api'
@@ -397,7 +397,7 @@ export default function CardDetailPage() {
             <div className="surface" style={{ padding: '12px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>7d Change</span>
               <span className={up ? 'up' : 'down'} style={{ fontSize: 16, fontWeight: 700 }}>
-                {formatDelta(card.price_delta_pct)}
+                {formatDeltaDisplay(card.price_delta_abs ?? null, card.price_delta_pct)}
               </span>
             </div>
 

@@ -6,7 +6,7 @@ import ComparisonChart from '../components/ComparisonChart'
 import CardPickerModal from '../components/CardPickerModal'
 import SignalBadge from '../components/SignalBadge'
 import CardArt from '../components/CardArt'
-import { formatDelta } from '../lib/utils'
+import { formatDeltaDisplay } from '../lib/utils'
 import type { CardDetail } from '../types/api'
 
 const MAX_COMPARE = 4
@@ -289,7 +289,7 @@ function CompareCard({ card, color, onRemove, onClickName }: {
         </div>
         <div>
           <div style={{ color: 'var(--text-muted)', fontSize: 10 }}>7d Δ</div>
-          <div className={up ? 'up' : 'down'}>{formatDelta(card.price_delta_pct)}</div>
+          <div className={up ? 'up' : 'down'}>{formatDeltaDisplay(card.price_delta_abs ?? null, card.price_delta_pct)}</div>
         </div>
       </div>
     </div>

@@ -48,6 +48,35 @@ export function formatDelta(pct: number | null): string {
   return `${sign}${clean}%`
 }
 
+// Show "+$X.XX (+YY%)" format per planning doc 2026-05-27.
+// Suppression rule: if |delta_abs| < $0.50, show only the dollar amount (no %).
+// Reason: "+340%" on a $0.50 move looks fake and undermines credibility.
+// Falls back to pct-only format when deltaAbs is unavailable (e.g. ticker, signal history).
+export function formatDeltaDisplay(
+  deltaAbs: number | null,
+  deltaPct: number | null,
+): string {
+  if (deltaAbs == null && deltaPct == null) return '—'
+
+  if (deltaAbs == null) {
+    const sign = (deltaPct ?? 0) >= 0 ? '+' : ''
+    const raw = (deltaPct ?? 0).toFixed(1)
+    const clean = raw.endsWith('.0') ? raw.slice(0, -2) : raw
+    return `${sign}${clean}%`
+  }
+
+  const sign = deltaAbs >= 0 ? '+' : ''
+  const absFmt = `${sign}$${Math.abs(deltaAbs).toFixed(2)}`
+
+  if (deltaPct == null || Math.abs(deltaAbs) < 0.50) {
+    return absFmt
+  }
+
+  const pctSign = deltaPct >= 0 ? '+' : ''
+  const pctFmt = `${pctSign}${deltaPct.toFixed(0)}%`
+  return `${absFmt} (${pctFmt})`
+}
+
 export function signalToMeta(signal: Signal): { label: string; badgeClass: string; color: string; rowGlow: string } {
   switch (signal) {
     case 'BREAKOUT':          return { label: '▲ Breakout', badgeClass: 'badge-breakout', color: 'var(--breakout)', rowGlow: 'rgba(34,197,94,0.05)' }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { signalToMeta, formatDelta } from '../lib/utils'
+import { signalToMeta, formatDeltaDisplay } from '../lib/utils'
 import type { TickerItem } from '../types/api'
 
 function useReducedMotion(): boolean {
@@ -25,7 +25,7 @@ function TickerItem({ item }: { item: TickerItem }) {
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
       <span style={{ color: signalToMeta(item.signal).color, fontSize: 10 }}>●</span>
       <span style={{ fontFamily: 'var(--font-body)', fontWeight: 500 }}>{item.name}</span>
-      <span className={up ? 'up' : 'down'}>{formatDelta(item.price_delta_pct)}</span>
+      <span className={up ? 'up' : 'down'}>{formatDeltaDisplay(item.price_delta_abs ?? null, item.price_delta_pct)}</span>
     </span>
   )
 }

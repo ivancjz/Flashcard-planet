@@ -1,5 +1,5 @@
 import type { SignalHistoryEvent } from '../types/api'
-import { signalToMeta, relativeTime } from '../lib/utils'
+import { signalToMeta, relativeTime, formatDeltaDisplay } from '../lib/utils'
 
 interface Props {
   events: SignalHistoryEvent[]
@@ -75,9 +75,9 @@ function TimelineRow({ event, isLast }: { event: SignalHistoryEvent; isLast: boo
           {event.price_at_event != null && (
             <span>at <strong style={{ color: 'var(--text-primary)' }}>${event.price_at_event.toFixed(2)}</strong></span>
           )}
-          {event.price_delta_pct != null && (
-            <span className={event.price_delta_pct >= 0 ? 'up' : 'down'}>
-              {event.price_delta_pct >= 0 ? '+' : ''}{event.price_delta_pct.toFixed(1)}%
+          {(event.price_delta_pct != null || event.price_delta_abs != null) && (
+            <span className={(event.price_delta_pct ?? event.price_delta_abs ?? 0) >= 0 ? 'up' : 'down'}>
+              {formatDeltaDisplay(event.price_delta_abs ?? null, event.price_delta_pct)}
             </span>
           )}
         </div>
