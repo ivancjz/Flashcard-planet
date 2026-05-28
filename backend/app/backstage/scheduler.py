@@ -421,7 +421,7 @@ def _send_heartbeat() -> None:
         # no job_blocked_reason set on this path — the job "succeeds" but is useless.
         # Monitoring it produces a false-positive alert every 24h with no actionable signal.
         # The 25h absence check above (hardcoded) still runs independently for JOB_EBAY.
-        _monitored_jobs = [JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_EBAY_WEB_SOLD]
+        _monitored_jobs = [JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_EBAY_WEB_SOLD, JOB_RESOLVE]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,
@@ -1243,9 +1243,6 @@ def _run_resolve_predictions() -> None:
     from backend.app.services.prediction_service import resolve_prediction
 
     settings = get_settings()
-    if not getattr(settings, "resolve_predictions_enabled", False):
-        logger.info("resolve_predictions_skipped reason=kill_switch")
-        return
 
     try:
         with SessionLocal() as _log_session:
@@ -1266,6 +1263,12 @@ def _run_resolve_predictions() -> None:
     _exc: BaseException | None = None
 
     try:
+        if not getattr(settings, "resolve_predictions_enabled", False):
+            logger.info("resolve_predictions_skipped reason=kill_switch")
+            # finish_run in finally will log status=success with skipped=True
+            _error_message = None  # clean exit
+            return
+
         now = datetime.now(UTC)
 
         with SessionLocal() as session:
@@ -1357,6 +1360,7 @@ def _run_resolve_predictions() -> None:
             "resolved": _resolved,
             "skipped_no_price": _skipped_no_price,
             "errors": _errors,
+            "kill_switch_off": not getattr(settings, "resolve_predictions_enabled", False),
         }
         with SessionLocal() as _log_session:
             finish_run(
