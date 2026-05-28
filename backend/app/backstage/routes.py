@@ -3476,3 +3476,51 @@ def gate5_chaos_rising(
             for r in coverage_rows
         ],
     }
+
+
+# ── Gate 8: paper prediction injection (JSON API) ─────────────────────────
+# Removal condition: keep permanently — used for Gate 8+ paper calls injection.
+
+class InjectPaperPredictionRequest(BaseModel):
+    asset_id: uuid.UUID
+    prediction_text: str
+    threshold_direction: str  # "above" | "below" | "within_band"
+    threshold_value: Decimal
+    threshold_band_high: Decimal | None = None
+    stated_probability: Decimal  # 0.0–1.0
+    resolution_date: datetime    # ISO 8601 UTC
+    driver_attribution: str | None = None
+    driver_confidence: Decimal | None = None
+    methodology_version: str = "v0.1"
+    notes: str | None = None
+
+
+@router.post("/trigger/inject-paper-prediction")
+def admin_inject_paper_prediction(
+    body: InjectPaperPredictionRequest,
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict:
+    """JSON endpoint for injecting paper predictions (Gate 8+).
+
+    Always creates with is_paper=True — safe regardless of PUBLIC_PREDICTIONS_ENABLED.
+    Returns the new prediction UUID.
+    """
+    from backend.app.services.prediction_service import create_prediction
+
+    prediction_id = create_prediction(
+        db,
+        asset_id=body.asset_id,
+        prediction_text=body.prediction_text,
+        threshold_value=body.threshold_value,
+        threshold_direction=body.threshold_direction,
+        threshold_band_high=body.threshold_band_high,
+        stated_probability=body.stated_probability,
+        resolution_date=body.resolution_date,
+        driver_attribution=body.driver_attribution,
+        driver_confidence=body.driver_confidence,
+        methodology_version=body.methodology_version,
+        is_paper=True,
+        notes=body.notes,
+    )
+    return {"prediction_id": str(prediction_id), "is_paper": True, "status": "created"}
