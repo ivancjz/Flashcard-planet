@@ -34,6 +34,36 @@ Flashcard Planet is a TCG investment signals SaaS with a genuine competitive moa
 
 ---
 
+## Public Calls Track (Parallel, Active Now)
+
+This is a separate workstream from the revenue/product phases above. The Public Calls system (predictions + Brier calibration + driver attribution + `/calls` page) has been in active development since 2026-05-18 and has its own quality gate sequence. It is NOT a Phase 1–4 item — it runs independently on its own gate timeline.
+
+**Current gate status (as of 2026-05-28):**
+
+| Gate | Status | Next action |
+|------|--------|------------|
+| Gate 1: Backend services | ✅ Done (PR #73) | — |
+| Gate 2: Attribution validation 7/7 | ✅ Done | Ivan formal sign-off |
+| Gate 3: Fundamental signal sanity | Blocked on Gate 2 sign-off | Sign off Gate 2 first |
+| Gate 4: Resolution scheduler staging | Waiting on Ivan | **Set `RESOLVE_PREDICTIONS_ENABLED=true` in Railway** |
+| Gate 5: Chaos Rising data baseline | Active — T+7d check 2026-05-29 | Run data completeness SQL tomorrow |
+| Gate 6: Methodology page | ✅ Done (2026-05-28) | — |
+| Gate 7: Smart sort calibration | Depends Gate 5 | After Gate 5 data confirms |
+| Gate 8: Paper trade window | Opens ~2026-06-01 | 10 paper predictions required |
+| Gate 9: Fresh public calls cohort | Depends Gates 1–8 | Post paper trading |
+| Gate 10: Frontend /calls page | Depends Gates 6+7+9 | Final gate before public launch |
+
+**What "Public Calls" is:**
+- Every prediction is locked at creation, auto-resolved against market data, and aggregated into a public Brier score
+- Driver attribution engine classifies *why* a signal occurred (MACRO / EVENT_DRIVEN / SUPPLY_SHOCK / UNKNOWN)
+- `/calls` page is the public-facing credibility anchor and top-of-funnel acquisition page
+- Methodology page at `/methodology` is already live
+
+**Where this fits in the 12-month plan:**
+Public Calls launches after Gate 10 — estimated June–July 2026 (within Phase 1 timeline). It becomes a differentiating feature of the Pro tier and feeds into Phase 4's Deep Analysis work (the prediction track provides the training corpus for calibration claims).
+
+---
+
 ## Phase 1 — Months 1–2: Revenue Foundation + Platform Cleanup
 
 ### Revenue Track

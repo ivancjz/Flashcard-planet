@@ -1,6 +1,6 @@
 # Public Calls — Gate Status
 
-Last updated: 2026-05-23
+Last updated: 2026-05-28
 
 ---
 
@@ -30,19 +30,21 @@ Last updated: 2026-05-23
 
 - [ ] **Gate 5: Chaos Rising data baseline** — starts 2026-05-22 (set release). me4 in TIER1_BULK_SET_IDS since 2026-05-23 commit 05f2f28.
 
-- [ ] **Gate 6: Methodology page** — awaiting spec finalization
+- [x] **Gate 6: Methodology page** — LIVE 2026-05-28 (commits 1cf152a + 545ec20)
+  - All 10 spec sections implemented in `frontend/src/pages/calls/MethodologyPage.tsx`
+  - Route `/methodology` live. Hardcoded methodology version "v0.1" (auto-pull from git SHA deferred).
 
 - [ ] **Gate 7: Smart sort calibration** — depends on Gate 5
 
 - [ ] **Gate 8: Paper trade validation** — depends on Gates 2+3+5
+  - Window opens ~2026-06-01. Minimum 10 paper predictions required.
+  - Cards: Mega Greninja ex SIR, Mega Floette ex SIR, Mega Pyroar ex SIR, Mega Dragalge ex SIR, Chaos Rising ETB, booster box.
 
 - [ ] **Gate 9: Fresh public calls cohort** — depends on Gates 1-8
 
 - [ ] **Gate 10: Frontend changes** — depends on Gates 6+7+9
 
-- [ ] **Gate 5: Chaos Rising data baseline** — starts 2026-05-22 (set release)
-
-- [ ] **Gate 6: Methodology page** — awaiting spec finalization
+- [ ] **Gate 5: Chaos Rising data baseline** — T+7d check 2026-05-29 (TOMORROW)
 
 - [ ] **Gate 7: Smart sort calibration** — depends on Gate 5
 
