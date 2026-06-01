@@ -1,0 +1,47 @@
+name: Restore Backup to Railway Postgres
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_tag:
+        description: 'Backup tag to restore (e.g. backup-33)'
+        required: true
+        default: 'backup-33'
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get install -y postgresql-client
+
+      - name: Download backup
+        env:
+          GH_TOKEN: ${{ secrets.BACKUP_REPO_READ_TOKEN }}
+        run: |
+          gh release download ${{ github.event.inputs.backup_tag }} \
+            --repo ivancjz/flashcard-planet-backups \
+            --pattern "backup.sql.gz"
+          echo "Backup size: $(du -sh backup.sql.gz | cut -f1)"
+
+      - name: Restore to Railway Postgres
+        env:
+          DATABASE_PUBLIC_URL: ${{ secrets.RAILWAY_DATABASE_PUBLIC_URL }}
+        run: |
+          echo "Starting restore..."
+          gunzip -c backup.sql.gz | psql "$DATABASE_PUBLIC_URL" 2>&1 | \
+            grep -E "^(ERROR|FATAL|CREATE|INSERT|COPY|ALTER|SET)" | tail -30 || true
+          echo "Restore complete"
+
+      - name: Verify row counts
+        env:
+          DATABASE_PUBLIC_URL: ${{ secrets.RAILWAY_DATABASE_PUBLIC_URL }}
+        run: |
+          psql "$DATABASE_PUBLIC_URL" -c "
+            SELECT 'assets' as tbl, COUNT(*) FROM assets
+            UNION ALL
+            SELECT 'price_history', COUNT(*) FROM price_history
+            UNION ALL
+            SELECT 'asset_signals', COUNT(*) FROM asset_signals;
+          "
