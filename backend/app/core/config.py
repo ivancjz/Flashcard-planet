@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     database_url: str = Field(
         default="postgresql+psycopg://flashcard:flashcard@localhost:5432/flashcard_planet"
     )
+
+    @property
+    def database_url_psycopg(self) -> str:
+        """Return DATABASE_URL with psycopg driver prefix, regardless of source format."""
+        url = self.database_url
+        if url.startswith("postgresql://"):
+            return "postgresql+psycopg://" + url[len("postgresql://"):]
+        return url
     bot_token: str = ""      # Discord bot token — used by alert_service.py for user DM notifications
     backend_base_url: str = f"http://localhost:{os.environ.get('PORT', 8000)}"
     scheduler_poll_seconds: int = 300
