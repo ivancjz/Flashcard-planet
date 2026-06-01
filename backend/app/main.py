@@ -28,12 +28,22 @@ scheduler = build_scheduler()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    try:
+        init_db()
+    except Exception as _init_exc:
+        # DB may be temporarily unreachable at startup (e.g. Railway service link
+        # not yet routed). Log and continue — scheduler retries will handle it.
+        logging.getLogger(__name__).error(
+            "init_db failed at startup (DB may be temporarily unreachable): %s", _init_exc
+        )
     from backend.app.ingestion.game_data import register_default_clients
     register_default_clients(api_key=settings.pokemon_tcg_api_key)
     if not scheduler.running:
-        with SessionLocal() as _db:
-            cleanup_stale_runs(_db)
+        try:
+            with SessionLocal() as _db:
+                cleanup_stale_runs(_db)
+        except Exception:
+            pass
         prepare_scheduler_for_startup(scheduler)
         scheduler.start()
     yield
