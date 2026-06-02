@@ -97,10 +97,12 @@ def get_zero_output_jobs(
         # Exclude known expected-zero runs so they don't fire false-positive alerts:
         #   not_modified=true  — CardMarket 304-skip (upstream file unchanged)
         #   job_blocked_reason — ebay-ingestion budget_exhausted / disabled path
+        #   eligible=0         — resolve-predictions, no due predictions in window
         meaningful_rows = [
             r for r in rows
             if not (r.meta_json or {}).get("not_modified")
             and not (r.meta_json or {}).get("job_blocked_reason")
+            and (r.meta_json or {}).get("eligible") != 0
         ]
 
         total = len(meaningful_rows)
@@ -1259,6 +1261,7 @@ def _run_resolve_predictions() -> None:
     _resolved = 0
     _skipped_no_price = 0
     _errors = 0
+    _eligible = 0
     _error_message: str | None = None
     _exc: BaseException | None = None
 
@@ -1279,7 +1282,8 @@ def _run_resolve_predictions() -> None:
                 )
             ).all()
 
-        logger.info("resolve_predictions_tick eligible=%d", len(pending))
+        _eligible = len(pending)
+        logger.info("resolve_predictions_tick eligible=%d", _eligible)
 
         for prediction in pending:
             try:
@@ -1360,6 +1364,7 @@ def _run_resolve_predictions() -> None:
             "resolved": _resolved,
             "skipped_no_price": _skipped_no_price,
             "errors": _errors,
+            "eligible": _eligible,
             "kill_switch_off": not getattr(settings, "resolve_predictions_enabled", False),
         }
         with SessionLocal() as _log_session:
