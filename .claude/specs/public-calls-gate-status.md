@@ -14,19 +14,18 @@ Last updated: 2026-05-28 (corrected Gate 6 status — dist rebuild required and 
   - Validation report: `validation_reports/driver_attribution_v1.md`
   - Ivan decision required: approve accuracy + close Gate 2 formally
 
-- [ ] **Gate 3: Fundamental signal sanity check** — awaiting Gate 2 Ivan sign-off
+- [ ] **Gate 3: Fundamental signal sanity check** — awaiting signals recovery post DB outage (2026-06-02)
 
-- [ ] **Gate 4: Resolution scheduler staging** (test predictions injected 2026-05-23)
-  - `_run_resolve_predictions()` implemented in `scheduler.py` (PR #73)
-  - Kill switch: `RESOLVE_PREDICTIONS_ENABLED=false` (Category β, default off)
-  - **5 test predictions injected** (`methodology_version='gate4-b2-test'`, all PENDING):
-    - Charizard above $500 → expected HIT (actual $595.18)
-    - Alakazam below $100 → expected HIT (actual $76.62)
-    - Clefairy within $30–$45 → expected HIT (actual $36.51)
-    - Blastoise above $300 → expected MISS (actual $220.81)
-    - Chansey below $40 → expected MISS (actual $53.09)
-  - **Ivan action needed:** set `RESOLVE_PREDICTIONS_ENABLED=true` in Railway to start 7-day window
-  - Observation window: 7 consecutive days from when kill switch enabled
+- [x] **Gate 4: Resolution scheduler staging** — PASSED 2026-05-28
+  - `RESOLVE_PREDICTIONS_ENABLED=true` set in Railway
+  - All 5 test predictions resolved correctly on 2026-05-28:
+    - Charizard above $500 → HIT (actual $556.84) ✅
+    - Alakazam below $100 → HIT (actual $80.42) ✅
+    - Clefairy within $30–$45 → HIT (actual $36.51) ✅
+    - Blastoise above $300 → MISS (actual $229.23) ✅
+    - Chansey below $40 → MISS (actual $53.09) ✅
+  - Resolution accuracy: 5/5 correct (100%)
+  - Note: DB outage 2026-06-01 interrupted scheduler; resolver resumes on recovery
 
 - [ ] **Gate 5: Chaos Rising data baseline** — starts 2026-05-22 (set release). me4 in TIER1_BULK_SET_IDS since 2026-05-23 commit 05f2f28.
 
