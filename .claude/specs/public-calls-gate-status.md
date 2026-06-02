@@ -8,13 +8,13 @@ Last updated: 2026-05-28 (corrected Gate 6 status — dist rebuild required and 
   - `driver_attribution_service.py`, `fundamental_signal_service.py`, admin UI live
   - Unit tests passing. Codex review clean.
 
-- [x] **Gate 2: Driver attribution validation** (2026-05-23, commits 61d5139–205c388)
+- [x] **Gate 2: Driver attribution validation** — APPROVED 2026-06-02
   - Production re-run: **7/7 testable cases PASS, 100% EVENT_DRIVEN accuracy**
   - All 7 RELEASE events have verified headline card UUIDs in `affected_asset_ids`
   - Validation report: `validation_reports/driver_attribution_v1.md`
-  - Ivan decision required: approve accuracy + close Gate 2 formally
+  - Ivan approved 2026-06-02
 
-- [ ] **Gate 3: Fundamental signal sanity check** — awaiting signals recovery post DB outage (2026-06-02)
+- [ ] **Gate 3: Fundamental signal sanity check** — Gate 2 approved; running sanity check 2026-06-02
 
 - [x] **Gate 4: Resolution scheduler staging** — PASSED 2026-05-28
   - `RESOLVE_PREDICTIONS_ENABLED=true` set in Railway
