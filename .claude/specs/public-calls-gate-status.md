@@ -1,6 +1,6 @@
 # Public Calls — Gate Status
 
-Last updated: 2026-05-28 (corrected Gate 6 status — dist rebuild required and applied)
+Last updated: 2026-06-02 (Gate 3 PASSED — Ivan approved spot-check)
 
 ---
 
@@ -14,7 +14,12 @@ Last updated: 2026-05-28 (corrected Gate 6 status — dist rebuild required and 
   - Validation report: `validation_reports/driver_attribution_v1.md`
   - Ivan approved 2026-06-02
 
-- [ ] **Gate 3: Fundamental signal sanity check** — Gate 2 approved; running sanity check 2026-06-02
+- [x] **Gate 3: Fundamental signal sanity check** — PASSED 2026-06-02
+  - 52 MOVE signals sampled via `/admin/diag/gate3-fundamental?sample_n=52`
+  - check3 (no |hype_premium| > 100pp): PASS; no >200% delta: PASS; no exceptions: PASS
+  - check1 (≤2pp gap for uncontaminated): 10 failures explained as expected window-semantic divergence — not a code bug
+  - Ivan spot-checked 5 sv10/sv7 cards (Crobat ex, Persian ex, Terapagos ex, Legacy Energy, Hydrapple ex) — approved 2026-06-02
+  - Validation report: `validation_reports/fundamental_signal_v1.md`
 
 - [x] **Gate 4: Resolution scheduler staging** — PASSED 2026-05-28
   - `RESOLVE_PREDICTIONS_ENABLED=true` set in Railway
