@@ -7,14 +7,17 @@ on:
         description: 'Backup tag to restore (e.g. backup-33)'
         required: true
         default: 'backup-33'
+      skip_tables:
+        description: 'Comma-separated table names to skip data for (keep structure)'
+        required: false
+        default: 'asset_signal_history,observation_match_logs'
 
 jobs:
   restore:
     runs-on: ubuntu-latest
     steps:
       - name: Install PostgreSQL client
-        run: |
-          sudo apt-get install -y postgresql-client
+        run: sudo apt-get install -y postgresql-client
 
       - name: Download backup
         env:
@@ -25,13 +28,71 @@ jobs:
             --pattern "backup.sql.gz"
           echo "Backup size: $(du -sh backup.sql.gz | cut -f1)"
 
+      - name: Filter backup (skip large table data)
+        run: |
+          SKIP="${{ github.event.inputs.skip_tables }}"
+          echo "Skipping data for tables: $SKIP"
+
+          python3 - <<'PYEOF'
+          import sys, gzip, os
+
+          skip_tables = set(t.strip() for t in os.environ.get("SKIP_TABLES", "").split(",") if t.strip())
+          print(f"Filtering out COPY data for: {skip_tables}", flush=True)
+
+          skipped_rows = {t: 0 for t in skip_tables}
+          in_skip_block = False
+          kept_lines = 0
+          skipped_lines = 0
+
+          with gzip.open("backup.sql.gz", "rt", encoding="utf-8", errors="replace") as fin, \
+               open("filtered.sql", "w", encoding="utf-8") as fout:
+              for line in fin:
+                  if in_skip_block:
+                      if line.strip() == "\\.":
+                          in_skip_block = False
+                          fout.write(line)  # write the terminator
+                          kept_lines += 1
+                      else:
+                          skipped_lines += 1
+                          current_table and skipped_rows.__setitem__(current_table, skipped_rows.get(current_table, 0) + 1)
+                  else:
+                      # Check if this starts a COPY block for a skipped table
+                      stripped = line.strip()
+                      if stripped.startswith("COPY "):
+                          # COPY public.tablename (...) FROM stdin;
+                          parts = stripped.split()
+                          if len(parts) >= 2:
+                              table_part = parts[1]
+                              table_name = table_part.split(".")[-1]  # strip schema
+                              if table_name in skip_tables:
+                                  in_skip_block = True
+                                  current_table = table_name
+                                  fout.write(line)  # write COPY header
+                                  kept_lines += 1
+                                  continue
+                      fout.write(line)
+                      kept_lines += 1
+
+          print(f"Kept lines: {kept_lines:,}", flush=True)
+          print(f"Skipped data lines: {skipped_lines:,}", flush=True)
+          for t, n in skipped_rows.items():
+              print(f"  {t}: {n:,} rows skipped", flush=True)
+          PYEOF
+        env:
+          SKIP_TABLES: ${{ github.event.inputs.skip_tables }}
+
+      - name: Show filtered size
+        run: |
+          echo "Original gz: $(du -sh backup.sql.gz | cut -f1)"
+          echo "Filtered sql: $(du -sh filtered.sql | cut -f1)"
+
       - name: Restore to Railway Postgres
         env:
           DATABASE_PUBLIC_URL: ${{ secrets.RAILWAY_DATABASE_PUBLIC_URL }}
         run: |
           echo "Starting restore..."
-          gunzip -c backup.sql.gz | psql "$DATABASE_PUBLIC_URL" 2>&1 | \
-            grep -E "^(ERROR|FATAL|CREATE|INSERT|COPY|ALTER|SET)" | tail -30 || true
+          psql "$DATABASE_PUBLIC_URL" < filtered.sql 2>&1 | \
+            grep -E "^(ERROR|FATAL)" | head -20 || true
           echo "Restore complete"
 
       - name: Verify row counts
@@ -40,8 +101,7 @@ jobs:
         run: |
           psql "$DATABASE_PUBLIC_URL" -c "
             SELECT 'assets' as tbl, COUNT(*) FROM assets
-            UNION ALL
-            SELECT 'price_history', COUNT(*) FROM price_history
-            UNION ALL
-            SELECT 'asset_signals', COUNT(*) FROM asset_signals;
+            UNION ALL SELECT 'price_history', COUNT(*) FROM price_history
+            UNION ALL SELECT 'asset_signals', COUNT(*) FROM asset_signals
+            UNION ALL SELECT 'asset_signal_history', COUNT(*) FROM asset_signal_history;
           "
