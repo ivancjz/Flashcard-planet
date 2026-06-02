@@ -37,9 +37,12 @@ Last updated: 2026-05-28 (corrected Gate 6 status — dist rebuild required and 
 
 - [ ] **Gate 7: Smart sort calibration** — depends on Gate 5
 
-- [ ] **Gate 8: Paper trade validation** — depends on Gates 2+3+5
-  - Window opens ~2026-06-01. Minimum 10 paper predictions required.
-  - Cards: Mega Greninja ex SIR, Mega Floette ex SIR, Mega Pyroar ex SIR, Mega Dragalge ex SIR, Chaos Rising ETB, booster box.
+- [x] **Gate 8: Paper trade validation** — 10 predictions injected 2026-06-02
+  - 10 paper predictions on Destined Rivals (sv10) high-value SIRs, resolution date 2026-06-27
+  - Cards: Team Rocket's Mewtwo ex SIR, Cynthia's Garchomp ex SIR, Ethan's Ho-Oh ex SIR,
+    Nidoking ex SIR, Moltres ex SIR, Crobat ex SIR, Ethan's Adventure SIR, Giovanni SIR,
+    Mewtwo ex HR (band prediction)
+  - All `is_paper=True`, `resolve-predictions` job will track them on 4h schedule
 
 - [ ] **Gate 9: Fresh public calls cohort** — depends on Gates 1-8
 
