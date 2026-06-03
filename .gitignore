@@ -1,3 +1,4 @@
+scripts/_tmp_*.py
 __pycache__/
 *.pyc
 .venv/
