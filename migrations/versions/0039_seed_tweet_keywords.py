@@ -1,12 +1,12 @@
 """Seed initial tweet_keywords: 11 TCG price/event keywords."""
 
+from alembic import op
+import sqlalchemy as sa
+
 revision = "0039"
 down_revision = "0038"
 branch_labels = None
 depends_on = None
-
-from alembic import op
-import sqlalchemy as sa
 
 
 KEYWORDS = [
@@ -26,22 +26,20 @@ KEYWORDS = [
 
 def upgrade() -> None:
     conn = op.get_bind()
-    # tweet_keywords has no UNIQUE constraint on keyword (only PK on id),
-    # so ON CONFLICT DO NOTHING would not prevent duplicates.
-    # WHERE NOT EXISTS is idempotent without requiring a unique constraint.
-    conn.execute(
-        sa.text(
-            "INSERT INTO tweet_keywords (keyword, game) "
-            "SELECT :keyword, :game WHERE NOT EXISTS "
-            "(SELECT 1 FROM tweet_keywords WHERE keyword = :keyword)"
-        ),
-        [{"keyword": k, "game": g} for k, g in KEYWORDS],
+    # tweet_keywords has no UNIQUE constraint on keyword, so use WHERE NOT EXISTS guard
+    stmt = sa.text(
+        "INSERT INTO tweet_keywords (keyword, game) "
+        "SELECT :keyword, :game WHERE NOT EXISTS "
+        "(SELECT 1 FROM tweet_keywords WHERE keyword = :keyword)"
     )
+    for keyword, game in KEYWORDS:
+        conn.execute(stmt, {"keyword": keyword, "game": game})
 
 
 def downgrade() -> None:
     conn = op.get_bind()
-    conn.execute(
-        sa.text("DELETE FROM tweet_keywords WHERE keyword = ANY(:keywords)"),
-        {"keywords": [k for k, _ in KEYWORDS]},
-    )
+    for keyword, _ in KEYWORDS:
+        conn.execute(
+            sa.text("DELETE FROM tweet_keywords WHERE keyword = :keyword"),
+            {"keyword": keyword},
+        )
