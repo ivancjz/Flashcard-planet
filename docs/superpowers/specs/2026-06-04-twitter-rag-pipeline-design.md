@@ -246,6 +246,12 @@ Relevant recent social context (X/Twitter):
 | `yugioh price` | ygo |
 | `one piece tcg price` | optcg |
 | `tcg price spike` | NULL (cross-game) |
+| `pokemon new set` | pokemon |
+| `yugioh new set` | ygo |
+| `one piece tcg new set` | optcg |
+| `pokemon tcg event` | pokemon |
+| `yugioh event` | ygo |
+| `tcg reprint` | NULL (cross-game) |
 
 **Note — Cookie rotation:** Browser-extracted cookies typically expire in ~30 days. `twitter_update.py` must detect HTTP 401/403 responses and emit a `status='error'` run log with `error_message='TWITTER_COOKIE expired — rotate secret'` rather than silently writing zero rows.
 
