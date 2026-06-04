@@ -161,8 +161,8 @@ jobs:
           DATABASE_URL:       ${{ secrets.DATABASE_URL }}
           ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY:       ${{ secrets.OPENAI_API_KEY }}
-          TWITTER_BEARER_TOKEN: ${{ secrets.TWITTER_BEARER_TOKEN }}
-          TWITTER_COOKIE:       ${{ secrets.TWITTER_COOKIE }}
+          TWITTER_AUTH_TOKEN:   ${{ secrets.TWITTER_AUTH_TOKEN }}
+          TWITTER_CT0:          ${{ secrets.TWITTER_CT0 }}
 ```
 
 **`twitter-prep.yml`** (monthly):
@@ -219,8 +219,8 @@ Relevant recent social context (X/Twitter):
 | `DATABASE_URL` | already exists |
 | `ANTHROPIC_API_KEY` | already exists |
 | `OPENAI_API_KEY` | new — for embeddings |
-| `TWITTER_BEARER_TOKEN` | new — xreach/twitter-cli Bearer Token (browser-extracted) |
-| `TWITTER_COOKIE` | new — xreach/twitter-cli Cookie string (browser-extracted, expires ~30 days) |
+| `TWITTER_AUTH_TOKEN` | new — `auth_token` cookie (40-char hex, from logged-in X session) |
+| `TWITTER_CT0` | new — `ct0` CSRF token (160-char hex), also sent as `x-csrf-token` header. Expires ~30 days. |
 
 ---
 
@@ -253,7 +253,9 @@ Relevant recent social context (X/Twitter):
 | `yugioh event` | ygo |
 | `tcg reprint` | NULL (cross-game) |
 
-**Note — Cookie rotation:** Browser-extracted cookies typically expire in ~30 days. `twitter_update.py` must detect HTTP 401/403 responses and emit a `status='error'` run log with `error_message='TWITTER_COOKIE expired — rotate secret'` rather than silently writing zero rows.
+**Note — Implementation approach:** xreach is a TypeScript library, not a CLI. `twitter_update.py` implements the same HTTP calls directly in Python using `httpx`, mirroring xreach's `graphql()` method and `SearchMixin.search()` exactly. Bearer token is Twitter's hardcoded public value — not a secret. Only `auth_token` + `ct0` are user-specific secrets.
+
+**Note — Cookie rotation:** `ct0` expires in ~30 days. `twitter_update.py` must detect HTTP 401/403 responses and emit `status='error'` in `scheduler_run_log` with `error_message='TWITTER_CT0 expired — rotate GitHub secret'` rather than silently writing zero rows.
 
 ---
 
