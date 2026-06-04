@@ -703,6 +703,21 @@ Code PR (≤2 files, ~10 lines):
 
 ### needs_triage (proposed by Claude Code or operator, not yet prioritized)
 
+#### BL-1 — Extend `_get_json` retry schedule (resilience, key-independent)
+**Proposed:** 2026-06-05 (TASK-80Y root cause audit)
+**Status:** needs_triage
+**Why:** A single 429 or transient network blip currently kills the entire bulk-refresh job (`sets_completed_before_failure=0`, job dies at `dur=8-15s`). Three retries with delays `[2.0, 5.0, 15.0]` don't survive a Cloudflare throttle window where `Retry-After` is absent or small. This fragility is independent of the throttling root cause (now resolved by API key) — even on the authenticated tier, a transient failure should not be fatal.
+**What:** In `import_pokemon_cards.py` `_get_json`, extend `cap_and_backoff` fallback delays from `[2.0, 5.0, 15.0]` (3 attempts) to `[2.0, 5.0, 15.0, 30.0, 60.0]` (5 attempts). Note: `MAX_FETCH_ATTEMPTS` is imported from `pokemon_tcg.py` — update the constant there, not in the script.
+**Do NOT add inter-set pacing** — pacing was for the per-IP throttling problem, which the API key solved. Pacing is no longer needed and would slow down a job that now runs comfortably under the 250/min per-key limit.
+**Effort:** XS (2 lines + test)
+
+#### BL-2 — Monitor shared-key quota headroom (long-horizon)
+**Proposed:** 2026-06-05 (TASK-80Y root cause audit)
+**Status:** needs_triage
+**Why:** `scheduled-ingestion` and `bulk-set-price-refresh` now share the same `POKEMON_TCG_API_KEY` → they share the 250/min per-key budget. Fine now (~30-35 req bulk + ~1 req/hr per-card ingestion ≪ 250/min), but as set count grows the ceiling could be approached.
+**Trigger condition (no action before this):** combined per-minute request count nears 200 (80% of 250). Observable via Railway logs or a per-job request counter.
+**No code change now.** Action when triggered: register a second API key or stagger the two jobs' startup offsets so they don't burst simultaneously.
+
 #### TASK-509 — Mobile hamburger nav drawer (PR #15 scope)
 
 **Priority:** P1 within PR #15
