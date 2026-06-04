@@ -4,7 +4,7 @@
 >
 > **This file is for Claude Code to consume autonomously.** When picking up a session and there is no specific operator instruction, read this file and start the highest-priority task you have evidence to safely execute. See §0 below.
 
-**Last updated:** 2026-05-29 (v12 — Public Calls frontend shipped; Gate 3 datetime fix deployed; Gates 4–7 pending Ivan action)
+**Last updated:** 2026-06-04 (v13 — Gate 5 passed; Gate 7 sort default flipped to signal; TASK-801 YGO seeds confirmed signalling)
 **Maintained by:** Ivan (operator) with proposed updates from Claude Code via PR
 
 ---
@@ -186,19 +186,12 @@ Format:
 #### TASK-GATE7 — Approve signal sort as default (Ivan review)
 
 **Priority:** P1
-**Status:** blocked — Ivan decision after Gate 5
+**Status:** COMPLETE — deployed 2026-06-04 (commit 3b8dc10)
 **Owner:** Ivan (decision) → Claude Code (1-line change)
-**Preconditions:** Gate 5 confirms Chaos Rising (sv6) has real price variance and non-INSUFFICIENT_DATA signals
 
-**Action:** Ivan reviews signal distribution via `/admin/diag/gate5-chaos-rising` ~2026-06-05. If BREAKOUT/MOVE signals present on Chaos Rising, approve flipping `sort='change'` default to `sort='signal'` in `DashboardPage.tsx`.
+**Gate 5 evidence (2026-06-04):** sv6 Twilight Masquerade: 9 MOVE + 24 WATCH. Top: Greninja ex +112%, Hearthflame Mask Ogerpon ex +30%.
 
-**Claude Code action (1 line):**
-```
-// frontend/src/pages/DashboardPage.tsx:31
-const [sort, setSort] = useState<SortKey>('signal')  // was 'change'
-```
-
-**Estimated effort:** XS after Ivan approves.
+**Change:** `DashboardPage.tsx:31` — `useState<SortKey>('change')` → `useState<SortKey>('signal')`
 
 ---
 
@@ -253,16 +246,16 @@ const [sort, setSort] = useState<SortKey>('signal')  // was 'change'
 #### TASK-801 — YGO CardMarket seed expansion (Phase 2b)
 
 **Priority:** P1
-**Status:** seeded 2026-05-18 — 7-day accumulation window, signals check ~2026-05-25
+**Status:** COMPLETE — verified 2026-06-04
 **Owner:** Claude Code + Ivan
 **Preconditions:** all met ✅
 
-**Definition of Done — partial 2026-05-18:**
+**Definition of Done — verified 2026-06-04:**
 - ✅ CardMarket product IDs resolved (catalog quote-escape bug fixed; all 8 confirmed matching)
 - ✅ All 8 assets seeded via `/admin/trigger/seed-ygo-cardmarket-cards` — `created=8`
 - ✅ 75 total YGO assets now in production (was 67)
-- ⏳ Minimum 7 days `cardmarket_avg7` rows — first prices on 2026-05-19 CM refresh, full 7 days by ~2026-05-25
-- ⏳ At least one non-INSUFFICIENT_DATA signal on ≥2 of the 8 cards — check ~2026-05-25
+- ✅ 7+ days `cardmarket_avg7` rows — data since 2026-05-14, 11,304+ rows
+- ✅ Non-INSUFFICIENT_DATA signals on 3/8 cards: PHNI-EN057 MOVE +86%, RA01-EN000 MOVE +49%, LEDE-EN003 WATCH
 
 **Seeded cards (actual names as stored):**
 
@@ -869,6 +862,8 @@ When a task ships, move it here with PR number and merge date. Keep this section
 
 | TASK | Title | PR | Merged | Outcome |
 |---|---|---|---|---|
+| TASK-GATE7 | Default sort → signal | commit 3b8dc10 | 2026-06-04 | Gate 5 pass (sv6 9 MOVE + 24 WATCH, Greninja ex +112%). DashboardPage.tsx:31 'change' → 'signal'. |
+| TASK-801 | YGO CardMarket seed expansion (Phase 2b) | — | 2026-06-04 | 8/8 seeded cards have signals. PHNI-EN057 MOVE +86%, RA01-EN000 MOVE +49%, LEDE-EN003 WATCH. CardMarket data: 11,304+ rows since 2026-05-14. |
 | FE-6 | Card Detail driver attribution + fundamental delta panel | commit 39c148b | 2026-05-29 | Driver type, confidence %, event description, fundamental delta, hype premium shown on card detail when driver != UNKNOWN. |
 | FE-5 | INVESTMENT signal filter (BREAKOUT+MOVE shortcut) | commit 6348690 | 2026-05-29 | Frontend filter chip + backend `IN ('BREAKOUT','MOVE')` SQL; `signal` sort CASE WHEN ordering added. |
 | FE-2 | Signal sort (BREAKOUT-first ordering) | commit 6348690 | 2026-05-29 | Sort button + CASE WHEN ORDER BY on backend; default remains `change` until Gate 7 approved. |
