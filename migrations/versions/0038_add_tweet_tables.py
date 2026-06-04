@@ -20,7 +20,7 @@ def upgrade() -> None:
         sa.Column("active", sa.Boolean, server_default="true", nullable=False),
         sa.Column("mention_count", sa.Integer, server_default="0", nullable=False),
         sa.Column("last_refreshed_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
     )
 
     op.create_table(
@@ -30,7 +30,7 @@ def upgrade() -> None:
         sa.Column("keyword", sa.Text, nullable=False),
         sa.Column("tweet_date", sa.DateTime(timezone=True), nullable=False),
         sa.Column("summary", sa.Text, nullable=False),
-        sa.Column("captured_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("captured_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
     )
 
     op.create_unique_constraint("uq_tweet_summaries_tweet_id", "tweet_summaries", ["tweet_id"])
@@ -47,5 +47,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Explicitly drop indices and constraints before tables
+    # (vector extension intentionally left installed — other tables may use it)
+    op.drop_index("ix_tweet_summaries_embedding", table_name="tweet_summaries", if_exists=True)
+    op.drop_index("ix_tweet_summaries_tweet_date", table_name="tweet_summaries")
+    op.drop_index("ix_tweet_summaries_keyword", table_name="tweet_summaries")
+    op.drop_constraint("uq_tweet_summaries_tweet_id", "tweet_summaries", type_="unique")
     op.drop_table("tweet_summaries")
     op.drop_table("tweet_keywords")
