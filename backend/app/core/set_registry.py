@@ -301,14 +301,23 @@ P1_P2_CARD_IDS: list[str] = [
     for card_id in _card_ids_for_set(s.set_id, s.card_count)
 ]
 
+# Mega Evolution 2026 releases — TCGPlayer has no market pricing for these sets
+# (tcgplayer object is a URL stub, no "prices" key; cardmarket absent).
+# build_price_payload returns None structurally, independent of any 429.
+# Verified E1/E2/E3 on 2026-06-04: never any pokemon_tcg_api rows; 4+ months old for me2pt5.
+# Do NOT re-add to TIER1_BULK_SET_IDS without first confirming TCGPlayer coverage.
+_NO_PRICE_COVERAGE_SET_IDS: frozenset[str] = frozenset({"me4", "me2pt5", "me3"})
+
 # Tier 1 expansion — all sets currently tracked in production (2026-04-25).
 # Covers all sets in the DB; ensures bulk refresh runs even without env var override.
 # ORDER IS SIGNIFICANT: bulk-set-price-refresh processes left-to-right and may not
 # complete all sets in one run (12/14 runs fail; ~4400 cards processed per success).
 # Newest/active sets go first so they always get price data even if the job truncates.
+
 TIER1_BULK_SET_IDS: str = ",".join([
-    # Newest active sets — processed first, Gate 5 dependency
-    "me4", "me3", "me2pt5", "me2", "me1",
+    # Mega Evolution — me1/me2 have real TCGPlayer market prices; me2pt5/me3/me4 do not
+    # (see _NO_PRICE_COVERAGE_SET_IDS above)
+    "me2", "me1",
     # Recent Japanese sets
     "rsv10pt5", "zsv10pt5",
     # Scarlet & Violet (newest first)
