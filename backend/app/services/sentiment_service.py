@@ -35,7 +35,7 @@ def get_tweet_context(
             SELECT summary FROM tweet_summaries
             WHERE tweet_date >= NOW() - (:days || ' days')::INTERVAL
               AND embedding IS NOT NULL
-            ORDER BY embedding <-> CAST(:vec AS vector)
+            ORDER BY embedding <=> CAST(:vec AS vector)
             LIMIT :limit
         """),
         {"days": str(days), "vec": embedding_str, "limit": limit},
