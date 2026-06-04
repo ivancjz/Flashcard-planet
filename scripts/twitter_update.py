@@ -199,6 +199,7 @@ def _search_page(
                 tweets.append(tweet)
         if entry.get("content", {}).get("cursorType") == "Bottom":
             next_cursor = entry["content"].get("value")
+            break
 
     return tweets, next_cursor
 
