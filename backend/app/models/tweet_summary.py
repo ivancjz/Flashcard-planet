@@ -4,6 +4,7 @@ from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import DateTime, Index, Integer, Text, UniqueConstraint
+from sqlalchemy.sql import func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.base import Base
@@ -23,4 +24,4 @@ class TweetSummary(Base):
     tweet_date:  Mapped[datetime]          = mapped_column(DateTime(timezone=True), nullable=False)
     summary:     Mapped[str]               = mapped_column(Text, nullable=False)
     embedding:   Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
-    captured_at: Mapped[datetime]          = mapped_column(DateTime(timezone=True), nullable=False)
+    captured_at: Mapped[datetime]          = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
