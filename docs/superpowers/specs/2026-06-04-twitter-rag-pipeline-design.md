@@ -237,7 +237,15 @@ Relevant recent social context (X/Twitter):
 
 ## Open Questions (pre-implementation)
 
-1. **Initial keyword seed list**: needs operator input — e.g. `["pokemon tcg investing", "yugioh price", "one piece tcg"]`
+1. **Initial keyword seed list** (confirmed: price-focused, broad):
+
+| keyword | game |
+|---------|------|
+| `pokemon tcg price` | pokemon |
+| `pokemon card price` | pokemon |
+| `yugioh price` | ygo |
+| `one piece tcg price` | optcg |
+| `tcg price spike` | NULL (cross-game) |
 
 **Note — Cookie rotation:** Browser-extracted cookies typically expire in ~30 days. `twitter_update.py` must detect HTTP 401/403 responses and emit a `status='error'` run log with `error_message='TWITTER_COOKIE expired — rotate secret'` rather than silently writing zero rows.
 
