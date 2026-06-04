@@ -26,6 +26,7 @@ def get_tweet_context(
     Return up to `limit` tweet summaries semantically closest to `query`
     within the last `days` days. Returns [] if tweet_summaries is empty.
     """
+    days = max(1, days)
     query_vec = _embed(query)
     embedding_str = "[" + ",".join(str(v) for v in query_vec) + "]"
 
