@@ -28,7 +28,7 @@ export default function DashboardPage() {
   const [cards, setCards] = useState<CardSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [signal, setSignal] = useState<SignalFilter>('ALL')
-  const [sort, setSort] = useState<SortKey>('change')
+  const [sort, setSort] = useState<SortKey>('signal')
   const [activeGame, setActiveGame] = useState('pokemon')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
