@@ -1,0 +1,30 @@
+# .github/workflows/twitter-prep.yml
+name: Twitter Knowledge Base Maintenance
+
+on:
+  schedule:
+    - cron: '0 3 1 * *'   # 03:00 UTC on 1st of each month
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install psycopg[binary]==3.2.9
+
+      - name: Run prep
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scripts/twitter_prep.py

@@ -14,5 +14,7 @@ from backend.app.models.upgrade_request import UpgradeRequest
 from backend.app.models.user import User
 from backend.app.models.watchlist import Watchlist
 from backend.app.models.predictions import MarketEvent, Prediction, PredictionAudit
+from backend.app.models.tweet_keyword import TweetKeyword
+from backend.app.models.tweet_summary import TweetSummary
 
-__all__ = ["Alert", "AlertHistory", "Asset", "AssetSignal", "FailedBackfillQueue", "GradedObservationAudit", "ListingSnapshot", "MarketEvent", "ObservationMatchLog", "Prediction", "PredictionAudit", "PriceHistory", "ProWaitlist", "SchedulerRunLog", "SubscriptionEvent", "UpgradeRequest", "User", "Watchlist"]
+__all__ = ["Alert", "AlertHistory", "Asset", "AssetSignal", "FailedBackfillQueue", "GradedObservationAudit", "ListingSnapshot", "MarketEvent", "ObservationMatchLog", "Prediction", "PredictionAudit", "PriceHistory", "ProWaitlist", "SchedulerRunLog", "SubscriptionEvent", "TweetKeyword", "TweetSummary", "UpgradeRequest", "User", "Watchlist"]

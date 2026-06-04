@@ -18,3 +18,5 @@ resend>=2.0.0
 python-multipart>=0.0.9
 scrapling[fetchers]>=0.4.7
 boto3==1.43.6           # PR #14a: R2 uploads for Postgres backups
+pgvector==0.3.6
+openai==1.82.0
