@@ -160,8 +160,9 @@ jobs:
         env:
           DATABASE_URL:       ${{ secrets.DATABASE_URL }}
           ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY:     ${{ secrets.OPENAI_API_KEY }}
-          XREACH_API_KEY:     ${{ secrets.XREACH_API_KEY }}
+          OPENAI_API_KEY:       ${{ secrets.OPENAI_API_KEY }}
+          TWITTER_BEARER_TOKEN: ${{ secrets.TWITTER_BEARER_TOKEN }}
+          TWITTER_COOKIE:       ${{ secrets.TWITTER_COOKIE }}
 ```
 
 **`twitter-prep.yml`** (monthly):
@@ -218,7 +219,8 @@ Relevant recent social context (X/Twitter):
 | `DATABASE_URL` | already exists |
 | `ANTHROPIC_API_KEY` | already exists |
 | `OPENAI_API_KEY` | new — for embeddings |
-| `XREACH_API_KEY` | new — for xreach/twitter-cli |
+| `TWITTER_BEARER_TOKEN` | new — xreach/twitter-cli Bearer Token (browser-extracted) |
+| `TWITTER_COOKIE` | new — xreach/twitter-cli Cookie string (browser-extracted, expires ~30 days) |
 
 ---
 
@@ -235,8 +237,9 @@ Relevant recent social context (X/Twitter):
 
 ## Open Questions (pre-implementation)
 
-1. **xreach/twitter-cli authentication**: confirm whether it uses OAuth 1.0a, OAuth 2.0, or Basic (affects secret format)
-2. **Initial keyword seed list**: needs operator input — e.g. `["pokemon tcg investing", "yugioh price", "one piece tcg"]`
+1. **Initial keyword seed list**: needs operator input — e.g. `["pokemon tcg investing", "yugioh price", "one piece tcg"]`
+
+**Note — Cookie rotation:** Browser-extracted cookies typically expire in ~30 days. `twitter_update.py` must detect HTTP 401/403 responses and emit a `status='error'` run log with `error_message='TWITTER_COOKIE expired — rotate secret'` rather than silently writing zero rows.
 
 ---
 
