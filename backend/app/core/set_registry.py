@@ -282,6 +282,24 @@ SUPPORTED_SETS: list[SetConfig] = [
         series="Scarlet & Violet",
         priority=3,
     ),
+
+    # ── Scarlet & Violet 2024–2025 catch-up ──────────────────────────────
+    # Card counts verified against pokemontcg.io API 2026-06-09.
+    SetConfig(set_id="sv5",    name="Temporal Forces",     card_count=218, release_year=2024, series="Scarlet & Violet", priority=3),
+    SetConfig(set_id="sv6",    name="Twilight Masquerade", card_count=226, release_year=2024, series="Scarlet & Violet", priority=3),
+    SetConfig(set_id="sv6pt5", name="Shrouded Fable",      card_count=99,  release_year=2024, series="Scarlet & Violet", priority=3),
+    SetConfig(set_id="sv7",    name="Stellar Crown",       card_count=175, release_year=2024, series="Scarlet & Violet", priority=3),
+    SetConfig(set_id="sv8",    name="Surging Sparks",      card_count=252, release_year=2024, series="Scarlet & Violet", priority=3),
+    SetConfig(set_id="sv8pt5", name="Prismatic Evolutions", card_count=180, release_year=2025, series="Scarlet & Violet", priority=3, notes="Eevee set — very high demand."),
+    SetConfig(set_id="sv9",    name="Journey Together",    card_count=190, release_year=2025, series="Scarlet & Violet", priority=3),
+    SetConfig(set_id="sv10",   name="Destined Rivals",     card_count=244, release_year=2025, series="Scarlet & Violet", priority=3),
+
+    # ── Mega Evolution series ─────────────────────────────────────────────
+    SetConfig(set_id="me1",    name="Mega Evolution",      card_count=188, release_year=2025, series="Mega Evolution", priority=4),
+    SetConfig(set_id="me2",    name="Phantasmal Flames",   card_count=130, release_year=2025, series="Mega Evolution", priority=4),
+    SetConfig(set_id="me2pt5", name="Ascended Heroes",     card_count=295, release_year=2026, series="Mega Evolution", priority=4),
+    SetConfig(set_id="me3",    name="Perfect Order",       card_count=124, release_year=2026, series="Mega Evolution", priority=4),
+    SetConfig(set_id="me4",    name="Chaos Rising",        card_count=122, release_year=2026, series="Mega Evolution", priority=4),
 ]
 
 
