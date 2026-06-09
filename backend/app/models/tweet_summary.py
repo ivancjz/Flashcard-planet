@@ -24,4 +24,5 @@ class TweetSummary(Base):
     tweet_date:  Mapped[datetime]          = mapped_column(DateTime(timezone=True), nullable=False)
     summary:     Mapped[str]               = mapped_column(Text, nullable=False)
     embedding:   Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
+    source:      Mapped[str]               = mapped_column(Text, nullable=False, server_default="twitter")
     captured_at: Mapped[datetime]          = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
