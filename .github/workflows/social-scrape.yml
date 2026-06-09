@@ -32,7 +32,7 @@ jobs:
       - name: Reddit update
         env:
           DATABASE_URL:      ${{ secrets.DATABASE_URL }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY:      ${{ secrets.GROQ_API_KEY }}
           OPENAI_API_KEY:    ${{ secrets.OPENAI_API_KEY }}
           DRY_RUN:           ${{ github.event.inputs.dry_run || 'false' }}
         run: python scripts/reddit_update.py
@@ -41,7 +41,7 @@ jobs:
         if: always()
         env:
           DATABASE_URL:      ${{ secrets.DATABASE_URL }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY:      ${{ secrets.GROQ_API_KEY }}
           OPENAI_API_KEY:    ${{ secrets.OPENAI_API_KEY }}
           DRY_RUN:           ${{ github.event.inputs.dry_run || 'false' }}
         run: python scripts/nitter_update.py

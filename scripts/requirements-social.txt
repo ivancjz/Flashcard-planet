@@ -1,5 +1,5 @@
 httpx==0.28.1
-anthropic==0.52.0
+groq==0.13.1
 openai==1.82.0
 psycopg[binary]==3.2.9
 pgvector==0.3.6

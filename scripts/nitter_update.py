@@ -4,9 +4,9 @@ Daily Nitter scraper for TCG keywords.
 No auth required — scrapes public Nitter instances.
 
 Required env vars:
-  DATABASE_URL          Railway Postgres (already a GitHub secret)
-  ANTHROPIC_API_KEY     For Claude Haiku summarisation
-  OPENAI_API_KEY        For text-embedding-3-small embeddings
+  DATABASE_URL      Railway Postgres (already a GitHub secret)
+  GROQ_API_KEY      For Groq LLM summarisation
+  OPENAI_API_KEY    For text-embedding-3-small embeddings
 
 Optional env vars:
   NITTER_EMBED_BATCH_SIZE  OpenAI embed batch size (default: 100)
@@ -23,8 +23,8 @@ from datetime import UTC, datetime
 
 import httpx
 import psycopg
-from anthropic import Anthropic
 from bs4 import BeautifulSoup
+from groq import Groq
 from openai import OpenAI
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -32,9 +32,9 @@ log = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-DATABASE_URL     = os.environ["DATABASE_URL"]
-ANTHROPIC_KEY    = os.environ["ANTHROPIC_API_KEY"]
-OPENAI_KEY       = os.environ["OPENAI_API_KEY"]
+DATABASE_URL = os.environ["DATABASE_URL"]
+GROQ_KEY     = os.environ["GROQ_API_KEY"]
+OPENAI_KEY   = os.environ["OPENAI_API_KEY"]
 
 EMBED_BATCH_SIZE = int(os.environ.get("NITTER_EMBED_BATCH_SIZE", "100"))
 DRY_RUN          = os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
@@ -132,16 +132,16 @@ def _fetch_with_fallback(keyword: str) -> list[dict]:
 
 # ── Summarisation ─────────────────────────────────────────────────────────────
 
-def _summarise(texts: list[str], client: Anthropic) -> list[str]:
-    """Summarise every tweet with Claude Haiku — original text is never stored."""
+def _summarise(texts: list[str], client: Groq) -> list[str]:
+    """Summarise every tweet with Groq — original text is never stored."""
     results = []
     for text in texts:
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        resp = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
             max_tokens=100,
             messages=[{"role": "user", "content": f"Summarise in one sentence: {text}"}],
         )
-        results.append(msg.content[0].text.strip())
+        results.append(resp.choices[0].message.content.strip())
     return results
 
 # ── Embedding ─────────────────────────────────────────────────────────────────
@@ -233,7 +233,7 @@ def _write_run_log(
 
 def main() -> int:
     started_at = datetime.now(UTC)
-    anthropic_client = Anthropic(api_key=ANTHROPIC_KEY)
+    groq_client   = Groq(api_key=GROQ_KEY)
     openai_client = OpenAI(api_key=OPENAI_KEY)
 
     total_written = 0
@@ -265,7 +265,7 @@ def main() -> int:
                     keywords_processed += 1
                     continue
 
-                summaries = _summarise([t["text"] for t in new_tweets], anthropic_client)
+                summaries = _summarise([t["text"] for t in new_tweets], groq_client)
                 vectors   = _embed_batch(summaries, openai_client)
 
                 rows = []
