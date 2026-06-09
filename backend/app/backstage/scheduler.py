@@ -26,6 +26,8 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_BACKUP_FRESHNESS,
     JOB_SEALED_INGEST,
     JOB_RESOLVE,
+    JOB_REDDIT_UPDATE,
+    JOB_NITTER_UPDATE,
     finish_run,
     get_last_run,
     prune_old_runs,
@@ -423,7 +425,7 @@ def _send_heartbeat() -> None:
         # no job_blocked_reason set on this path — the job "succeeds" but is useless.
         # Monitoring it produces a false-positive alert every 24h with no actionable signal.
         # The 25h absence check above (hardcoded) still runs independently for JOB_EBAY.
-        _monitored_jobs = [JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_EBAY_WEB_SOLD, JOB_RESOLVE]
+        _monitored_jobs = [JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_EBAY_WEB_SOLD, JOB_RESOLVE, JOB_REDDIT_UPDATE, JOB_NITTER_UPDATE]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,
