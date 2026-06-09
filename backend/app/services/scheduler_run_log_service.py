@@ -34,6 +34,8 @@ JOB_BACKUP_FRESHNESS   = "backup-freshness-check"  # PR #14a D1 — GitHub watch
 JOB_CARDMARKET         = "cardmarket-ingestion"
 JOB_EBAY_WEB_SOLD      = "ebay-web-sold"
 JOB_RESOLVE            = "resolve-predictions"
+JOB_REDDIT_UPDATE      = "reddit-update"
+JOB_NITTER_UPDATE      = "nitter-update"
 
 _KEEP_RUNS = 50
 

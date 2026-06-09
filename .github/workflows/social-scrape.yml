@@ -1,0 +1,47 @@
+# .github/workflows/social-scrape.yml
+name: Social scrape (Reddit + Nitter)
+
+on:
+  schedule:
+    - cron: '0 2 * * *'   # 02:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no DB writes)'
+        type: boolean
+        default: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements-social.txt
+
+      - name: Reddit update
+        env:
+          DATABASE_URL:      ${{ secrets.DATABASE_URL }}
+          GROQ_API_KEY:      ${{ secrets.GROQ_API_KEY }}
+          OPENAI_API_KEY:    ${{ secrets.OPENAI_API_KEY }}
+          DRY_RUN:           ${{ github.event.inputs.dry_run || 'false' }}
+        run: python scripts/reddit_update.py
+
+      - name: Nitter update
+        if: always()
+        env:
+          DATABASE_URL:      ${{ secrets.DATABASE_URL }}
+          GROQ_API_KEY:      ${{ secrets.GROQ_API_KEY }}
+          OPENAI_API_KEY:    ${{ secrets.OPENAI_API_KEY }}
+          DRY_RUN:           ${{ github.event.inputs.dry_run || 'false' }}
+        run: python scripts/nitter_update.py
