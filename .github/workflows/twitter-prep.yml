@@ -1,5 +1,5 @@
 # .github/workflows/twitter-prep.yml
-name: Twitter Knowledge Base Maintenance
+name: Social Knowledge Base Maintenance
 
 on:
   schedule:
