@@ -50,10 +50,10 @@ _GAME_SUBREDDITS: dict[str | None, list[str]] = {
 
 # ── Reddit scraping ───────────────────────────────────────────────────────────
 
-def _search_reddit(subreddit: str, keyword: str, limit: int = 25) -> list[dict]:
+def _search_reddit(subreddit: str, keyword: str, limit: int = 25) -> list[dict] | None:
     """
     GET /r/{subreddit}/search.json — returns posts from the past week.
-    Returns list of {id, title, selftext, created_utc}.
+    Returns list of {id, title, selftext, created_utc}, or None on HTTP/network error.
     """
     url = f"https://www.reddit.com/r/{subreddit}/search.json"
     params = {"q": keyword, "sort": "new", "t": "week", "limit": limit, "restrict_sr": "1"}
@@ -62,10 +62,10 @@ def _search_reddit(subreddit: str, keyword: str, limit: int = 25) -> list[dict]:
         resp.raise_for_status()
     except httpx.HTTPStatusError as exc:
         log.warning("Reddit HTTP %s for r/%s + '%s'", exc.response.status_code, subreddit, keyword)
-        return []
+        return None
     except httpx.RequestError as exc:
         log.warning("Reddit request error for r/%s + '%s': %s", subreddit, keyword, exc)
-        return []
+        return None
 
     posts = []
     for child in resp.json().get("data", {}).get("children", []):
@@ -208,6 +208,9 @@ def main() -> int:
 
                 for subreddit in subreddits:
                     posts = _search_reddit(subreddit, keyword)
+                    if posts is None:
+                        total_errors += 1
+                        continue
                     for post in posts:
                         dedup_id = f"reddit_{post['id']}"
                         if dedup_id in existing:
@@ -261,6 +264,7 @@ def main() -> int:
         except Exception as exc:
             log.exception("Fatal error")
             try:
+                conn.rollback()  # clear aborted transaction so run_log INSERT can proceed
                 _write_run_log(
                     conn,
                     status="error",

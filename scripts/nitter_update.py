@@ -301,6 +301,7 @@ def main() -> int:
         except Exception as exc:
             log.exception("Fatal error")
             try:
+                conn.rollback()  # clear aborted transaction so run_log INSERT can proceed
                 _write_run_log(
                     conn,
                     status="error",
