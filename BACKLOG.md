@@ -4,7 +4,7 @@
 >
 > **This file is for Claude Code to consume autonomously.** When picking up a session and there is no specific operator instruction, read this file and start the highest-priority task you have evidence to safely execute. See §0 below.
 
-**Last updated:** 2026-06-04 (v13 — Gate 5 passed; Gate 7 sort default flipped to signal; TASK-801 YGO seeds confirmed signalling)
+**Last updated:** 2026-06-09 (v14 — TASK-301 payment gap fixes in PR #79: Pro checkout routing, webhook tier detection, 90-day grace cleanup job)
 **Maintained by:** Ivan (operator) with proposed updates from Claude Code via PR
 
 ---
@@ -456,7 +456,7 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 #### TASK-301 — Pro tier launch implementation
 
 **Priority:** P1 — both blockers resolved, promoting now
-**Status:** ready
+**Status:** in_progress — PR #79 open (2026-06-09), awaiting Codex review + Ivan merge
 **Blocked by:** ~~TASK-102~~ (done) ~~TASK-203~~ (done)
 **Owner:** Claude Code + Ivan
 **Preconditions:**
