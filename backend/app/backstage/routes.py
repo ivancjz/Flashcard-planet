@@ -3526,4 +3526,44 @@ def admin_inject_paper_prediction(
         is_paper=True,
         notes=body.notes,
     )
+
+
+# ── One-shot set import trigger ────────────────────────────────────────────────
+# Remove after sv5–sv10 + me1–me4 import confirmed (check: SELECT set_name,
+# COUNT(*) FROM assets WHERE game='pokemon' GROUP BY set_name ORDER BY 1).
+
+@router.post("/trigger/import-sets")
+def admin_trigger_import_sets(
+    set_ids: str,
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_database),
+) -> dict:
+    """Ingest asset + price rows for the given comma-separated set IDs.
+
+    Uses ingest_game_cards with an explicit card-ID list derived from
+    SUPPORTED_SETS. Safe to re-run (upsert on conflict).
+    """
+    from backend.app.ingestion.pokemon_tcg import ingest_game_cards
+    from backend.app.core.set_registry import SUPPORTED_SETS, _card_ids_for_set
+
+    requested = [s.strip() for s in set_ids.split(",") if s.strip()]
+    set_map = {s.set_id: s for s in SUPPORTED_SETS}
+
+    unknown = [sid for sid in requested if sid not in set_map]
+    if unknown:
+        return {"status": "error", "unknown_set_ids": unknown}
+
+    card_ids: list[str] = []
+    for sid in requested:
+        cfg = set_map[sid]
+        card_ids.extend(_card_ids_for_set(cfg.set_id, cfg.card_count))
+
+    result = ingest_game_cards(db, card_ids=card_ids, clear_sample_seed=False)
+    return {
+        "status": "ok",
+        "sets": requested,
+        "cards_requested": result.cards_requested,
+        "cards_ingested": result.cards_ingested,
+        "errors": result.errors,
+    }
     return {"prediction_id": str(prediction_id), "is_paper": True, "status": "created"}
