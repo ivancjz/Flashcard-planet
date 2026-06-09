@@ -77,8 +77,21 @@ async def lemonsqueezy_webhook(
     renews_at: datetime | None = _parse_renews_at(attrs.get("renews_at"))
     cancelled: bool = bool(attrs.get("cancelled", False))
 
-    is_founders = variant_id == settings.lemonsqueezy_variant_id_founders
-    subscription_tier = "pro"
+    plus_variant_ids = {
+        settings.lemonsqueezy_variant_id_standard,
+        settings.lemonsqueezy_variant_id_founders,
+    } - {""}
+    pro_variant_ids = {
+        settings.lemonsqueezy_variant_id_pro_standard,
+        settings.lemonsqueezy_variant_id_pro_founders,
+    } - {""}
+    founders_variant_ids = {
+        settings.lemonsqueezy_variant_id_founders,
+        settings.lemonsqueezy_variant_id_pro_founders,
+    } - {""}
+
+    is_founders = variant_id in founders_variant_ids
+    subscription_tier = "pro" if variant_id in pro_variant_ids else "plus"
 
     sub_event = SubscriptionEvent(
         event_id=event_id,

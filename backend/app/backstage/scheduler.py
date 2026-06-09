@@ -28,6 +28,7 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_RESOLVE,
     JOB_REDDIT_UPDATE,
     JOB_NITTER_UPDATE,
+    JOB_SUB_CLEANUP,
     finish_run,
     get_last_run,
     prune_old_runs,
@@ -124,8 +125,9 @@ _STARTUP_DELAY: dict[str, int] = {
     "bulk-set-price-refresh": 900,   # 15 min — after ingestion (120s+~5min run) and signal (600s)
     "explanation-sweep":      960,   # 16 min — after signal-sweep so new signals get explanations fast
     "market-digest-send":     1200,  # 20 min — after all other jobs have warmed up
-    "signal-history-prune":   1500,  # 25 min — last; pure DB DELETE, no upstream dependency (TASK-105)
-    "trial-expiry-sweep":     900,   # 15 min — subscription maintenance, no upstream dependency
+    "signal-history-prune":           1500,  # 25 min — last; pure DB DELETE, no upstream dependency (TASK-105)
+    "trial-expiry-sweep":             900,   # 15 min — subscription maintenance, no upstream dependency
+    "subscription-data-cleanup":      1620,  # 27 min — daily grace-period cleanup, after history prune
     "sealed-ingest":          840,   # 14 min — eBay Browse API, after heartbeat registered
     "ebay-web-sold":          870,   # 14.5 min — eBay HTML scrape, 24h interval
     "resolve-predictions":    660,   # 11 min — after signal-sweep so prices are fresh
@@ -425,7 +427,7 @@ def _send_heartbeat() -> None:
         # no job_blocked_reason set on this path — the job "succeeds" but is useless.
         # Monitoring it produces a false-positive alert every 24h with no actionable signal.
         # The 25h absence check above (hardcoded) still runs independently for JOB_EBAY.
-        _monitored_jobs = [JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_EBAY_WEB_SOLD, JOB_RESOLVE, JOB_REDDIT_UPDATE, JOB_NITTER_UPDATE]
+        _monitored_jobs = [JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_EBAY_WEB_SOLD, JOB_RESOLVE, JOB_REDDIT_UPDATE, JOB_NITTER_UPDATE, JOB_SUB_CLEANUP]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,
@@ -1601,6 +1603,21 @@ def build_scheduler() -> BackgroundScheduler:
     )
 
     scheduler.add_job(
+        _scheduled_subscription_data_cleanup,
+        "interval",
+        hours=24,
+        id="subscription-data-cleanup",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=None,
+    )
+    logger.info(
+        "subscription-data-cleanup registered. trigger=interval/24h first_run=startup+%ds",
+        _STARTUP_DELAY.get("subscription-data-cleanup", 1620),
+    )
+
+    scheduler.add_job(
         _scheduled_sealed_ingest,
         "interval",
         hours=6,
@@ -2078,6 +2095,112 @@ def _run_signal_history_prune() -> None:
             logger.exception(
                 "finish_run_failed job=%s run_id=%s",
                 JOB_HISTORY_PRUNE, _run_id,
+            )
+
+
+def _run_subscription_data_cleanup(session: Session) -> dict:
+    """Hard-delete Pro/Plus user data after 90-day grace period.
+
+    Targets users whose paid subscription ended >90 days ago (status 'expired'
+    or 'cancelled' with subscription_current_period_end < NOW() - 90 days).
+    Deletes alerts beyond FREE_ALERT_LIMIT (5) per user — the excess was only
+    meaningful with Pro/Plus access and the 90-day grace has now passed.
+
+    Returns a meta dict suitable for scheduler_run_log.
+    """
+    from sqlalchemy import delete as sa_delete, text
+    from backend.app.models.alert import Alert
+    from backend.app.models.user import User
+    from backend.app.core.permissions import FREE_ALERT_LIMIT
+
+    grace_cutoff = datetime.now(UTC) - timedelta(days=90)
+
+    # Find users past their grace period
+    expired_users = session.execute(
+        select(User).where(
+            User.subscription_status.in_(["expired", "cancelled"]),
+            User.subscription_current_period_end.isnot(None),
+            User.subscription_current_period_end < grace_cutoff,
+        )
+    ).scalars().all()
+
+    alerts_deleted = 0
+    users_cleaned = 0
+    for user in expired_users:
+        # Keep the first FREE_ALERT_LIMIT alerts (oldest), delete the rest
+        user_alerts = session.execute(
+            select(Alert.id)
+            .where(Alert.user_id == user.id)
+            .order_by(Alert.id)
+        ).scalars().all()
+        if len(user_alerts) > FREE_ALERT_LIMIT:
+            excess_ids = user_alerts[FREE_ALERT_LIMIT:]
+            deleted = session.execute(
+                sa_delete(Alert).where(Alert.id.in_(excess_ids))
+            ).rowcount
+            alerts_deleted += deleted
+            users_cleaned += 1
+
+    if alerts_deleted > 0:
+        session.flush()
+
+    return {
+        "users_past_grace": len(expired_users),
+        "users_cleaned": users_cleaned,
+        "alerts_deleted": alerts_deleted,
+        "grace_cutoff": grace_cutoff.isoformat(),
+    }
+
+
+def _scheduled_subscription_data_cleanup() -> None:
+    """Daily hard-delete of Pro/Plus data past the 90-day grace period."""
+    try:
+        with SessionLocal() as _log_session:
+            _run_id = start_run(_log_session, JOB_SUB_CLEANUP)
+    except Exception as exc:
+        logger.exception("start_run_failed job=%s", JOB_SUB_CLEANUP)
+        send_discord_alert(
+            "error",
+            f"CRITICAL: start_run 失败 — {JOB_SUB_CLEANUP}",
+            f"error={exc}\nJob 已跳过，本次无 run_log 记录",
+        )
+        return
+
+    _exc: BaseException | None = None
+    _log_meta: dict | None = None
+
+    try:
+        with SessionLocal() as session:
+            _log_meta = _run_subscription_data_cleanup(session)
+            session.commit()
+        logger.info(
+            "subscription-data-cleanup complete: users_cleaned=%d alerts_deleted=%d",
+            _log_meta["users_cleaned"], _log_meta["alerts_deleted"],
+        )
+    except BaseException as exc:
+        _exc = exc
+        raise
+    finally:
+        if _exc is not None:
+            log_status = "error"
+        elif (_log_meta or {}).get("alerts_deleted", 0) == 0:
+            log_status = "no_op"
+        else:
+            log_status = "success"
+        try:
+            with SessionLocal() as _log_session:
+                finish_run(
+                    _log_session, _run_id,
+                    status=log_status,
+                    records_written=(_log_meta or {}).get("alerts_deleted", 0),
+                    meta_json=_log_meta,
+                    error_message=str(_exc) if _exc is not None else None,
+                )
+                prune_old_runs(_log_session, JOB_SUB_CLEANUP)
+        except Exception:
+            logger.exception(
+                "finish_run_failed job=%s run_id=%s",
+                JOB_SUB_CLEANUP, _run_id,
             )
 
 

@@ -31,7 +31,7 @@ const PRO_FEATURES = [
 const FAQ: { q: string; a: string }[] = [
   {
     q: 'Is there a free trial?',
-    a: '14 days of full Plus access, no credit card required. When your trial ends you drop to the Free tier automatically. Upgrade any time during or after.',
+    a: '14-day free trial of full Plus access, no credit card required. When your trial ends you drop to the Free tier automatically. Upgrade any time during or after.',
   },
   {
     q: 'What are the founders prices?',
