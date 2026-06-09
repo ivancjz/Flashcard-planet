@@ -2098,40 +2098,57 @@ def _run_signal_history_prune() -> None:
             )
 
 
-def _run_subscription_data_cleanup(session: Session) -> dict:
-    """Hard-delete Pro/Plus user data after 90-day grace period.
+_SUB_CLEANUP_BATCH = 50  # max users processed per run — bounds blast radius of irreversible deletions
 
-    Targets users whose paid subscription ended >90 days ago (status 'expired'
-    or 'cancelled' with subscription_current_period_end < NOW() - 90 days).
-    Deletes alerts beyond FREE_ALERT_LIMIT (5) per user — the excess was only
-    meaningful with Pro/Plus access and the 90-day grace has now passed.
+
+def _run_subscription_data_cleanup(session: Session) -> dict:
+    """Hard-delete Pro/Plus/trial user data after 90-day grace period.
+
+    Targets users whose subscription or trial ended >90 days ago (status
+    'expired' or 'cancelled'). Uses subscription_current_period_end for paid
+    users and trial_ends_at for trial-only users (who never get a period_end).
+    Deletes alerts beyond FREE_ALERT_LIMIT (5) per user, keeping the oldest
+    by created_at. Processes at most _SUB_CLEANUP_BATCH users per run.
 
     Returns a meta dict suitable for scheduler_run_log.
     """
-    from sqlalchemy import delete as sa_delete, text
+    from sqlalchemy import delete as sa_delete, or_, and_
     from backend.app.models.alert import Alert
     from backend.app.models.user import User
     from backend.app.core.permissions import FREE_ALERT_LIMIT
 
     grace_cutoff = datetime.now(UTC) - timedelta(days=90)
 
-    # Find users past their grace period
+    # Two cases:
+    # (a) paid sub users — subscription_current_period_end is set
+    # (b) trial-only users — subscription_current_period_end is NULL, use trial_ends_at
     expired_users = session.execute(
-        select(User).where(
+        select(User)
+        .where(
             User.subscription_status.in_(["expired", "cancelled"]),
-            User.subscription_current_period_end.isnot(None),
-            User.subscription_current_period_end < grace_cutoff,
+            or_(
+                and_(
+                    User.subscription_current_period_end.isnot(None),
+                    User.subscription_current_period_end < grace_cutoff,
+                ),
+                and_(
+                    User.subscription_current_period_end.is_(None),
+                    User.trial_ends_at.isnot(None),
+                    User.trial_ends_at < grace_cutoff,
+                ),
+            ),
         )
+        .limit(_SUB_CLEANUP_BATCH)
     ).scalars().all()
 
     alerts_deleted = 0
     users_cleaned = 0
     for user in expired_users:
-        # Keep the first FREE_ALERT_LIMIT alerts (oldest), delete the rest
+        # Keep the FREE_ALERT_LIMIT oldest alerts; delete the rest
         user_alerts = session.execute(
             select(Alert.id)
             .where(Alert.user_id == user.id)
-            .order_by(Alert.id)
+            .order_by(Alert.created_at.asc(), Alert.id.asc())
         ).scalars().all()
         if len(user_alerts) > FREE_ALERT_LIMIT:
             excess_ids = user_alerts[FREE_ALERT_LIMIT:]
@@ -2153,7 +2170,11 @@ def _run_subscription_data_cleanup(session: Session) -> dict:
 
 
 def _scheduled_subscription_data_cleanup() -> None:
-    """Daily hard-delete of Pro/Plus data past the 90-day grace period."""
+    """Daily hard-delete of Pro/Plus/trial data past the 90-day grace period."""
+    if not get_settings().sub_cleanup_enabled:
+        logger.debug("subscription-data-cleanup disabled (SUB_CLEANUP_ENABLED not set)")
+        return
+
     try:
         with SessionLocal() as _log_session:
             _run_id = start_run(_log_session, JOB_SUB_CLEANUP)

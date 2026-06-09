@@ -149,12 +149,13 @@ def test_unknown_variant_defaults_to_plus_not_pro():
 
 # ─── Subscription data cleanup job ──────────────────────────────────────────
 
-def _make_user(db, *, email, status, period_end, num_alerts=0):
+def _make_user(db, *, email, status, period_end=None, trial_ends_at=None, num_alerts=0):
     user = User(
         id=uuid.uuid4(),
         email=email,
         subscription_status=status,
         subscription_current_period_end=period_end,
+        trial_ends_at=trial_ends_at,
         access_tier="free",
     )
     db.add(user)
@@ -163,8 +164,10 @@ def _make_user(db, *, email, status, period_end, num_alerts=0):
         asset = Asset(id=uuid.uuid4(), name="Test Card", asset_class="tcg", game="pokemon")
         db.add(asset)
         db.flush()
-        for _ in range(num_alerts):
-            alert = Alert(user_id=user.id, asset_id=asset.id)
+        for i in range(num_alerts):
+            # Set explicit created_at so ordering tests are deterministic
+            created = datetime.now(timezone.utc) - timedelta(hours=num_alerts - i)
+            alert = Alert(user_id=user.id, asset_id=asset.id, created_at=created)
             db.add(alert)
     db.flush()
     return user
@@ -239,6 +242,74 @@ def test_cleanup_user_with_few_alerts_not_affected(db_session):
     remaining = db_session.query(Alert).filter(Alert.user_id == user.id).count()
     assert remaining == 3
     assert result["alerts_deleted"] == 0
+
+
+def test_cleanup_includes_trial_only_users_past_grace(db_session):
+    """Trial users (period_end=None, trial_ends_at set) must be included after 90 days."""
+    from backend.app.backstage.scheduler import _run_subscription_data_cleanup
+
+    old_trial_end = datetime.now(timezone.utc) - timedelta(days=91)
+    user = _make_user(
+        db_session,
+        email="trialold@example.com",
+        status="expired",
+        period_end=None,         # trial-only: never paid, no period_end
+        trial_ends_at=old_trial_end - timedelta(days=1),
+        num_alerts=8,
+    )
+    result = _run_subscription_data_cleanup(db_session)
+    db_session.commit()
+
+    remaining = db_session.query(Alert).filter(Alert.user_id == user.id).count()
+    assert remaining == 5
+    assert result["alerts_deleted"] == 3
+
+
+def test_cleanup_skips_trial_users_within_grace(db_session):
+    """Trial users within 90-day grace must be skipped."""
+    from backend.app.backstage.scheduler import _run_subscription_data_cleanup
+
+    recent_trial_end = datetime.now(timezone.utc) - timedelta(days=30)
+    _make_user(
+        db_session,
+        email="trialrecent@example.com",
+        status="expired",
+        period_end=None,
+        trial_ends_at=recent_trial_end,
+        num_alerts=8,
+    )
+    result = _run_subscription_data_cleanup(db_session)
+
+    assert result["alerts_deleted"] == 0
+    assert result["users_cleaned"] == 0
+
+
+def test_cleanup_keeps_oldest_alerts_by_created_at(db_session):
+    """The 5 kept alerts must be the oldest by created_at, not arbitrary UUID order."""
+    from backend.app.backstage.scheduler import _run_subscription_data_cleanup
+
+    grace_cutoff = datetime.now(timezone.utc) - timedelta(days=91)
+    # _make_user creates alerts with created_at = now - (num_alerts - i) hours
+    # so alert 0 is oldest (now-8h) and alert 7 is newest (now-1h)
+    user = _make_user(
+        db_session,
+        email="order@example.com",
+        status="expired",
+        period_end=grace_cutoff - timedelta(days=1),
+        num_alerts=8,
+    )
+    all_alerts_before = db_session.query(Alert).filter(
+        Alert.user_id == user.id
+    ).order_by(Alert.created_at.asc()).all()
+    oldest_5_ids = {a.id for a in all_alerts_before[:5]}
+
+    _run_subscription_data_cleanup(db_session)
+    db_session.commit()
+
+    remaining_ids = {
+        a.id for a in db_session.query(Alert).filter(Alert.user_id == user.id).all()
+    }
+    assert remaining_ids == oldest_5_ids, "Cleanup must keep the 5 oldest alerts, not arbitrary ones"
 
 
 def test_cleanup_meta_contains_expected_keys(db_session):
