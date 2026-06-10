@@ -140,7 +140,7 @@ export default function SealedPage() {
                       <TrendBadge trend_pct={product.trend_pct} trend_label={product.trend_label} />
                     </td>
                     <td style={{ padding: '14px 16px', textAlign: 'right', color: 'var(--text-secondary)' }}>
-                      {product.min_count_met ? product.listing_count : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                      {product.min_count_met ? (product.listing_count >= 50 ? '50+' : product.listing_count) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                     </td>
                   </tr>
                 ))}
