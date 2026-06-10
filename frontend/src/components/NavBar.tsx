@@ -108,14 +108,18 @@ export default function NavBar() {
         )}
         {link('/alerts', 'Alerts',
           unreadCount > 0 && (
-            <span style={{
-              position: 'absolute', top: 2, right: 2,
-              background: '#ef4444', color: 'white',
-              fontFamily: 'var(--font-mono)', fontSize: 9,
-              padding: '1px 4px', borderRadius: 8,
-              minWidth: 16, textAlign: 'center',
-              lineHeight: '14px',
-            }}>
+            <span
+              aria-live="polite"
+              aria-label={`${unreadCount} unread alert${unreadCount === 1 ? '' : 's'}`}
+              style={{
+                position: 'absolute', top: 2, right: 2,
+                background: '#ef4444', color: 'white',
+                fontFamily: 'var(--font-mono)', fontSize: 9,
+                padding: '1px 4px', borderRadius: 8,
+                minWidth: 16, textAlign: 'center',
+                lineHeight: '14px',
+              }}
+            >
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )

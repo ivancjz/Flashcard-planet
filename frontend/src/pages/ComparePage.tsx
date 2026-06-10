@@ -75,9 +75,9 @@ export default function ComparePage() {
       <NavBar />
       <div className="page-content">
         <div style={{ marginBottom: 24 }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
             Compare Cards
-          </div>
+          </h1>
           <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
             {cards.length === 0
               ? 'Select cards from the market to compare'

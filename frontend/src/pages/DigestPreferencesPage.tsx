@@ -78,6 +78,9 @@ export default function DigestPreferencesPage() {
         >
           {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save preferences'}
         </button>
+        <span className="sr-only" role="status" aria-live="polite">
+          {saving ? 'Saving preferences' : saved ? 'Preferences saved' : ''}
+        </span>
 
         {lastSent && (
           <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 16 }}>

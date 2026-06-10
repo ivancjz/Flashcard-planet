@@ -57,7 +57,12 @@ export default function GameSwitcher({ activeGame, onGameChange }: Props) {
       })}
 
       <div style={{ position: 'relative' }}>
-        <button style={ghostPill} onClick={() => setShowMore(v => !v)}>
+        <button
+          style={ghostPill}
+          onClick={() => setShowMore(v => !v)}
+          aria-haspopup="true"
+          aria-expanded={showMore}
+        >
           + More
         </button>
         {showMore && (
@@ -72,11 +77,17 @@ export default function GameSwitcher({ activeGame, onGameChange }: Props) {
               borderRadius: 8, padding: '6px 0', minWidth: 220,
             }}>
               {more.map(g => (
-                <div key={g.id} style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-muted)', cursor: 'not-allowed' }}>
-                  <span>{g.icon}</span>
+                <button
+                  key={g.id}
+                  type="button"
+                  disabled
+                  aria-label={`${g.label} — coming soon`}
+                  style={{ width: '100%', background: 'none', border: 'none', textAlign: 'left', fontFamily: 'inherit', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-muted)', cursor: 'not-allowed' }}
+                >
+                  <span aria-hidden="true">{g.icon}</span>
                   <span style={{ flex: 1 }}>{g.label}</span>
                   <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--nodata)' }}>soon</span>
-                </div>
+                </button>
               ))}
             </div>
           </>
