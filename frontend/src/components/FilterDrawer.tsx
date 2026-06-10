@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchSetOptions, fetchRarityOptions } from '../api/api'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import { useScrollLock } from '../hooks/useScrollLock'
 import type { SetOption, RarityOption } from '../types/api'
 
 export interface FilterState {
@@ -45,6 +46,7 @@ export default function FilterDrawer({ open, game, onClose, onChange, selectedSe
   const [rarities, setRarities] = useState<RarityOption[]>([])
   const [loadingOpts, setLoadingOpts] = useState(false)
   const trapRef = useFocusTrap<HTMLDivElement>(open, onClose)
+  useScrollLock(open)
 
   useEffect(() => {
     if (!open) return
