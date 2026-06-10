@@ -635,3 +635,16 @@ a { color: inherit; text-decoration: none; }
   50%       { opacity: 0.4; }
 }
 .pulse-dot { animation: pulse 2s ease-in-out infinite; }
+
+/* ── Screen-reader-only (visually hidden, announced by AT) ── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
