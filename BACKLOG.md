@@ -748,17 +748,17 @@ Code PR (≤2 files, ~10 lines):
 
 1. **Modal accessibility** — ✅ **COMPLETE 2026-06-10 (PR #80).** On re-verification, 6 of 7 requirements (`role="dialog"`, `aria-modal="true"`, `aria-labelledby`, focus trap, Escape-close, focus restoration via `useFocusTrap`, backdrop click-to-close) were already shipped on all three surfaces — only **scroll lock** was missing. PR #80 added the reference-counted `useScrollLock` hook + wired it into all three + test coverage (5 `useScrollLock` cases, 2 `useFocusTrap` regression cases). WCAG 4.1.2, 2.4.3 met. Note: implemented as two focused hooks (`useFocusTrap` + `useScrollLock`), not a single `useDialog()` wrapper — the wrapper/`<Dialog>` pattern-promotion idea was not needed.
 
-2. **GameSwitcher dropdown items** — "Coming soon" entries are `<div>` without keyboard semantics. WCAG 2.1.1. Should be `<button disabled>` or get role/tabIndex/onKeyDown.
+2. **GameSwitcher dropdown items** — ✅ **COMPLETE 2026-06-11 (PR #81).** "Coming soon" `<div>` entries → `<button disabled aria-label="<Game> — coming soon">`; added `aria-haspopup` + `aria-expanded` to the toggle. WCAG 2.1.1, 4.1.2. Test coverage added.
 
-3. **Skip link** — no "Skip to main content" link before NavBar. WCAG 2.4.1. Add as first focusable element with visually-hidden-until-focused styling.
+3. **Skip link** — ⏳ **DEFERRED — needs arch decision (own PR).** No shared layout exists (each page self-renders NavBar + content), so a correct `#main-content` landmark requires either a `<Layout>` wrapper refactor across 13 routes or per-page `id="main-content"` additions. The `.sr-only` utility it needs was added to `theme.css` in PR #81. WCAG 2.4.1. **Decision for Ivan:** introduce a shared `<Layout>`, or per-page id?
 
-4. **Live regions** — `DigestPreferencesPage` "Saved ✓" and NavBar unread-alert badge should announce changes via `aria-live="polite"`. WCAG 4.1.3.
+4. **Live regions** — ✅ **COMPLETE 2026-06-11 (PR #81).** NavBar unread badge → `aria-live="polite"` + descriptive `aria-label`; `DigestPreferencesPage` save state → sr-only `role="status" aria-live="polite"` region. WCAG 4.1.3. Known limitation: NavBar badge only renders when `unreadCount > 0`, so the 0→1 transition's announcement isn't guaranteed across all SRs (a persistent region would fix it — minor, deferred).
 
-5. **Heading hierarchy** — `ComparePage.tsx:78` uses a `<div>` styled as a title instead of `<h1>`. WCAG 1.3.1, 2.4.6. Sweep for similar non-semantic titles across pages.
+5. **Heading hierarchy** — ✅ **COMPLETE 2026-06-11 (PR #81).** `ComparePage` title `<div>` → `<h1>` (`margin:0` preserves layout). WCAG 1.3.1, 2.4.6. Note: no other non-semantic page titles found needing the sweep at this time.
 
-6. **Link/button semantics** — `PlusUpgradeModal.tsx:35` is `<a href="/#plus">` for what is effectively a button action; either clarify as link with `aria-label` or convert to `<button>`. WCAG 4.1.2 (P2).
+6. **Link/button semantics** — ⏭️ **MOOT (verified 2026-06-11).** Audit cited `PlusUpgradeModal.tsx:35 <a href="/#plus">` as a button-action-as-link; current code is a legitimate `<a href="/pricing">` link to a real route. No defect. WCAG 4.1.2.
 
-**Triage criteria:** Item 1 (modals) is the highest-impact and the natural pair to "Pattern promotion" (`.modal` extraction). Items 2–4 are independent and small. Items 5–6 are P2 polish.
+**Triage criteria:** All items resolved except item 3 (skip link), which is the only one left and needs an arch decision. Items 1/2/4/5 shipped (PRs #80, #81); item 6 was moot.
 
 **Audit report archived in:** session transcript 2026-05-08; `frontend/src/styles/theme.css` history reflects the design-system fixes that preceded this audit.
 
