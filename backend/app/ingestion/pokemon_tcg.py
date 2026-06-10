@@ -31,7 +31,7 @@ PRICE_TYPE_PRIORITY = (
 )
 PRICE_VALUE_PRIORITY = ("market", "mid", "low")
 RETRYABLE_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
-MAX_FETCH_ATTEMPTS = 3
+MAX_FETCH_ATTEMPTS = 5
 
 
 class ProviderUnavailableError(RuntimeError):
@@ -312,9 +312,9 @@ def cap_and_backoff(retry_after_secs: float | None, attempt: int) -> float:
     """Return the delay in seconds before the next retry of a Pokemon TCG API call.
 
     Caps Retry-After at 60 s to prevent a single bad header stalling a run for
-    hours. The 60 s cap and [2.0, 5.0, 15.0] fallbacks were tuned in PR #12
-    against observed Pokemon TCG API behaviour. Do not import this for other
-    APIs without verifying their rate-limit semantics match.
+    hours. Fallback delays [2.0, 5.0, 15.0, 30.0, 60.0] (5 attempts) survive
+    Cloudflare throttle windows where Retry-After is absent. Do not import this
+    for other APIs without verifying their rate-limit semantics match.
 
     Args:
         retry_after_secs: Parsed value of the Retry-After header, or None.
@@ -322,8 +322,9 @@ def cap_and_backoff(retry_after_secs: float | None, attempt: int) -> float:
     """
     if retry_after_secs is not None:
         return min(retry_after_secs, 60.0)
-    idx = min(max(attempt - 1, 0), 2)
-    return [2.0, 5.0, 15.0][idx]
+    _FALLBACK = [2.0, 5.0, 15.0, 30.0, 60.0]
+    idx = min(max(attempt - 1, 0), len(_FALLBACK) - 1)
+    return _FALLBACK[idx]
 
 
 def _parse_retry_after(response: httpx.Response) -> float | None:
