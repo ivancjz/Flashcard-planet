@@ -4,7 +4,7 @@
 >
 > **This file is for Claude Code to consume autonomously.** When picking up a session and there is no specific operator instruction, read this file and start the highest-priority task you have evidence to safely execute. See §0 below.
 
-**Last updated:** 2026-06-09 (v14 — TASK-301 payment gap fixes in PR #79: Pro checkout routing, webhook tier detection, 90-day grace cleanup job)
+**Last updated:** 2026-06-10 (v15 — reconcile: PR #79/TASK-301 merged, TASK-305 + BL-1 shipped; statuses synced to git reality)
 **Maintained by:** Ivan (operator) with proposed updates from Claude Code via PR
 
 ---
@@ -456,7 +456,7 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 #### TASK-301 — Pro tier launch implementation
 
 **Priority:** P1 — both blockers resolved, promoting now
-**Status:** in_progress — PR #79 open (2026-06-09), awaiting Codex review + Ivan merge
+**Status:** in_progress — PR #79 (checkout routing, webhook tier detection, 90-day grace cleanup job, sort gate) merged 2026-06-10 (29818d6 + 0d369ef). Remaining DoD: first real payment end-to-end, refund flow test, ≥10 paying Pro users — gated on GATE4/GATE9 (Ivan env flips) + LemonSqueezy live.
 **Blocked by:** ~~TASK-102~~ (done) ~~TASK-203~~ (done)
 **Owner:** Claude Code + Ivan
 **Preconditions:**
@@ -520,7 +520,7 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 #### TASK-305 — `/pricing` page i18n + Chinese localization
 
 **Priority:** P2
-**Status:** ready
+**Status:** complete — 2026-06-10 (commit 086d756)
 **Owner:** Claude Code
 **Preconditions:** TASK-301 has at least produced the English `/pricing` page
 
@@ -532,6 +532,7 @@ This task adds OpenAI as a third provider to the existing LLM analysis pool. The
 
 **Estimated effort:** S
 **Reference:** `03_pricing_page_copy.md` Chinese section, `plan-v3.md` I18N-1b
+**Completion note (2026-06-10):** Shipped via inline `LOCALES` constant + `useState` toggle in `PricingPage.tsx`, **not** the existing i18n framework (single-page scope didn't justify wiring it in). zh prices use RMB (¥88/mo Plus, ¥218/mo Pro) per `03_pricing_page_copy.md`. dist rebuilt in same commit (§13). Deviation from DoD wording accepted — revisit if a second page needs zh.
 
 ---
 
@@ -705,7 +706,7 @@ Code PR (≤2 files, ~10 lines):
 
 #### BL-1 — Extend `_get_json` retry schedule (resilience, key-independent)
 **Proposed:** 2026-06-05 (TASK-80Y root cause audit)
-**Status:** needs_triage
+**Status:** complete — 2026-06-10 (commit f4b56d0; MAX_FETCH_ATTEMPTS extended to 5-attempt schedule in pokemon_tcg.py)
 **Why:** A single 429 or transient network blip currently kills the entire bulk-refresh job (`sets_completed_before_failure=0`, job dies at `dur=8-15s`). Three retries with delays `[2.0, 5.0, 15.0]` don't survive a Cloudflare throttle window where `Retry-After` is absent or small. This fragility is independent of the throttling root cause (now resolved by API key) — even on the authenticated tier, a transient failure should not be fatal.
 **What:** In `import_pokemon_cards.py` `_get_json`, extend `cap_and_backoff` fallback delays from `[2.0, 5.0, 15.0]` (3 attempts) to `[2.0, 5.0, 15.0, 30.0, 60.0]` (5 attempts). Note: `MAX_FETCH_ATTEMPTS` is imported from `pokemon_tcg.py` — update the constant there, not in the script.
 **Do NOT add inter-set pacing** — pacing was for the per-IP throttling problem, which the API key solved. Pacing is no longer needed and would slow down a job that now runs comfortably under the 250/min per-key limit.
@@ -877,6 +878,9 @@ When a task ships, move it here with PR number and merge date. Keep this section
 
 | TASK | Title | PR | Merged | Outcome |
 |---|---|---|---|---|
+| TASK-301 (PR #79) | Pro tier payment-gap fixes | PR #79 (29818d6 + 0d369ef) | 2026-06-10 | Pro checkout routing, webhook tier detection, 90-day grace cleanup job, backend Pro-only sort gate. Subset of TASK-301 DoD — umbrella task stays in_progress (first real payment + ≥10 paying users not yet met). |
+| TASK-305 | /pricing zh/en language toggle | commit 086d756 | 2026-06-10 | Inline LOCALES + useState toggle on PricingPage.tsx (no i18n framework). zh RMB pricing (¥88 Plus, ¥218 Pro). dist rebuilt same commit. |
+| BL-1 | Pokemon TCG API retry 3→5 attempts | commit f4b56d0 | 2026-06-10 | MAX_FETCH_ATTEMPTS extended to [2.0,5.0,15.0,30.0,60.0] in pokemon_tcg.py. Survives longer Cloudflare throttle windows. No inter-set pacing added (key solved per-IP throttling). |
 | TASK-GATE7 | Default sort → signal | commit 3b8dc10 | 2026-06-04 | Gate 5 pass (sv6 9 MOVE + 24 WATCH, Greninja ex +112%). DashboardPage.tsx:31 'change' → 'signal'. |
 | TASK-801 | YGO CardMarket seed expansion (Phase 2b) | — | 2026-06-04 | 8/8 seeded cards have signals. PHNI-EN057 MOVE +86%, RA01-EN000 MOVE +49%, LEDE-EN003 WATCH. CardMarket data: 11,304+ rows since 2026-05-14. |
 | FE-6 | Card Detail driver attribution + fundamental delta panel | commit 39c148b | 2026-05-29 | Driver type, confidence %, event description, fundamental delta, hype premium shown on card detail when driver != UNKNOWN. |
