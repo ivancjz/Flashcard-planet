@@ -40,6 +40,7 @@
 - 所有评级 observation **只进影子准入路径**(GradedObservationAudit),不写 `price_history`——直到人工审核通过 + Ivan 明确启用决策(该决策为 `needs_decision`,本 loop 不得自行推进到启用)
 - 标题解析复用现有 `market_segment` / `grade_company` / `grade_score` 逻辑,不重写
 - 监控:每日影子准入行数、解析分布、价格离群比例进 diag endpoint
+- **来源隐藏("hide it",2026-06-11 Ivan 决策 = scrape, hidden source only):** eBay 作为数据来源对产品/用户/公开材料完全不可见——inspector / dashboard / alert / 营销文案都不展示原始 eBay 价、不标注 eBay,信号一律呈现为本平台自有分析(沿用 CardMarket posture,CLAUDE.md §2)。采集沿用现有 `ebay_web_sold` 模式:许可基础设施(GitHub Actions IP)、限速、每 asset 每轮一行中位数、足迹最小化。**明确不做主动反检测工程**(代理轮换 / 浏览器指纹伪造 / header 伪装 / CAPTCHA 绕过)——这不是 scope。许可 IP 被 Akamai 封锁 → 走 §7 eBay Marketplace Insights API 官方申请,不进规避军备竞赛。
 
 **Stop condition(stage 内):** 影子数据连续 7 天日增 <10 行 → 停止并报告(查询策略问题,不是堆 query 数量能解决的)
 
