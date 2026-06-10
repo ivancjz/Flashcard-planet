@@ -20,9 +20,7 @@ from backend.app.models.user import User
 
 router = APIRouter(prefix="/api/v1/web", tags=["web"])
 
-# TEMP: Pro tier gate removed for testing phase. Restore check in web_cards() and
-# web_cards_batch() when commercial tier is finalized. Search "TEMP" to find both sites.
-_PRO_ONLY_SORTS: frozenset[str] = frozenset({"volume", "recent"})  # currently unused
+_PRO_ONLY_SORTS: frozenset[str] = frozenset({"volume", "recent"})
 
 
 def _get_effective_tier(user: User | None = Depends(get_optional_user)) -> str:
@@ -141,8 +139,8 @@ def web_cards(
     tier: str = Depends(_get_effective_tier),
 ):
     requested_sort = sort
-    # TEMP: Pro tier gate removed for testing phase. Restore when commercial tier is finalized.
-    # Restore: if sort in _PRO_ONLY_SORTS and tier != "pro": sort = "change"
+    if sort in _PRO_ONLY_SORTS and tier != "pro":
+        sort = "change"
 
     primary_source = _GAME_PRIMARY_SOURCE.get(game, "pokemon_tcg_api")
     if signal == "ALL":
@@ -796,8 +794,8 @@ def web_cards_batch(
     Primary source (TCG price) is determined per-asset via SQL CASE on a.game.
     Cap: 500 asset_ids per request.
     """
-    # TEMP: Pro tier gate removed for testing phase. Restore when commercial tier is finalized.
-    # Restore: if body.sort in _PRO_ONLY_SORTS and tier != "pro": body.sort = "change"
+    if body.sort in _PRO_ONLY_SORTS and tier != "pro":
+        body.sort = "change"
 
     # Validate UUIDs; silently skip invalid ones
     valid_ids: list[str] = []

@@ -29,28 +29,26 @@ def _make_client(tier: str = "free") -> TestClient:
     return TestClient(app)
 
 
-def test_sort_volume_works_for_all_users():
-    # TEMP: gate removed; volume sort allowed for all tiers.
-    # Restore original assertions when Pro gate is re-enabled.
+def test_sort_volume_free_tier_downgraded():
+    # Free tier requesting volume sort is silently downgraded to change.
     client = _make_client(tier="free")
     resp = client.get("/api/v1/web/cards?sort=volume")
     assert resp.status_code == 200
     data = resp.json()
     assert data["tier"] == "free"
     assert data["requested_sort"] == "volume"
-    assert data["effective_sort"] == "volume"
+    assert data["effective_sort"] == "change"
 
 
-def test_sort_recent_works_for_all_users():
-    # TEMP: gate removed; recent sort allowed for all tiers.
-    # Restore original assertions when Pro gate is re-enabled.
+def test_sort_recent_free_tier_downgraded():
+    # Free tier requesting recent sort is silently downgraded to change.
     client = _make_client(tier="free")
     resp = client.get("/api/v1/web/cards?sort=recent")
     assert resp.status_code == 200
     data = resp.json()
     assert data["tier"] == "free"
     assert data["requested_sort"] == "recent"
-    assert data["effective_sort"] == "recent"
+    assert data["effective_sort"] == "change"
 
 
 def test_pro_user_sort_volume_returns_volume_order():

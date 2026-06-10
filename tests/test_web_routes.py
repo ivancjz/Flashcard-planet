@@ -172,16 +172,27 @@ class WebCardsTests(TestCase):
         self.assertEqual(body["limit"], 10)
         self.assertEqual(body["offset"], 20)
 
-    def test_sort_volume_returns_200(self):
+    def test_sort_volume_free_tier_downgraded_to_change(self):
+        # Free tier requesting volume sort is silently downgraded to change — still 200.
         db = self._make_db()
-        app, client = _make_app(db)
+        app, client = _make_app(db)  # _make_app overrides tier to "free"
         resp = client.get("/api/v1/web/cards?sort=volume")
         self.assertEqual(resp.status_code, 200)
 
-    def test_sort_recent_returns_200(self):
+    def test_sort_recent_free_tier_downgraded_to_change(self):
+        # Free tier requesting recent sort is silently downgraded to change — still 200.
         db = self._make_db()
         app, client = _make_app(db)
         resp = client.get("/api/v1/web/cards?sort=recent")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_sort_volume_pro_tier_allowed(self):
+        # Pro tier gets volume sort without downgrade.
+        from backend.app.api.routes.web import _get_effective_tier
+        db = self._make_db()
+        app, client = _make_app(db)
+        app.dependency_overrides[_get_effective_tier] = lambda: "pro"
+        resp = client.get("/api/v1/web/cards?sort=volume")
         self.assertEqual(resp.status_code, 200)
 
     def test_sort_invalid_falls_back_to_change_returns_200(self):
