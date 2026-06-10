@@ -1,4 +1,5 @@
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import { useScrollLock } from '../hooks/useScrollLock'
 
 interface Props {
   onClose: () => void
@@ -7,6 +8,7 @@ interface Props {
 export default function PlusUpgradeModal({ onClose }: Props) {
   // Component only renders when shown — open is always true at mount
   const trapRef = useFocusTrap<HTMLDivElement>(true, onClose)
+  useScrollLock(true)
   return (
     <div
       className="modal-backdrop"

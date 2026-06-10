@@ -3,6 +3,7 @@ import { fetchCards } from '../api/api'
 import SignalBadge from './SignalBadge'
 import { signalToMeta } from '../lib/utils'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import { useScrollLock } from '../hooks/useScrollLock'
 import type { CardSummary } from '../types/api'
 
 interface Props {
@@ -20,6 +21,7 @@ export default function CardPickerModal({ open, onClose, onSelect, excludeIds, g
   const [loading, setLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const trapRef = useFocusTrap<HTMLDivElement>(open, onClose)
+  useScrollLock(open)
 
   // Focus input when modal opens; reset on close
   useEffect(() => {
