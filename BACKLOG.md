@@ -746,7 +746,7 @@ Code PR (≤2 files, ~10 lines):
 
 **Deferred items, each warrants its own PR:**
 
-1. **Modal accessibility** — `CardPickerModal`, `PlusUpgradeModal`, and `FilterDrawer` are missing `role="dialog"` + `aria-modal="true"`, focus traps, Escape-key close, focus restoration on close, and scroll lock. WCAG 4.1.2, 2.4.3. Recommend tackling all three together so they share a `useDialog()` hook (or a `<Dialog>` wrapper from item 3 — pattern promotion).
+1. **Modal accessibility** — ✅ **COMPLETE 2026-06-10 (PR #80).** On re-verification, 6 of 7 requirements (`role="dialog"`, `aria-modal="true"`, `aria-labelledby`, focus trap, Escape-close, focus restoration via `useFocusTrap`, backdrop click-to-close) were already shipped on all three surfaces — only **scroll lock** was missing. PR #80 added the reference-counted `useScrollLock` hook + wired it into all three + test coverage (5 `useScrollLock` cases, 2 `useFocusTrap` regression cases). WCAG 4.1.2, 2.4.3 met. Note: implemented as two focused hooks (`useFocusTrap` + `useScrollLock`), not a single `useDialog()` wrapper — the wrapper/`<Dialog>` pattern-promotion idea was not needed.
 
 2. **GameSwitcher dropdown items** — "Coming soon" entries are `<div>` without keyboard semantics. WCAG 2.1.1. Should be `<button disabled>` or get role/tabIndex/onKeyDown.
 
