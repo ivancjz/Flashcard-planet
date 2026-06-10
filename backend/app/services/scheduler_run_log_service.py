@@ -36,6 +36,7 @@ JOB_EBAY_WEB_SOLD      = "ebay-web-sold"
 JOB_RESOLVE            = "resolve-predictions"
 JOB_REDDIT_UPDATE      = "reddit-update"
 JOB_NITTER_UPDATE      = "nitter-update"
+JOB_SUB_CLEANUP        = "subscription-data-cleanup"
 
 _KEEP_RUNS = 50
 

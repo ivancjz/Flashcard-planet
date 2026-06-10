@@ -111,11 +111,16 @@ class Settings(BaseSettings):
     # LemonSqueezy
     lemonsqueezy_api_key: str = ""
     lemonsqueezy_store_id: str = ""
-    lemonsqueezy_product_id_pro: str = ""
-    lemonsqueezy_variant_id_standard: str = ""
-    lemonsqueezy_variant_id_founders: str = ""
+    # Plus tier variants
+    lemonsqueezy_variant_id_standard: str = ""          # Plus $9.99/mo
+    lemonsqueezy_variant_id_founders: str = ""          # Plus founders $7/mo (first 100)
+    # Pro tier variants
+    lemonsqueezy_variant_id_pro_standard: str = ""      # Pro $30/mo
+    lemonsqueezy_variant_id_pro_founders: str = ""      # Pro founders $20/mo (first 50)
     lemonsqueezy_webhook_secret: str = ""
     trial_auto_start: bool = False  # set True (TRIAL_AUTO_START=1) once LemonSqueezy is wired
+    # Category β: destructive irreversible deletion — activate only once first churned users exist (post-launch)
+    sub_cleanup_enabled: bool = Field(default=False)
     signal_sweep_enabled: bool = True          # kill switch: set False to pause sweeps
     retry_pass_enabled: bool = True            # kill switch: set False to pause retry-pass
     # Category β — off by default. Enable after Gate 4 (7-day staging validation) passes.

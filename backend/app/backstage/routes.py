@@ -48,6 +48,7 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_SIGNALS,
     JOB_TRIAL_EXPIRY,
     JOB_YGO,
+    JOB_SUB_CLEANUP,
 )
 from backend.app.services.diagnostics_summary_service import build_standardized_diagnostics_summary
 from backend.app.services.signal_service import sweep_signals
@@ -592,6 +593,7 @@ def admin_stats(
         JOB_TRIAL_EXPIRY,
         JOB_SEALED_INGEST,
         JOB_EBAY_WEB_SOLD,
+        JOB_SUB_CLEANUP,
     ]
     scheduler = {
         "jobs": {job: _job_stats(db, job) for job in _tracked_jobs},

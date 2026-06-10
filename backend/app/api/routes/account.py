@@ -51,9 +51,20 @@ def update_digest_preferences(
     )
 
 
+_VARIANT_ROUTING: dict[str, tuple[str, str]] = {
+    # (config_attr, tier)
+    "plus":         ("lemonsqueezy_variant_id_standard",      "plus"),
+    "standard":     ("lemonsqueezy_variant_id_standard",      "plus"),
+    "founders":     ("lemonsqueezy_variant_id_founders",       "plus"),
+    "plus_founders": ("lemonsqueezy_variant_id_founders",      "plus"),
+    "pro":          ("lemonsqueezy_variant_id_pro_standard",   "pro"),
+    "pro_founders": ("lemonsqueezy_variant_id_pro_founders",   "pro"),
+}
+
+
 @router.get("/checkout-url")
 def get_checkout_url(
-    variant: str = Query(default="standard", description="standard | founders"),
+    variant: str = Query(default="plus", description="plus | founders | pro | pro_founders"),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, str]:
     """Return a LemonSqueezy checkout URL pre-filled with the user's email."""
@@ -61,11 +72,11 @@ def get_checkout_url(
     if not settings.lemonsqueezy_api_key:
         raise HTTPException(status_code=503, detail="Payment provider not configured")
 
-    variant_id = (
-        settings.lemonsqueezy_variant_id_founders
-        if variant == "founders"
-        else settings.lemonsqueezy_variant_id_standard
-    )
+    routing = _VARIANT_ROUTING.get(variant)
+    if routing is None:
+        raise HTTPException(status_code=400, detail=f"Unknown variant: {variant}")
+    config_attr, _tier = routing
+    variant_id: str = getattr(settings, config_attr, "")
     if not variant_id:
         raise HTTPException(status_code=503, detail="Variant not configured")
 
