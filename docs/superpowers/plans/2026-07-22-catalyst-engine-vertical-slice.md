@@ -214,7 +214,7 @@ git commit -m "feat: add catalyst lifecycle service"
 - Modify: `backend/app/api/routes/market.py`
 - Create: `tests/test_catalyst_api.py`
 
-- [ ] **Step 1: Write failing route tests**
+- [x] **Step 1: Write failing route tests**
 
 Test:
 
@@ -225,13 +225,13 @@ GET /api/v1/market/catalysts/{catalyst_id}
 
 Assert query values reach the service unchanged after event-type normalization, unknown IDs return `404`, and invalid `limit=0`, `limit=101`, or `offset=-1` return `422`.
 
-- [ ] **Step 2: Run the API test and verify RED**
+- [x] **Step 2: Run the API test and verify RED**
 
 Run: `python -m pytest tests/test_catalyst_api.py -q`
 
 Expected: both endpoints return `404` because they are not registered.
 
-- [ ] **Step 3: Register list and detail endpoints**
+- [x] **Step 3: Register list and detail endpoints**
 
 Add routes under the existing `/market` router:
 
@@ -257,13 +257,13 @@ def catalyst_index(
 
 The detail route returns the same `CatalystResponse` contract and raises `HTTPException(404, "Catalyst not found.")` when absent. No create, update, or delete endpoint is permitted in this slice.
 
-- [ ] **Step 4: Run API and service tests and verify GREEN**
+- [x] **Step 4: Run API and service tests and verify GREEN**
 
 Run: `python -m pytest tests/test_catalyst_api.py tests/test_catalyst_service.py -q`
 
 Expected: all catalyst backend read tests pass.
 
-- [ ] **Step 5: Commit the public API**
+- [x] **Step 5: Commit the public API**
 
 ```text
 git add backend/app/api/routes/market.py tests/test_catalyst_api.py
