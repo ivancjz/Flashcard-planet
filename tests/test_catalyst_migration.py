@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from unittest.mock import MagicMock, call
 
+import pytest
+
 
 CONSTRAINT_NAME = "ck_market_events_event_type"
 EXPANDED_EVENT_TYPE_CONDITION = (
@@ -67,8 +69,10 @@ def test_downgrade_guards_data_before_restoring_original_constraint():
         if operation[0] == "execute"
     ]
     assert execute_operations, "downgrade must guard rows using expanded event types"
+    assert len(execute_operations) == 1
 
     guard_index, guard_operation = execute_operations[0]
+    assert guard_index == 0
     guard_sql = " ".join(guard_operation.args[0].split())
     assert "IF EXISTS" in guard_sql
     assert re.search(
@@ -91,5 +95,14 @@ def test_downgrade_guards_data_before_restoring_original_constraint():
     )
     assert drop_constraint in operations
     assert create_constraint in operations
-    assert guard_index < operations.index(drop_constraint)
     assert operations.index(drop_constraint) < operations.index(create_constraint)
+
+
+def test_downgrade_stops_when_event_type_guard_raises():
+    migration = _load_migration()
+    migration.op.execute.side_effect = RuntimeError("unsafe catalyst event types")
+
+    with pytest.raises(RuntimeError, match="unsafe catalyst event types"):
+        migration.downgrade()
+
+    assert [operation[0] for operation in migration.op.method_calls] == ["execute"]
