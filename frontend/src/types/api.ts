@@ -87,6 +87,13 @@ export interface DailyMarketReport {
   evidence: string[]
 }
 
+export interface DailyMarketReportListResponse {
+  reports: DailyMarketReport[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export interface CardSummary {
   asset_id: string
   name: string

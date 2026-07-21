@@ -135,6 +135,7 @@ describe('DashboardPage market overview', () => {
     expect(within(report).getByText('Medium confidence')).toBeTruthy()
     expect(within(report).getByText('High-end Pokemon cards led the raw market today.')).toBeTruthy()
     expect(within(report).getByText('market_segment=raw')).toBeTruthy()
+    expect(within(report).getByRole('link', { name: 'Read full report' }).getAttribute('href')).toBe('/reports/2026-07-21')
     expect(fetchLatestDailyMarketReport).toHaveBeenCalledTimes(1)
   })
 
@@ -144,6 +145,7 @@ describe('DashboardPage market overview', () => {
     renderDashboard()
 
     expect(await screen.findByText("Today's report has not been generated yet.")).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Read full report' })).toBeNull()
   })
 
   it('announces the pending daily report as a live loading region', async () => {
@@ -155,6 +157,7 @@ describe('DashboardPage market overview', () => {
     expect(report.getAttribute('aria-busy')).toBe('true')
     expect(report.getAttribute('aria-live')).toBe('polite')
     expect(within(report).getByText('Loading the latest market brief...')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Read full report' })).toBeNull()
   })
 
   it('shows an unavailable state when the daily report request fails', async () => {
@@ -163,5 +166,6 @@ describe('DashboardPage market overview', () => {
     renderDashboard()
 
     expect(await screen.findByText('Daily report unavailable.')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Read full report' })).toBeNull()
   })
 })

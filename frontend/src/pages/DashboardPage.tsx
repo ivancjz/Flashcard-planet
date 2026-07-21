@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import NavBar from '../components/NavBar'
 import TickerBar from '../components/TickerBar'
 import GameSwitcher from '../components/GameSwitcher'
@@ -441,6 +441,13 @@ function DailyMarketReportPanel({
           ))}
         </ul>
       )}
+      <Link
+        to={`/reports/${report.report_date}`}
+        className="btn btn-ghost btn-sm"
+        style={{ display: 'inline-flex', marginTop: 16, textDecoration: 'none' }}
+      >
+        Read full report
+      </Link>
     </section>
   )
 }

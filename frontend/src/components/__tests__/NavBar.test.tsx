@@ -136,4 +136,11 @@ describe('NavBar nav-links overflow (Option C mobile scroll)', () => {
     const navItems = navLinks.querySelectorAll('[role="link"]')
     expect(navItems.length).toBeGreaterThanOrEqual(4) // Market, Sealed, Watchlist, Alerts
   })
+
+  it('includes Daily as a primary navigation destination', () => {
+    renderNavBar()
+
+    const dailyLink = screen.getByRole('link', { name: 'Daily' })
+    expect(dailyLink).toBeTruthy()
+  })
 })

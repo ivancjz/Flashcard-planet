@@ -1,5 +1,5 @@
 // frontend/src/api/api.ts
-import type { MarketStats, TickerItem, CardsResponse, CardDetail, AlertsResponse, Signal, SetOption, RarityOption, MarketOverview, DailyMarketReport } from '../types/api'
+import type { MarketStats, TickerItem, CardsResponse, CardDetail, AlertsResponse, Signal, SetOption, RarityOption, MarketOverview, DailyMarketReport, DailyMarketReportListResponse } from '../types/api'
 
 const BASE = ''  // same-origin: FastAPI serves both API and SPA
 
@@ -41,6 +41,26 @@ export async function fetchMarketOverview(): Promise<MarketOverview> {
 
 export async function fetchLatestDailyMarketReport(): Promise<DailyMarketReport | null> {
   const res = await fetch(`${BASE}/api/v1/market/daily-report/latest`)
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error('daily market report fetch failed')
+  return res.json()
+}
+
+export async function fetchDailyMarketReports(params: {
+  limit?: number
+  offset?: number
+} = {}): Promise<DailyMarketReportListResponse> {
+  const qs = new URLSearchParams({
+    limit: String(params.limit ?? 30),
+    offset: String(params.offset ?? 0),
+  })
+  const res = await fetch(`${BASE}/api/v1/market/daily-report?${qs}`)
+  if (!res.ok) throw new Error('daily market report history fetch failed')
+  return res.json()
+}
+
+export async function fetchDailyMarketReportByDate(reportDate: string): Promise<DailyMarketReport | null> {
+  const res = await fetch(`${BASE}/api/v1/market/daily-report/${encodeURIComponent(reportDate)}`)
   if (res.status === 404) return null
   if (!res.ok) throw new Error('daily market report fetch failed')
   return res.json()

@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchLatestDailyMarketReport, fetchMarketOverview } from './api'
+import {
+  fetchDailyMarketReportByDate,
+  fetchDailyMarketReports,
+  fetchLatestDailyMarketReport,
+  fetchMarketOverview,
+} from './api'
 
 describe('fetchMarketOverview', () => {
   afterEach(() => {
@@ -81,5 +86,73 @@ describe('fetchLatestDailyMarketReport', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
 
     await expect(fetchLatestDailyMarketReport()).rejects.toThrow('daily market report fetch failed')
+  })
+})
+
+describe('daily market report history', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('requests a paginated report archive', async () => {
+    const payload = { reports: [], total: 0, limit: 30, offset: 0 }
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue(payload),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchDailyMarketReports({ limit: 30, offset: 0 })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/market/daily-report?limit=30&offset=0')
+    expect(result).toEqual(payload)
+  })
+
+  it('requests a dated daily market report', async () => {
+    const payload = {
+      id: '11111111-1111-1111-1111-111111111111',
+      report_date: '2026-07-21',
+      generated_at: '2026-07-21T10:00:00Z',
+      status: 'published',
+      title: 'Flashcard Planet Daily - 2026-07-21',
+      market_sentiment: 'bullish',
+      confidence_label: 'medium',
+      summary: 'Market is bullish.',
+      overview: {
+        generated_at: '2026-07-21T10:00:00Z',
+        market_sentiment: 'bullish',
+        confidence_label: 'medium',
+        indexes: [],
+        top_movers: [],
+        signal_summary: [],
+        commentary: 'Market is bullish.',
+        evidence: ['market_segment=raw'],
+      },
+      evidence: ['market_segment=raw'],
+    }
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue(payload),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchDailyMarketReportByDate('2026-07-21')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/market/daily-report/2026-07-21')
+    expect(result?.report_date).toBe('2026-07-21')
+  })
+
+  it('returns null when a dated report is missing', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }))
+
+    await expect(fetchDailyMarketReportByDate('2026-07-19')).resolves.toBeNull()
+  })
+
+  it('throws when a dated report request fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
+
+    await expect(fetchDailyMarketReportByDate('2026-07-21')).rejects.toThrow('daily market report fetch failed')
   })
 })

@@ -92,17 +92,17 @@ Expected: all route tests pass.
 - Modify: `frontend/src/api/api.ts`
 - Modify: `frontend/src/api/api.test.ts`
 
-- [ ] **Step 1: Write failing client tests**
+- [x] **Step 1: Write failing client tests**
 
 Test that `fetchDailyMarketReports({ limit: 30, offset: 0 })` requests the encoded list endpoint and returns `DailyMarketReportListResponse`. Test that `fetchDailyMarketReportByDate('2026-07-21')` returns a report, maps `404` to `null`, and throws for other failures.
 
-- [ ] **Step 2: Run the client tests and verify RED**
+- [x] **Step 2: Run the client tests and verify RED**
 
 Run: `npm test -- src/api/api.test.ts`
 
 Expected: imports fail because both functions are missing.
 
-- [ ] **Step 3: Implement the typed clients**
+- [x] **Step 3: Implement the typed clients**
 
 Add:
 
@@ -117,7 +117,7 @@ export interface DailyMarketReportListResponse {
 
 Implement the list and dated fetch functions. Encode the report date with `encodeURIComponent`.
 
-- [ ] **Step 4: Run the client tests and verify GREEN**
+- [x] **Step 4: Run the client tests and verify GREEN**
 
 Run: `npm test -- src/api/api.test.ts`
 
@@ -130,21 +130,21 @@ Expected: all API client tests pass.
 - Create: `frontend/src/pages/DailyReportsPage.test.tsx`
 - Modify: `frontend/src/styles/theme.css`
 
-- [ ] **Step 1: Write failing archive page tests**
+- [x] **Step 1: Write failing archive page tests**
 
 Mock the list client and cover loading, populated rows, empty archive, request error, and `Load older reports` appending the next page.
 
-- [ ] **Step 2: Run the archive page tests and verify RED**
+- [x] **Step 2: Run the archive page tests and verify RED**
 
 Run: `npm test -- src/pages/DailyReportsPage.test.tsx`
 
 Expected: the page module is missing.
 
-- [ ] **Step 3: Implement the archive page**
+- [x] **Step 3: Implement the archive page**
 
 Render `NavBar`, page heading, responsive report rows linking to dated routes, stable loading/error/empty states, and a load-more button while `reports.length < total`.
 
-- [ ] **Step 4: Run the archive page tests and verify GREEN**
+- [x] **Step 4: Run the archive page tests and verify GREEN**
 
 Run: `npm test -- src/pages/DailyReportsPage.test.tsx`
 
@@ -156,21 +156,21 @@ Expected: all archive page tests pass.
 - Create: `frontend/src/pages/DailyReportDetailPage.tsx`
 - Create: `frontend/src/pages/DailyReportDetailPage.test.tsx`
 
-- [ ] **Step 1: Write failing detail page tests**
+- [x] **Step 1: Write failing detail page tests**
 
 Cover loading, full report rendering, missing report, request error, market indexes, top movers, signal summary, and empty subsection labels.
 
-- [ ] **Step 2: Run the detail tests and verify RED**
+- [x] **Step 2: Run the detail tests and verify RED**
 
 Run: `npm test -- src/pages/DailyReportDetailPage.test.tsx`
 
 Expected: the page module is missing.
 
-- [ ] **Step 3: Implement the detail page**
+- [x] **Step 3: Implement the detail page**
 
 Read `reportDate` with `useParams`, call the dated client, and render the persisted snapshot in compact full-width sections. Keep tables responsive without page-level horizontal overflow.
 
-- [ ] **Step 4: Run the detail tests and verify GREEN**
+- [x] **Step 4: Run the detail tests and verify GREEN**
 
 Run: `npm test -- src/pages/DailyReportDetailPage.test.tsx`
 
@@ -185,21 +185,21 @@ Expected: all detail tests pass.
 - Modify: `frontend/src/pages/DashboardPage.tsx`
 - Modify: `frontend/src/pages/DashboardPage.test.tsx`
 
-- [ ] **Step 1: Write failing navigation tests**
+- [x] **Step 1: Write failing navigation tests**
 
 Assert the primary nav includes `Daily`, the Dashboard success panel links to `/reports/2026-07-21`, and inactive Dashboard states contain no `Read full report` link.
 
-- [ ] **Step 2: Run the navigation tests and verify RED**
+- [x] **Step 2: Run the navigation tests and verify RED**
 
 Run: `npm test -- src/components/__tests__/NavBar.test.tsx src/pages/DashboardPage.test.tsx`
 
 Expected: the new entry points are missing.
 
-- [ ] **Step 3: Implement routes and links**
+- [x] **Step 3: Implement routes and links**
 
 Register `/reports` and `/reports/:reportDate`, add the primary nav entry, and add the successful Dashboard report link.
 
-- [ ] **Step 4: Run the navigation tests and verify GREEN**
+- [x] **Step 4: Run the navigation tests and verify GREEN**
 
 Run: `npm test -- src/components/__tests__/NavBar.test.tsx src/pages/DashboardPage.test.tsx`
 
@@ -207,7 +207,7 @@ Expected: all navigation tests pass.
 
 ### Task 7: Verification And Delivery
 
-- [ ] **Step 1: Run backend verification**
+- [x] **Step 1: Run backend verification**
 
 Run:
 
@@ -215,11 +215,11 @@ Run:
 python -m pytest tests/test_daily_market_report_service.py tests/test_daily_market_report_api.py tests/test_daily_market_report_scheduler.py tests/test_market_overview_service.py tests/test_market_overview_api.py -q
 ```
 
-- [ ] **Step 2: Run frontend verification and build**
+- [x] **Step 2: Run frontend verification and build**
 
 Run `npm test` and `npm run build` from `frontend/`.
 
-- [ ] **Step 3: Inspect browser layouts**
+- [x] **Step 3: Inspect browser layouts**
 
 Verify `/reports` and `/reports/2026-07-21` at desktop and mobile widths. Confirm no text overlap, page-level horizontal scroll, clipped evidence, or unusable controls.
 
