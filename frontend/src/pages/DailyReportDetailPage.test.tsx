@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import DailyReportDetailPage from './DailyReportDetailPage'
-import { fetchDailyMarketReportByDate } from '../api/api'
-import type { DailyMarketReport } from '../types/api'
+import { fetchCatalyst, fetchCatalysts, fetchDailyMarketReportByDate } from '../api/api'
+import type { Catalyst, DailyMarketReport } from '../types/api'
 
 vi.mock('../api/api', () => ({
+  fetchCatalyst: vi.fn(),
+  fetchCatalysts: vi.fn(),
   fetchDailyMarketReportByDate: vi.fn(),
 }))
 
@@ -62,6 +64,28 @@ function makeReport(): DailyMarketReport {
   }
 }
 
+function makeCatalyst(overrides: Partial<Catalyst> = {}): Catalyst {
+  return {
+    id: 'pokemon-regionals-2026',
+    event_date: '2026-08-10T23:30:00Z',
+    active_until: '2026-08-12T23:30:00Z',
+    event_type: 'REGIONAL__CHAMPIONSHIP',
+    description: 'Pokemon regional championship registration opens.',
+    source_url: 'https://example.com/pokemon-regionals',
+    affected_games: ['pokemon'],
+    affected_asset_ids: [],
+    affected_set_ids: [],
+    expected_window_days: 3,
+    impact_score: 72,
+    impact_label: 'medium',
+    confidence_score: '84.00',
+    confidence_label: 'high',
+    status: 'upcoming',
+    verified_at: '2026-07-22T01:00:00Z',
+    ...overrides,
+  }
+}
+
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={['/reports/2026-07-21']}>
@@ -98,6 +122,112 @@ describe('DailyReportDetailPage', () => {
     expect(screen.getByText('active price source: sample_seed')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'All daily reports' }).getAttribute('href')).toBe('/reports')
     expect(fetchDailyMarketReportByDate).toHaveBeenCalledWith('2026-07-21')
+    expect(fetchDailyMarketReportByDate).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders the empty persisted catalyst snapshot between evidence and indexes', async () => {
+    vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(makeReport())
+
+    renderPage()
+
+    const catalysts = await screen.findByRole('region', { name: 'Market Catalysts' })
+    expect(catalysts.classList.contains('daily-report-section')).toBe(true)
+    expect(catalysts.classList.contains('daily-report-catalysts')).toBe(true)
+    expect(within(catalysts).getByRole('heading', { name: 'Market Catalysts' })).toBeTruthy()
+    expect(within(catalysts).getByText('0 captured events')).toBeTruthy()
+    expect(within(catalysts).getByText('No verified catalysts were captured for this report.')).toBeTruthy()
+
+    const sectionHeadings = screen.getAllByRole('heading', { level: 2 }).map(heading => heading.textContent)
+    expect(sectionHeadings).toEqual([
+      'Evidence',
+      'Market Catalysts',
+      'Market Indexes',
+      'Top Movers',
+      'Signal Summary',
+    ])
+  })
+
+  it('renders every stored catalyst in snapshot order with safe evidence handling', async () => {
+    const report = makeReport()
+    report.catalysts = [
+      makeCatalyst(),
+      makeCatalyst({
+        id: 'pokemon-supply-update',
+        event_date: '2026-08-14',
+        active_until: '2026-08-20',
+        event_type: 'supply_chain_update',
+        description: 'Distributor allocation details changed for the next product wave.',
+        source_url: 'javascript:alert(1)',
+        impact_score: null,
+        impact_label: 'high',
+        confidence_score: null,
+        confidence_label: 'high',
+        status: 'active',
+      }),
+      makeCatalyst({
+        id: 'pokemon-restock-watch',
+        event_date: '2026-08-21',
+        active_until: '2026-08-28',
+        event_type: 'RETAIL_RESTOCK_WATCH',
+        description: 'Retail restock evidence remains too limited for a scored assessment.',
+        source_url: '/evidence/restock-watch',
+        impact_score: 45,
+        impact_label: 'unscored',
+        confidence_score: '91',
+        confidence_label: 'insufficient_data',
+      }),
+      makeCatalyst({
+        id: 'pokemon-supply-review',
+        event_date: '2026-09-01',
+        active_until: '2026-09-05',
+        event_type: 'POST_LAUNCH_SUPPLY_REVIEW',
+        description: 'Post-launch supply evidence was retained as the fourth captured event.',
+        source_url: 'not a url',
+        status: 'expired',
+      }),
+    ]
+    vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(report)
+
+    const { container } = renderPage()
+
+    const catalysts = await screen.findByRole('region', { name: 'Market Catalysts' })
+    expect(within(catalysts).getByText('4 captured events')).toBeTruthy()
+
+    const rows = Array.from(container.querySelectorAll<HTMLElement>('.daily-report-catalyst-row'))
+    expect(rows).toHaveLength(4)
+    expect(rows.map(row => row.querySelector('.daily-report-catalyst-description')?.textContent)).toEqual(
+      report.catalysts.map(catalyst => catalyst.description),
+    )
+
+    expect(within(rows[0]).getByText('Upcoming')).toBeTruthy()
+    expect(within(rows[0]).getByText('Regional Championship')).toBeTruthy()
+    expect(within(rows[0]).getByText('Event')).toBeTruthy()
+    expect(within(rows[0]).getByText('Aug 10, 2026')).toBeTruthy()
+    expect(within(rows[0]).getByText('Active until')).toBeTruthy()
+    expect(within(rows[0]).getByText('Aug 12, 2026')).toBeTruthy()
+    expect(within(rows[0]).getByText('Impact: Medium (72)')).toBeTruthy()
+    expect(within(rows[0]).getByText('Confidence: High (84.00%)')).toBeTruthy()
+
+    expect(within(rows[1]).getByText('Active')).toBeTruthy()
+    expect(within(rows[1]).getByText('Supply Chain Update')).toBeTruthy()
+    expect(within(rows[1]).getByText('Impact: Unscored')).toBeTruthy()
+    expect(within(rows[1]).getByText('Confidence: Insufficient evidence')).toBeTruthy()
+    expect(within(rows[2]).getByText('Impact: Unscored')).toBeTruthy()
+    expect(within(rows[2]).getByText('Confidence: Insufficient evidence')).toBeTruthy()
+
+    const evidenceLink = within(rows[0]).getByRole('link', {
+      name: 'View evidence for Regional Championship: Pokemon regional championship registration opens.',
+    })
+    expect(evidenceLink.textContent).toBe('View evidence')
+    expect(evidenceLink.getAttribute('href')).toBe('https://example.com/pokemon-regionals')
+    expect(evidenceLink.getAttribute('target')).toBe('_blank')
+    expect(evidenceLink.getAttribute('rel')).toBe('noreferrer')
+
+    expect(within(catalysts).getAllByText('Evidence unavailable')).toHaveLength(3)
+    expect(within(catalysts).getAllByRole('link')).toEqual([evidenceLink])
+    expect(fetchDailyMarketReportByDate).toHaveBeenCalledTimes(1)
+    expect(fetchCatalysts).not.toHaveBeenCalled()
+    expect(fetchCatalyst).not.toHaveBeenCalled()
   })
 
   it('renders indexes, movers, and signal summary', async () => {

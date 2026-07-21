@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import NavBar from '../components/NavBar'
 import { fetchDailyMarketReportByDate } from '../api/api'
-import type { DailyMarketReport, MarketNumber } from '../types/api'
+import type { Catalyst, DailyMarketReport, MarketNumber } from '../types/api'
 
 function formatReportDate(value: string): string {
   const parsed = new Date(`${value}T00:00:00Z`)
@@ -21,6 +21,52 @@ function formatLabel(value: string): string {
     .filter(Boolean)
     .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
     .join(' ')
+}
+
+function formatEventDate(value: string): string {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(parsed)
+}
+
+function formatSafeNumber(value: MarketNumber): string | null {
+  const formatted = String(value).trim()
+  if (!formatted || !Number.isFinite(Number(formatted))) return null
+  return formatted
+}
+
+function getExternalSourceUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? value : null
+  } catch {
+    return null
+  }
+}
+
+function formatCatalystImpact(catalyst: Catalyst): string {
+  if (catalyst.impact_score === null || catalyst.impact_label === 'unscored') {
+    return 'Impact: Unscored'
+  }
+
+  const score = formatSafeNumber(catalyst.impact_score)
+  const label = formatLabel(catalyst.impact_label)
+  return score === null ? `Impact: ${label}` : `Impact: ${label} (${score})`
+}
+
+function formatCatalystConfidence(catalyst: Catalyst): string {
+  if (catalyst.confidence_score === null || catalyst.confidence_label === 'insufficient_data') {
+    return 'Confidence: Insufficient evidence'
+  }
+
+  const score = formatSafeNumber(catalyst.confidence_score)
+  const label = formatLabel(catalyst.confidence_label)
+  return score === null ? `Confidence: ${label}` : `Confidence: ${label} (${score}%)`
 }
 
 function formatPercent(value: MarketNumber): string {
@@ -140,6 +186,68 @@ function DailyReportContent({ report }: { report: DailyMarketReport }) {
           </ul>
         ) : (
           <p className="daily-report-empty">No supporting evidence was captured.</p>
+        )}
+      </section>
+
+      <section
+        className="daily-report-section daily-report-catalysts"
+        aria-labelledby="report-catalysts-title"
+      >
+        <div className="daily-report-section-heading">
+          <h2 id="report-catalysts-title">Market Catalysts</h2>
+          <span>
+            {report.catalysts.length} captured event{report.catalysts.length === 1 ? '' : 's'}
+          </span>
+        </div>
+        {report.catalysts.length === 0 ? (
+          <p className="daily-report-empty">No verified catalysts were captured for this report.</p>
+        ) : (
+          <div className="daily-report-catalyst-list">
+            {report.catalysts.map(catalyst => {
+              const eventType = formatLabel(catalyst.event_type)
+              const sourceUrl = getExternalSourceUrl(catalyst.source_url)
+
+              return (
+                <article className="daily-report-catalyst-row" key={catalyst.id}>
+                  <div className="daily-report-catalyst-identity">
+                    <span className="daily-report-catalyst-status">{formatLabel(catalyst.status)}</span>
+                    <span className="daily-report-catalyst-type">{eventType}</span>
+                  </div>
+
+                  <div className="daily-report-catalyst-dates">
+                    <span>
+                      <strong>Event</strong>
+                      <time dateTime={catalyst.event_date}>{formatEventDate(catalyst.event_date)}</time>
+                    </span>
+                    <span>
+                      <strong>Active until</strong>
+                      <time dateTime={catalyst.active_until}>{formatEventDate(catalyst.active_until)}</time>
+                    </span>
+                  </div>
+
+                  <p className="daily-report-catalyst-description">{catalyst.description}</p>
+
+                  <div className="daily-report-catalyst-evidence">
+                    <span>{formatCatalystImpact(catalyst)}</span>
+                    <span>{formatCatalystConfidence(catalyst)}</span>
+                    {sourceUrl === null ? (
+                      <span>Evidence unavailable</span>
+                    ) : (
+                      <a
+                        aria-label={`View evidence for ${eventType}: ${catalyst.description}`}
+                        className="daily-report-catalyst-source-link"
+                        href={sourceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        View evidence
+                      </a>
+                    )}
+                  </div>
+                </article>
+              )
+            })}
+          </div>
         )}
       </section>
 

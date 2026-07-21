@@ -985,6 +985,110 @@ a { color: inherit; text-decoration: none; }
   overflow-wrap: anywhere;
 }
 
+.daily-report-catalysts {
+  min-width: 0;
+  max-width: 100%;
+  letter-spacing: 0;
+}
+
+.daily-report-catalyst-list {
+  min-width: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.daily-report-catalyst-row {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 150px)
+    minmax(0, 190px)
+    minmax(0, 1fr)
+    minmax(0, 210px);
+  gap: 20px;
+  align-items: start;
+  min-width: 0;
+  padding: 16px 4px;
+}
+
+.daily-report-catalyst-row + .daily-report-catalyst-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.daily-report-catalyst-identity,
+.daily-report-catalyst-dates,
+.daily-report-catalyst-evidence {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  overflow-wrap: anywhere;
+}
+
+.daily-report-catalyst-status {
+  color: var(--gold);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.daily-report-catalyst-type {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.daily-report-catalyst-dates,
+.daily-report-catalyst-evidence {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.daily-report-catalyst-dates span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.daily-report-catalyst-dates strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.daily-report-catalyst-description {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.daily-report-catalyst-source-link {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 3px;
+  color: var(--gold);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
+.daily-report-catalyst-source-link:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+@media (max-width: 719px) {
+  .daily-report-catalyst-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    padding: 16px 4px;
+  }
+}
+
 .daily-report-table-wrap {
   max-width: 100%;
   overflow-x: auto;
