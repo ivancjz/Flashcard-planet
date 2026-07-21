@@ -124,7 +124,7 @@ git commit -m "feat: extend market events for catalysts"
 - Create: `backend/app/services/catalyst_service.py`
 - Create: `tests/test_catalyst_service.py`
 
-- [ ] **Step 1: Write failing lifecycle and listing tests**
+- [x] **Step 1: Write failing lifecycle and listing tests**
 
 Use a fixed `as_of=datetime(2026, 7, 22, 12, tzinfo=UTC)` and cover:
 
@@ -136,13 +136,13 @@ assert catalyst_lifecycle(old_event, as_of=as_of) == "expired"
 
 Also verify the default 14-day active window, an explicit `expected_window_days`, selected-game plus `global` matching, repeatable status filtering, event-type filtering, pagination totals, score ordering with nulls last, and omission of `verified_by` from public responses.
 
-- [ ] **Step 2: Run the service test and verify RED**
+- [x] **Step 2: Run the service test and verify RED**
 
 Run: `python -m pytest tests/test_catalyst_service.py -q`
 
 Expected: catalyst schemas and service functions do not exist.
 
-- [ ] **Step 3: Define the public schemas**
+- [x] **Step 3: Define the public schemas**
 
 Create these contracts:
 
@@ -179,7 +179,7 @@ class CatalystListResponse(BaseModel):
 
 Do not add `verified_by` to either public schema.
 
-- [ ] **Step 4: Implement lifecycle and read service**
+- [x] **Step 4: Implement lifecycle and read service**
 
 Implement:
 
@@ -195,13 +195,13 @@ def catalyst_lifecycle(event: MarketEvent, *, as_of: datetime) -> CatalystLifecy
 
 Add `list_catalysts(...)`, `get_catalyst(...)`, score-label helpers, and a shared row-to-response mapper. Query only verified rows, normalize `as_of` to UTC, filter the small curated registry in service code for JSON-array and computed-status compatibility, then paginate after filtering. Order active by impact descending then event date descending, upcoming by event date ascending then impact descending, and expired by event date descending then impact descending. Null impact scores sort after scored rows within each lifecycle group; retain a deterministic ID tie-breaker.
 
-- [ ] **Step 5: Run the service test and verify GREEN**
+- [x] **Step 5: Run the service test and verify GREEN**
 
 Run: `python -m pytest tests/test_catalyst_service.py -q`
 
 Expected: lifecycle, filtering, ordering, pagination, and public privacy tests pass.
 
-- [ ] **Step 6: Commit the catalyst read service**
+- [x] **Step 6: Commit the catalyst read service**
 
 ```text
 git add backend/app/schemas/catalyst.py backend/app/services/catalyst_service.py tests/test_catalyst_service.py
