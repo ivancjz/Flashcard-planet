@@ -138,6 +138,7 @@ export default function DashboardPage() {
   }, [signal, sort, activeGame, debouncedSearch, selectedSets, selectedRarities, priceMin, priceMax])
 
   function handleGameChange(gameId: string) {
+    if (gameId === activeGame) return
     setCatalysts(undefined)
     setCatalystsUnavailable(false)
     setActiveGame(gameId)

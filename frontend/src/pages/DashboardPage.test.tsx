@@ -31,6 +31,7 @@ vi.mock('../components/GameSwitcher', async () => {
       <div data-testid="game-switcher">
         <span>{activeGame}</span>
         <button type="button" onClick={() => onGameChange('yugioh')}>Select Yu-Gi-Oh</button>
+        <button type="button" onClick={() => onGameChange(activeGame)}>Reselect Pokemon</button>
       </div>
     )
   }
@@ -253,6 +254,18 @@ describe('DashboardPage market overview', () => {
       limit: 3,
       offset: 0,
     })
+  })
+
+  it('preserves catalysts without refetching when the active game is reselected', async () => {
+    renderDashboard()
+    await screen.findByText('Pokemon regional championship registration opens.')
+    expect(fetchCatalysts).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reselect Pokemon' }))
+
+    expect(screen.getByText('Pokemon regional championship registration opens.')).toBeTruthy()
+    expect(screen.queryByText('Loading market catalysts...')).toBeNull()
+    expect(fetchCatalysts).toHaveBeenCalledTimes(1)
   })
 
   it('clears the previous game catalysts in the same commit as a game switch', async () => {
