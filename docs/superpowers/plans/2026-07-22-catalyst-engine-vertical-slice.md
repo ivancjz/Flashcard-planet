@@ -276,7 +276,7 @@ git commit -m "feat: expose verified market catalysts"
 - Modify: `backend/app/services/driver_attribution_service.py`
 - Modify: `tests/test_driver_attribution_service.py`
 
-- [ ] **Step 1: Write failing attribution tests**
+- [x] **Step 1: Write failing attribution tests**
 
 Create a verified `REPRINT` event that targets the test asset/set and assert:
 
@@ -287,13 +287,13 @@ assert result.event_type == "REPRINT"
 
 Add a negative test proving `PRICE_CHANGE`, `ANNIVERSARY`, `COLLABORATION`, `LIMITED_PRODUCT`, `POLICY`, and `SOCIAL_TREND` do not silently create causal attribution.
 
-- [ ] **Step 2: Run the attribution test and verify RED**
+- [x] **Step 2: Run the attribution test and verify RED**
 
 Run: `python -m pytest tests/test_driver_attribution_service.py -q`
 
 Expected: `REPRINT` is not mapped or included in the supply event query.
 
-- [ ] **Step 3: Add the narrow attribution mapping**
+- [x] **Step 3: Add the narrow attribution mapping**
 
 Add only:
 
@@ -304,13 +304,13 @@ EVENT_TYPE_WEIGHTS["REPRINT"] = EVENT_TYPE_WEIGHTS["SUPPLY"]
 
 Change supply-specific matching from `event_types=["SUPPLY"]` to `event_types=["SUPPLY", "REPRINT"]`. Keep every existing mapping unchanged and do not add mappings for the other new display-only event types.
 
-- [ ] **Step 4: Run attribution regression tests and verify GREEN**
+- [x] **Step 4: Run attribution regression tests and verify GREEN**
 
 Run: `python -m pytest tests/test_driver_attribution_service.py tests/test_fundamental_signal_service.py -q`
 
 Expected: existing attribution remains stable and REPRINT is attributed as a supply shock.
 
-- [ ] **Step 5: Commit the attribution change**
+- [x] **Step 5: Commit the attribution change**
 
 ```text
 git add backend/app/services/driver_attribution_service.py tests/test_driver_attribution_service.py
