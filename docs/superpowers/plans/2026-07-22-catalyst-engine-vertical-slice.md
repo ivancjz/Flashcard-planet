@@ -490,7 +490,7 @@ git commit -m "feat: add catalyst frontend client"
 - Modify: `frontend/src/pages/DashboardPage.test.tsx`
 - Modify: `frontend/src/styles/theme.css`
 
-- [ ] **Step 1: Write failing focused component tests**
+- [x] **Step 1: Write failing focused component tests**
 
 Cover stable loading, request error, empty state, populated active/upcoming rows, null score labels, source links, and safe formatting for unknown event types. Expected copy:
 
@@ -501,13 +501,13 @@ Impact: Unscored
 Confidence: Insufficient evidence
 ```
 
-- [ ] **Step 2: Run the component test and verify RED**
+- [x] **Step 2: Run the component test and verify RED**
 
 Run from `frontend/`: `npm test -- src/components/__tests__/MarketCatalystsPanel.test.tsx`
 
 Expected: the focused component module is missing.
 
-- [ ] **Step 3: Implement the focused presentational component**
+- [x] **Step 3: Implement the focused presentational component**
 
 Give the component this explicit prop contract:
 
@@ -520,7 +520,7 @@ interface MarketCatalystsPanelProps {
 
 Render a compact full-width market band with at most three rows. Each row shows lifecycle, event type, date, description, impact, confidence, and an external evidence link with `rel="noreferrer"`. Do not add investment recommendations, causal wording, or a nested card layout.
 
-- [ ] **Step 4: Write failing Dashboard integration tests**
+- [x] **Step 4: Write failing Dashboard integration tests**
 
 Mock `fetchCatalysts`, assert the initial call uses:
 
@@ -535,17 +535,17 @@ Mock `fetchCatalysts`, assert the initial call uses:
 
 Switch to Yu-Gi-Oh and assert a new request uses `game: 'yugioh'`. Verify catalyst failure does not hide the Daily Report, Market Overview, or card grid.
 
-- [ ] **Step 5: Run the Dashboard test and verify RED**
+- [x] **Step 5: Run the Dashboard test and verify RED**
 
 Run from `frontend/`: `npm test -- src/pages/DashboardPage.test.tsx`
 
 Expected: the Dashboard neither fetches nor renders catalysts.
 
-- [ ] **Step 6: Integrate independent catalyst state**
+- [x] **Step 6: Integrate independent catalyst state**
 
 Add catalyst data and unavailable state to `DashboardPage`. Fetch when `activeGame` changes, protect against stale responses with an `active` cleanup flag, and render `MarketCatalystsPanel` after Market Overview. The request must not share loading/error state with cards or other market panels.
 
-- [ ] **Step 7: Style and verify the Dashboard panel**
+- [x] **Step 7: Style and verify the Dashboard panel**
 
 Use existing theme variables, radius at or below 8px, stable grid tracks, visible focus styles, and responsive rows that stack without horizontal overflow below 720px.
 
@@ -557,7 +557,7 @@ npm test -- src/components/__tests__/MarketCatalystsPanel.test.tsx src/pages/Das
 
 Expected: component and integration tests pass.
 
-- [ ] **Step 8: Commit the Dashboard slice**
+- [x] **Step 8: Commit the Dashboard slice**
 
 ```text
 git add frontend/src/components/MarketCatalystsPanel.tsx frontend/src/components/__tests__/MarketCatalystsPanel.test.tsx frontend/src/pages/DashboardPage.tsx frontend/src/pages/DashboardPage.test.tsx frontend/src/styles/theme.css
