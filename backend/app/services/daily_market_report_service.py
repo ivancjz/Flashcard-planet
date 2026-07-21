@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.app.models.daily_market_report import DailyMarketReport
-from backend.app.schemas.daily_market_report import DailyMarketReportResponse
+from backend.app.schemas.daily_market_report import (
+    DailyMarketReportListResponse,
+    DailyMarketReportResponse,
+)
 from backend.app.schemas.market import MarketOverviewResponse
 from backend.app.services.market_overview_service import get_market_overview
 
@@ -81,6 +84,27 @@ def get_latest_daily_market_report(db: Session) -> DailyMarketReportResponse | N
         .limit(1)
     )
     return _response_from_row(row) if row is not None else None
+
+
+def list_daily_market_reports(
+    db: Session,
+    *,
+    limit: int = 30,
+    offset: int = 0,
+) -> DailyMarketReportListResponse:
+    total = db.scalar(select(func.count(DailyMarketReport.id))) or 0
+    rows = db.scalars(
+        select(DailyMarketReport)
+        .order_by(DailyMarketReport.report_date.desc(), DailyMarketReport.generated_at.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    return DailyMarketReportListResponse(
+        reports=[_response_from_row(row) for row in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 def get_daily_market_report_by_date(

@@ -22,6 +22,7 @@ from backend.app.services.daily_market_report_service import (
     create_daily_market_report,
     get_daily_market_report_by_date,
     get_latest_daily_market_report,
+    list_daily_market_reports,
 )
 
 
@@ -140,3 +141,22 @@ def test_get_latest_and_dated_daily_market_report(sqlite_db, mocker):
     assert get_latest_daily_market_report(sqlite_db).id == latest.id
     assert get_daily_market_report_by_date(sqlite_db, date(2026, 7, 20)).id == older.id
     assert get_daily_market_report_by_date(sqlite_db, date(2026, 7, 19)) is None
+
+
+def test_list_daily_market_reports_returns_descending_paginated_page(sqlite_db, mocker):
+    mocker.patch(
+        "backend.app.services.daily_market_report_service.get_market_overview",
+        return_value=_overview(),
+    )
+    for report_date in (date(2026, 7, 20), date(2026, 7, 21), date(2026, 7, 22)):
+        create_daily_market_report(sqlite_db, report_date=report_date)
+
+    page = list_daily_market_reports(sqlite_db, limit=2, offset=1)
+
+    assert page.total == 3
+    assert page.limit == 2
+    assert page.offset == 1
+    assert [report.report_date for report in page.reports] == [
+        date(2026, 7, 21),
+        date(2026, 7, 20),
+    ]

@@ -10,7 +10,10 @@ from fastapi.testclient import TestClient
 from backend.app.api.deps import get_database
 from backend.app.api.router import api_router
 from backend.app.api.routes.market import router as market_router
-from backend.app.schemas.daily_market_report import DailyMarketReportResponse
+from backend.app.schemas.daily_market_report import (
+    DailyMarketReportListResponse,
+    DailyMarketReportResponse,
+)
 from backend.app.schemas.market import MarketOverviewResponse
 
 
@@ -76,6 +79,37 @@ def test_latest_daily_market_report_route(mocker):
     app.dependency_overrides.clear()
 
 
+def test_daily_market_report_history_route(mocker):
+    app, client, db = _client()
+    service = mocker.patch(
+        "backend.app.api.routes.market.list_daily_market_reports",
+        create=True,
+        return_value=DailyMarketReportListResponse(
+            reports=[_report_response()],
+            total=1,
+            limit=20,
+            offset=10,
+        ),
+    )
+
+    response = client.get("/api/v1/market/daily-report?limit=20&offset=10")
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["reports"][0]["report_date"] == "2026-07-21"
+    service.assert_called_once_with(db, limit=20, offset=10)
+    app.dependency_overrides.clear()
+
+
+def test_daily_market_report_history_route_validates_pagination():
+    app, client, _db = _client()
+
+    assert client.get("/api/v1/market/daily-report?limit=0").status_code == 422
+    assert client.get("/api/v1/market/daily-report?limit=101").status_code == 422
+    assert client.get("/api/v1/market/daily-report?offset=-1").status_code == 422
+    app.dependency_overrides.clear()
+
+
 def test_dated_daily_market_report_route_returns_404_when_missing(mocker):
     app, client, db = _client()
     service = mocker.patch(
@@ -95,5 +129,6 @@ def test_api_router_registers_daily_market_report_routes():
     paths = [route.path for route in api_router.routes]
 
     assert "/api/v1/market/daily-report/generate" in paths
+    assert "/api/v1/market/daily-report" in paths
     assert "/api/v1/market/daily-report/latest" in paths
     assert "/api/v1/market/daily-report/{report_date}" in paths

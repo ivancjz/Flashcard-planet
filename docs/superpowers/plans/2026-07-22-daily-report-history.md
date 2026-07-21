@@ -17,7 +17,7 @@
 - Modify: `backend/app/services/daily_market_report_service.py`
 - Test: `tests/test_daily_market_report_service.py`
 
-- [ ] **Step 1: Write the failing service test**
+- [x] **Step 1: Write the failing service test**
 
 Create three dated reports and call:
 
@@ -27,13 +27,13 @@ page = list_daily_market_reports(sqlite_db, limit=2, offset=1)
 
 Assert `page.total == 3`, dates are descending, the second and third newest records are returned, and `limit`/`offset` are preserved.
 
-- [ ] **Step 2: Run the service test and verify RED**
+- [x] **Step 2: Run the service test and verify RED**
 
 Run: `python -m pytest tests/test_daily_market_report_service.py -q`
 
 Expected: collection fails because `list_daily_market_reports` and `DailyMarketReportListResponse` do not exist.
 
-- [ ] **Step 3: Implement the list response and query**
+- [x] **Step 3: Implement the list response and query**
 
 Add:
 
@@ -47,7 +47,7 @@ class DailyMarketReportListResponse(BaseModel):
 
 Implement `list_daily_market_reports(db, *, limit=30, offset=0)` using one count query and one descending paginated row query.
 
-- [ ] **Step 4: Run the service test and verify GREEN**
+- [x] **Step 4: Run the service test and verify GREEN**
 
 Run: `python -m pytest tests/test_daily_market_report_service.py -q`
 
@@ -59,7 +59,7 @@ Expected: all daily report service tests pass.
 - Modify: `backend/app/api/routes/market.py`
 - Test: `tests/test_daily_market_report_api.py`
 
-- [ ] **Step 1: Write failing route tests**
+- [x] **Step 1: Write failing route tests**
 
 Assert `GET /api/v1/market/daily-report?limit=20&offset=10` returns the typed page and calls:
 
@@ -69,17 +69,17 @@ list_daily_market_reports(db, limit=20, offset=10)
 
 Also assert `limit=0`, `limit=101`, and `offset=-1` return `422`.
 
-- [ ] **Step 2: Run the route tests and verify RED**
+- [x] **Step 2: Run the route tests and verify RED**
 
 Run: `python -m pytest tests/test_daily_market_report_api.py -q`
 
 Expected: the history route is missing.
 
-- [ ] **Step 3: Implement the history route**
+- [x] **Step 3: Implement the history route**
 
 Register `GET /daily-report` before the dated route with `Query(30, ge=1, le=100)` and `Query(0, ge=0)`.
 
-- [ ] **Step 4: Run the route tests and verify GREEN**
+- [x] **Step 4: Run the route tests and verify GREEN**
 
 Run: `python -m pytest tests/test_daily_market_report_api.py -q`
 

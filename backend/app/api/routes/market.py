@@ -4,12 +4,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_database
-from backend.app.schemas.daily_market_report import DailyMarketReportResponse
+from backend.app.schemas.daily_market_report import (
+    DailyMarketReportListResponse,
+    DailyMarketReportResponse,
+)
 from backend.app.schemas.market import MarketOverviewResponse
 from backend.app.services.daily_market_report_service import (
     create_daily_market_report,
     get_daily_market_report_by_date,
     get_latest_daily_market_report,
+    list_daily_market_reports,
 )
 from backend.app.services.market_overview_service import get_market_overview
 
@@ -35,6 +39,15 @@ def latest_daily_market_report(db: Session = Depends(get_database)) -> DailyMark
     if report is None:
         raise HTTPException(status_code=404, detail="No daily market report found.")
     return report
+
+
+@router.get("/daily-report", response_model=DailyMarketReportListResponse)
+def daily_market_report_history(
+    limit: int = Query(30, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_database),
+) -> DailyMarketReportListResponse:
+    return list_daily_market_reports(db, limit=limit, offset=offset)
 
 
 @router.get("/daily-report/{report_date}", response_model=DailyMarketReportResponse)

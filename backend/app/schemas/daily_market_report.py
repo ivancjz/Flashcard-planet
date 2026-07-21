@@ -19,3 +19,10 @@ class DailyMarketReportResponse(BaseModel):
     summary: str
     overview: MarketOverviewResponse
     evidence: list[str]
+
+
+class DailyMarketReportListResponse(BaseModel):
+    reports: list[DailyMarketReportResponse]
+    total: int
+    limit: int
+    offset: int
