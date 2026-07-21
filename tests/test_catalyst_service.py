@@ -100,6 +100,25 @@ def test_catalyst_lifecycle_boundaries_and_windows(
     assert catalyst_lifecycle(event, as_of=as_of) == expected
 
 
+def test_zero_window_is_active_exactly_at_event_date():
+    response = market_event_to_catalyst_response(
+        _event(event_date=AS_OF, expected_window_days=0),
+        as_of=AS_OF,
+    )
+
+    assert response.status == "active"
+    assert response.active_until == AS_OF
+
+
+def test_zero_window_expires_one_microsecond_after_event_date():
+    event = SimpleNamespace(event_date=AS_OF, expected_window_days=0)
+
+    assert catalyst_lifecycle(
+        event,
+        as_of=AS_OF + timedelta(microseconds=1),
+    ) == "expired"
+
+
 @pytest.mark.parametrize(
     ("score", "expected"),
     [
@@ -196,6 +215,21 @@ def test_list_filters_selected_game_with_global_and_no_game_keeps_all(
         _uuid(12),
     ]
     assert all_games.total == 3
+
+
+def test_list_excludes_tab_newline_only_source_and_preserves_valid_url(
+    sqlite_market_event_session,
+):
+    valid_source_url = "https://example.com/valid-catalyst"
+    valid = _event(id=_uuid(70), source_url=valid_source_url)
+    fully_blank = _event(id=_uuid(71), source_url="\t\n", impact_score=100)
+    _persist(sqlite_market_event_session, valid, fully_blank)
+
+    result = list_catalysts(sqlite_market_event_session, as_of=AS_OF)
+
+    assert [item.id for item in result.catalysts] == [_uuid(70)]
+    assert result.catalysts[0].source_url == valid_source_url
+    assert result.total == 1
 
 
 def test_status_combinations_are_repeatable_and_keep_lifecycle_group_order(
@@ -355,3 +389,12 @@ def test_get_catalyst_returns_none_for_missing_unverified_or_blank_source(
     )
     assert get_catalyst(sqlite_market_event_session, _uuid(60), as_of=AS_OF) is None
     assert get_catalyst(sqlite_market_event_session, _uuid(61), as_of=AS_OF) is None
+
+
+def test_get_catalyst_returns_none_for_tab_newline_only_source(
+    sqlite_market_event_session,
+):
+    fully_blank = _event(id=_uuid(72), source_url="\t\n")
+    _persist(sqlite_market_event_session, fully_blank)
+
+    assert get_catalyst(sqlite_market_event_session, _uuid(72), as_of=AS_OF) is None

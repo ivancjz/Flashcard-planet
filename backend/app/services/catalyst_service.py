@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.models.predictions import MarketEvent
@@ -36,7 +36,11 @@ def _as_utc(value: datetime) -> datetime:
 
 def _active_until(event: _LifecycleEvent) -> datetime:
     event_date = _as_utc(event.event_date)
-    window_days = event.expected_window_days or DEFAULT_CATALYST_WINDOW_DAYS
+    window_days = (
+        DEFAULT_CATALYST_WINDOW_DAYS
+        if event.expected_window_days is None
+        else event.expected_window_days
+    )
     return event_date + timedelta(days=window_days)
 
 
@@ -100,18 +104,23 @@ def market_event_to_catalyst_response(
     )
 
 
-def _verified_event_filters():
+def _verified_source_candidate_filters():
     return (
         MarketEvent.verified_at.is_not(None),
         MarketEvent.source_url.is_not(None),
-        func.trim(MarketEvent.source_url) != "",
     )
 
 
-def _verified_curated_events(db: Session) -> list[MarketEvent]:
+def _has_public_evidence(event: MarketEvent) -> bool:
+    return event.verified_at is not None and bool(
+        event.source_url and event.source_url.strip()
+    )
+
+
+def _verified_curated_event_candidates(db: Session) -> list[MarketEvent]:
     query = (
         select(MarketEvent)
-        .where(*_verified_event_filters())
+        .where(*_verified_source_candidate_filters())
         .order_by(MarketEvent.id)
         .limit(MAX_CURATED_CATALYST_ROWS)
     )
@@ -147,7 +156,9 @@ def list_catalysts(
     selected_event_type = event_type.strip().upper() if event_type is not None else None
 
     catalysts = []
-    for event in _verified_curated_events(db):
+    for event in _verified_curated_event_candidates(db):
+        if not _has_public_evidence(event):
+            continue
         catalyst = market_event_to_catalyst_response(event, as_of=normalized_as_of)
         if selected_statuses is not None and catalyst.status not in selected_statuses:
             continue
@@ -186,12 +197,12 @@ def get_catalyst(
         select(MarketEvent)
         .where(
             MarketEvent.id == catalyst_id,
-            *_verified_event_filters(),
+            *_verified_source_candidate_filters(),
         )
         .limit(1)
     )
     event = db.scalar(query)
-    if event is None:
+    if event is None or not _has_public_evidence(event):
         return None
     normalized_as_of = _as_utc(as_of or datetime.now(UTC))
     return market_event_to_catalyst_response(event, as_of=normalized_as_of)
