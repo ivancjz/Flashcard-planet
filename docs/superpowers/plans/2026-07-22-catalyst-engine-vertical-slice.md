@@ -19,7 +19,7 @@
 - Modify: `backend/app/services/market_event_service.py`
 - Create: `tests/test_market_event_service.py`
 
-- [ ] **Step 1: Write failing curated-write tests**
+- [x] **Step 1: Write failing curated-write tests**
 
 Cover a valid event and each rejected boundary:
 
@@ -42,13 +42,13 @@ VALID_EVENT = MarketEventCreate(
 
 Assert the service persists every field. Parametrize invalid event types, empty games, impact scores outside `0..100`, confidence scores outside `0..100`, non-HTTP(S) source URLs, and missing `verified_at`.
 
-- [ ] **Step 2: Run the service test and verify RED**
+- [x] **Step 2: Run the service test and verify RED**
 
 Run: `python -m pytest tests/test_market_event_service.py -q`
 
 Expected: the new dataclass fields and validation rules are missing.
 
-- [ ] **Step 3: Add migration `0042`**
+- [x] **Step 3: Add migration `0042`**
 
 Add the following columns and constraints:
 
@@ -86,11 +86,11 @@ op.create_check_constraint(
 
 The downgrade must remove the report snapshot column, all three constraints, and all three event columns in reverse dependency order.
 
-- [ ] **Step 4: Extend both ORM models**
+- [x] **Step 4: Extend both ORM models**
 
 Add non-null `affected_games` with `default=list`, nullable scores, and non-null `catalysts_json` with `default=list`. Do not use a mutable literal as a Python default.
 
-- [ ] **Step 5: Implement canonical write validation**
+- [x] **Step 5: Implement canonical write validation**
 
 Define one exported immutable event-type set:
 
@@ -104,13 +104,13 @@ CATALYST_EVENT_TYPES = frozenset({
 
 Extend `MarketEventCreate` with `affected_games`, `impact_score`, and `confidence_score`. Normalize event type and game identifiers to lowercase/uppercase at the service boundary, validate the URL with `urllib.parse.urlparse`, and preserve `None` scores as unscored rather than converting them to zero.
 
-- [ ] **Step 6: Run focused persistence tests and verify GREEN**
+- [x] **Step 6: Run focused persistence tests and verify GREEN**
 
 Run: `python -m pytest tests/test_market_event_service.py tests/test_driver_attribution_service.py tests/test_fundamental_signal_service.py -q`
 
 Expected: all tests pass after existing direct `MarketEvent` fixtures include `affected_games=["pokemon"]`.
 
-- [ ] **Step 7: Commit the persistence slice**
+- [x] **Step 7: Commit the persistence slice**
 
 ```text
 git add migrations/versions/0042_add_catalyst_engine_fields.py backend/app/models/predictions.py backend/app/models/daily_market_report.py backend/app/services/market_event_service.py tests/test_market_event_service.py tests/test_driver_attribution_service.py tests/test_fundamental_signal_service.py
