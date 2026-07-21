@@ -403,7 +403,7 @@ git commit -m "feat: snapshot catalysts in daily reports"
 - Modify: `frontend/src/pages/DailyReportsPage.test.tsx`
 - Modify: `frontend/src/pages/DailyReportDetailPage.test.tsx`
 
-- [ ] **Step 1: Write failing client tests**
+- [x] **Step 1: Write failing client tests**
 
 Assert the client requests repeated status parameters and all filters:
 
@@ -419,13 +419,13 @@ await fetchCatalysts({
 
 The expected URL contains `status=active&status=upcoming`, and `fetchCatalyst(id)` maps `404` to `null` while throwing for other errors.
 
-- [ ] **Step 2: Run client tests and verify RED**
+- [x] **Step 2: Run client tests and verify RED**
 
 Run from `frontend/`: `npm test -- src/api/api.test.ts`
 
 Expected: catalyst types and client functions are missing.
 
-- [ ] **Step 3: Add shared TypeScript contracts**
+- [x] **Step 3: Add shared TypeScript contracts**
 
 Add:
 
@@ -464,17 +464,17 @@ Extend `DailyMarketReport` with `catalysts: Catalyst[]`.
 
 Add `catalysts: []` to existing typed Daily Report test fixtures so the required contract does not leave the TypeScript build broken before the report-detail UI task.
 
-- [ ] **Step 4: Implement the list and detail clients**
+- [x] **Step 4: Implement the list and detail clients**
 
 Use `URLSearchParams.append` for repeatable statuses, uppercase `eventType` only at the outgoing API boundary, and URL-encode the detail ID. Preserve null scores without numeric coercion.
 
-- [ ] **Step 5: Run client tests and verify GREEN**
+- [x] **Step 5: Run client tests and verify GREEN**
 
 Run from `frontend/`: `npm test -- src/api/api.test.ts`
 
 Expected: all API client tests pass.
 
-- [ ] **Step 6: Commit the frontend contract**
+- [x] **Step 6: Commit the frontend contract**
 
 ```text
 git add frontend/src/types/api.ts frontend/src/api/api.ts frontend/src/api/api.test.ts
