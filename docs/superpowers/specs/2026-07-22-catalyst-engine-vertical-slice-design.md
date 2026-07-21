@@ -1,6 +1,6 @@
 # Catalyst Engine Vertical Slice Design
 
-Status: approved for planning
+Status: implemented and verified
 Date: 2026-07-22
 
 ## Purpose
@@ -257,6 +257,23 @@ Frontend coverage includes:
 - null score labels
 - Daily Report detail Catalyst rendering and empty snapshot label
 - desktop and mobile browser checks for overlap and page-level horizontal overflow
+
+## Implementation Evidence
+
+- Implementation commits run from `b9b932b` through `009bc70`, inclusive.
+- Migration `0042` extends the existing `market_events` registry with Catalyst scope and nullable scores, adds immutable `daily_market_reports.catalysts_json` snapshots, and preserves `market_events` as the single event source.
+- The public Catalyst endpoints are `GET /api/v1/market/catalysts` and `GET /api/v1/market/catalysts/{catalyst_id}`. Daily Report list, latest, and dated reads return the stored Catalyst snapshot in their existing response contract.
+- The main frontend surfaces are the independent Dashboard `MarketCatalystsPanel` and the Daily Report detail `Market Catalysts` section rendered from `report.catalysts`.
+- Fresh backend verification passed 146 tests. Python compilation passed for all changed backend modules and migration `0042`.
+- Fresh frontend verification passed 123 tests across 15 files. The production TypeScript/Vite build transformed 70 modules, and the scoped Catalyst ESLint command completed with no errors.
+- A fresh disposable `postgres:16` container completed `upgrade head`, `downgrade 0041`, and `upgrade head`; `alembic current` confirmed `0042 (head)`. The pre-existing migration `0038` required the PostgreSQL 16 pgvector package to be installed in the disposable container. The container used a dynamic host port and was removed afterward.
+- Public-safety inspection confirmed that `verified_by` is not exposed, Catalyst routes are GET-only, null scores remain unknown, only `REPRINT` adds driver attribution, report reads use stored snapshots, and no LLM, scraping, notification, recommendation, prediction behavior, or automatic scoring was added in this range.
+
+## Non-Blocking Follow-Ups
+
+- Add explicit registry-capacity telemetry before the curated registry grows beyond 1,000 records.
+- Extract a shared Catalyst formatting utility if the Dashboard and report presentation continue to evolve together.
+- Strengthen row and list semantics in the Daily Report Catalyst UI.
 
 ## Out Of Scope
 

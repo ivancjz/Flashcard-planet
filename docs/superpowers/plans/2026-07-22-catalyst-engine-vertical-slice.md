@@ -622,7 +622,7 @@ git commit -m "feat: show catalysts in daily reports"
 - Modify: `docs/superpowers/plans/2026-07-22-catalyst-engine-vertical-slice.md`
 - Regenerate: `frontend/dist/**`
 
-- [ ] **Step 1: Run the backend catalyst regression suite**
+- [x] **Step 1: Run the backend catalyst regression suite**
 
 Run:
 
@@ -632,7 +632,7 @@ python -m pytest tests/test_market_event_service.py tests/test_catalyst_service.
 
 Expected: every selected backend test passes.
 
-- [ ] **Step 2: Run frontend tests and build**
+- [x] **Step 2: Run frontend tests and build**
 
 Run from `frontend/`:
 
@@ -643,7 +643,7 @@ npm run build
 
 Expected: the full Vitest suite passes and Vite produces a successful production build.
 
-- [ ] **Step 3: Run scoped lint**
+- [x] **Step 3: Run scoped lint**
 
 Run from `frontend/`:
 
@@ -653,7 +653,7 @@ npx eslint src/api/api.ts src/api/api.test.ts src/types/api.ts src/components/Ma
 
 Expected: no lint error in catalyst-related files. Record the known unrelated full-repository lint baseline separately; do not broaden this slice into cleanup work.
 
-- [ ] **Step 4: Apply and inspect the database migration**
+- [x] **Step 4: Apply and inspect the database migration**
 
 Run against a disposable PostgreSQL database:
 
@@ -675,7 +675,7 @@ Start the existing local app, then inspect desktop `1440x900` and mobile `390x84
 - Daily Report detail with populated and empty catalyst snapshots.
 - No overlapping text, page-level horizontal overflow, layout shifts, or broken external evidence links.
 
-- [ ] **Step 6: Review scope and public safety**
+- [x] **Step 6: Review scope and public safety**
 
 Confirm with searches and API responses:
 
@@ -690,7 +690,7 @@ Confirm with searches and API responses:
 
 Mark Phase 4 Catalyst Engine complete in `CODEX_EXECUTION_PLAN.md`, add verification evidence and implementation commit references to the approved design, and check off each completed item in this plan.
 
-- [ ] **Step 8: Commit generated assets and delivery records**
+- [x] **Step 8: Commit generated assets and delivery records**
 
 ```text
 git add docs/flashcard-planet-v2/CODEX_EXECUTION_PLAN.md docs/superpowers/specs/2026-07-22-catalyst-engine-vertical-slice-design.md docs/superpowers/plans/2026-07-22-catalyst-engine-vertical-slice.md

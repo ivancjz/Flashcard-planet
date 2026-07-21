@@ -77,16 +77,22 @@ After Phase 1 and 2:
 - Generate deterministic report first.
 - Add LLM summary only after evidence cache and prompt rules exist.
 
-## Phase 4: Catalyst Engine
+## Phase 4: Catalyst Engine - Complete 2026-07-22
 
-Add:
+Delivered:
 
-- catalyst model
-- affected asset/set/game mapping
-- impact score
-- confidence
-- event source evidence
-- lifecycle status: upcoming, active, expired
+- Extended the existing `market_events` registry through migration `0042`; no duplicate Catalyst model or event registry was created.
+- Added curated affected asset, set, and game mappings; nullable impact and confidence scores; source evidence; and validation at the service and database boundaries.
+- Implemented the exact deterministic lifecycle: `upcoming` before `event_date`, `active` from `event_date` through the inclusive `active_until`, and `expired` afterward. `active_until` uses `expected_window_days` or a 14-day default.
+- Added read-only `GET /api/v1/market/catalysts` and `GET /api/v1/market/catalysts/{catalyst_id}` APIs with filtering, stable ordering, pagination, and public evidence fields.
+- Added only the narrow `REPRINT` to `SUPPLY_SHOCK` deterministic driver attribution; other new display event types remain unmapped.
+- Persisted immutable Catalyst snapshots in `daily_market_reports.catalysts_json`; published report reads validate and return the stored snapshot without querying live events.
+- Added the independent Dashboard Catalyst panel and the Daily Report detail snapshot section, including loading, empty, error, null-score, and stale-request behavior.
+- Added focused persistence, lifecycle, API, attribution, Daily Report, scheduler, client, and UI regression coverage.
+
+Done evidence: 146 selected backend tests and 123 frontend tests across 15 files passed; changed backend modules and migration `0042` compiled; scoped Catalyst ESLint and the production frontend build succeeded; and a fresh disposable PostgreSQL 16 database completed `upgrade head`, `downgrade 0041`, `upgrade head`, with `alembic current` confirming `0042 (head)`.
+
+Phase 5 AI Intelligence remains next and is out of scope for the completed Catalyst Engine slice.
 
 ## Phase 5: AI Intelligence Engine
 
