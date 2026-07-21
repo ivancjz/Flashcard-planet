@@ -24,6 +24,7 @@ class DailyMarketReport(Base):
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     overview_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
     evidence_json: Mapped[list] = mapped_column(JSONB, nullable=False)
+    catalysts_json: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
