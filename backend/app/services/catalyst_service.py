@@ -187,6 +187,32 @@ def list_catalysts(
     )
 
 
+def select_daily_report_catalysts(
+    db: Session,
+    *,
+    as_of: datetime,
+    limit: int = 5,
+) -> list[CatalystResponse]:
+    candidates = list_catalysts(
+        db,
+        statuses=["active", "upcoming"],
+        limit=100,
+        offset=0,
+        as_of=as_of,
+    ).catalysts
+    upcoming_horizon = _as_utc(as_of) + timedelta(days=30)
+    selected = [
+        catalyst
+        for catalyst in candidates
+        if catalyst.status == "active"
+        or (
+            catalyst.status == "upcoming"
+            and _as_utc(catalyst.event_date) <= upcoming_horizon
+        )
+    ]
+    return selected[:limit]
+
+
 def get_catalyst(
     db: Session,
     catalyst_id: UUID,

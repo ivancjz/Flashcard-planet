@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from backend.app.schemas.catalyst import CatalystResponse
 from backend.app.schemas.market import MarketOverviewResponse
 
 
@@ -19,6 +20,7 @@ class DailyMarketReportResponse(BaseModel):
     summary: str
     overview: MarketOverviewResponse
     evidence: list[str]
+    catalysts: list[CatalystResponse]
 
 
 class DailyMarketReportListResponse(BaseModel):

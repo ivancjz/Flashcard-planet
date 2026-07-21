@@ -39,6 +39,7 @@ def _report_response() -> DailyMarketReportResponse:
         summary="Market is bullish.",
         overview=overview,
         evidence=["market_segment=raw"],
+        catalysts=[],
     )
 
 
@@ -60,6 +61,7 @@ def test_generate_daily_market_report_route(mocker):
 
     assert response.status_code == 200
     assert response.json()["title"] == "Flashcard Planet Daily - 2026-07-21"
+    assert response.json()["catalysts"] == []
     service.assert_called_once_with(db, report_date=date(2026, 7, 21))
     app.dependency_overrides.clear()
 
@@ -75,6 +77,7 @@ def test_latest_daily_market_report_route(mocker):
 
     assert response.status_code == 200
     assert response.json()["report_date"] == "2026-07-21"
+    assert response.json()["catalysts"] == []
     service.assert_called_once_with(db)
     app.dependency_overrides.clear()
 
@@ -97,6 +100,7 @@ def test_daily_market_report_history_route(mocker):
     assert response.status_code == 200
     assert response.json()["total"] == 1
     assert response.json()["reports"][0]["report_date"] == "2026-07-21"
+    assert response.json()["reports"][0]["catalysts"] == []
     service.assert_called_once_with(db, limit=20, offset=10)
     app.dependency_overrides.clear()
 
