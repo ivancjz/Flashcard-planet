@@ -227,6 +227,6 @@ Verify `/reports` and `/reports/2026-07-21` at desktop and mobile widths. Confir
 
 Review the full phase diff against the design and resolve all actionable findings.
 
-- [ ] **Step 5: Commit, push, and update PR #82**
+- [x] **Step 5: Commit, push, and update PR #82**
 
 Use focused commits for backend, frontend, and any review fixes. Add a PR comment with verification results and commit SHAs.
