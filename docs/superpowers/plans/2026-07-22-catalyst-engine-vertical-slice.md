@@ -399,6 +399,9 @@ git commit -m "feat: snapshot catalysts in daily reports"
 - Modify: `frontend/src/types/api.ts`
 - Modify: `frontend/src/api/api.ts`
 - Modify: `frontend/src/api/api.test.ts`
+- Modify: `frontend/src/pages/DashboardPage.test.tsx`
+- Modify: `frontend/src/pages/DailyReportsPage.test.tsx`
+- Modify: `frontend/src/pages/DailyReportDetailPage.test.tsx`
 
 - [ ] **Step 1: Write failing client tests**
 
@@ -458,6 +461,8 @@ export interface CatalystListResponse {
 ```
 
 Extend `DailyMarketReport` with `catalysts: Catalyst[]`.
+
+Add `catalysts: []` to existing typed Daily Report test fixtures so the required contract does not leave the TypeScript build broken before the report-detail UI task.
 
 - [ ] **Step 4: Implement the list and detail clients**
 
