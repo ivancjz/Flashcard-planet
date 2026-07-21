@@ -250,7 +250,16 @@ def test_create_daily_market_report_stores_and_returns_empty_catalysts(sqlite_db
     assert report.catalysts == []
     assert stored.catalysts_json == []
 
+
+def test_none_stored_catalyst_snapshot_maps_to_empty_list(sqlite_db, mocker):
+    mocker.patch(
+        "backend.app.services.daily_market_report_service.get_market_overview",
+        return_value=_overview(),
+    )
+    create_daily_market_report(sqlite_db, now=AS_OF)
+    stored = sqlite_db.scalar(select(DailyMarketReport))
     stored.catalysts_json = None
+
     assert daily_market_report_service._response_from_row(stored).catalysts == []
 
 
@@ -288,6 +297,30 @@ def test_incomplete_stored_catalyst_snapshot_fails_validation(sqlite_db, mocker)
     create_daily_market_report(sqlite_db, now=AS_OF)
     stored = sqlite_db.scalar(select(DailyMarketReport))
     stored.catalysts_json = [{"description": "incomplete"}]
+    sqlite_db.commit()
+    sqlite_db.expire_all()
+
+    with pytest.raises(ValidationError):
+        get_daily_market_report_by_date(sqlite_db, AS_OF.date())
+
+
+@pytest.mark.parametrize(
+    "malformed_snapshot",
+    [{}, "", 0, False],
+    ids=["object", "string", "integer", "boolean"],
+)
+def test_malformed_outer_catalyst_snapshot_fails_validation(
+    sqlite_db,
+    mocker,
+    malformed_snapshot,
+):
+    mocker.patch(
+        "backend.app.services.daily_market_report_service.get_market_overview",
+        return_value=_overview(),
+    )
+    create_daily_market_report(sqlite_db, now=AS_OF)
+    stored = sqlite_db.scalar(select(DailyMarketReport))
+    stored.catalysts_json = malformed_snapshot
     sqlite_db.commit()
     sqlite_db.expire_all()
 

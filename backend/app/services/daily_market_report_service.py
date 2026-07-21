@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
+from pydantic import TypeAdapter
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -14,6 +15,9 @@ from backend.app.schemas.daily_market_report import (
 from backend.app.schemas.market import MarketOverviewResponse
 from backend.app.services.catalyst_service import select_daily_report_catalysts
 from backend.app.services.market_overview_service import get_market_overview
+
+
+_CATALYST_SNAPSHOT_ADAPTER = TypeAdapter(list[CatalystResponse])
 
 
 def _default_report_date(now: datetime | None) -> date:
@@ -33,10 +37,10 @@ def _serialize_overview(overview: MarketOverviewResponse) -> dict:
 
 def _response_from_row(row: DailyMarketReport) -> DailyMarketReportResponse:
     overview = MarketOverviewResponse.model_validate(row.overview_json)
-    catalysts = [
-        CatalystResponse.model_validate(item)
-        for item in (row.catalysts_json or [])
-    ]
+    catalyst_snapshot = (
+        [] if row.catalysts_json is None else row.catalysts_json
+    )
+    catalysts = _CATALYST_SNAPSHOT_ADAPTER.validate_python(catalyst_snapshot)
     return DailyMarketReportResponse(
         id=row.id,
         report_date=row.report_date,
