@@ -573,7 +573,7 @@ git commit -m "feat: show catalysts on dashboard"
 - Modify: `frontend/src/pages/DashboardPage.test.tsx`
 - Modify: `frontend/src/styles/theme.css`
 
-- [ ] **Step 1: Update all report fixtures and write failing detail tests**
+- [x] **Step 1: Update all report fixtures and write failing detail tests**
 
 Add `catalysts: []` to every `DailyMarketReport` fixture. In the detail-page suite, verify the new section appears after Evidence and before Market Indexes, renders persisted catalyst data, handles null scores, and uses this exact empty label:
 
@@ -581,7 +581,7 @@ Add `catalysts: []` to every `DailyMarketReport` fixture. In the detail-page sui
 No verified catalysts were captured for this report.
 ```
 
-- [ ] **Step 2: Run affected page tests and verify RED**
+- [x] **Step 2: Run affected page tests and verify RED**
 
 Run from `frontend/`:
 
@@ -591,11 +591,11 @@ npm test -- src/pages/DailyReportDetailPage.test.tsx src/pages/DailyReportsPage.
 
 Expected: fixtures fail the extended type contract and the detail section is absent.
 
-- [ ] **Step 3: Render the immutable report snapshot**
+- [x] **Step 3: Render the immutable report snapshot**
 
 Add a `Market Catalysts` section immediately after Evidence. Render from `report.catalysts`; do not call the live catalyst endpoint from the report page. Reuse small formatting helpers from the Dashboard component only if moving them to a shared utility removes real duplication without coupling page state.
 
-- [ ] **Step 4: Style and verify the report section**
+- [x] **Step 4: Style and verify the report section**
 
 Keep the section unframed, align its density with existing report tables, permit descriptions to wrap, and keep source links keyboard-accessible.
 
@@ -607,7 +607,7 @@ npm test -- src/pages/DailyReportDetailPage.test.tsx src/pages/DailyReportsPage.
 
 Expected: all affected page tests pass.
 
-- [ ] **Step 5: Commit the report UI**
+- [x] **Step 5: Commit the report UI**
 
 ```text
 git add frontend/src/pages/DailyReportDetailPage.tsx frontend/src/pages/DailyReportDetailPage.test.tsx frontend/src/pages/DailyReportsPage.test.tsx frontend/src/pages/DashboardPage.test.tsx frontend/src/styles/theme.css
