@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from backend.app.models.enums import CatalystEventType
+
 
 CatalystLifecycle = Literal["upcoming", "active", "expired"]
 ImpactLabel = Literal["high", "medium", "low", "unscored"]
@@ -17,7 +19,7 @@ class CatalystResponse(BaseModel):
     id: UUID
     event_date: datetime
     active_until: datetime
-    event_type: str
+    event_type: CatalystEventType
     description: str
     source_url: str
     affected_games: list[str]

@@ -57,6 +57,39 @@ def test_upgrade_replaces_event_type_constraint_with_all_canonical_types():
     assert operations.index(drop_constraint) < operations.index(create_constraint)
 
 
+def test_upgrade_indexes_event_type_and_rejects_negative_windows():
+    migration = _load_migration()
+
+    migration.upgrade()
+
+    assert call.create_index(
+        "ix_market_events_event_type",
+        "market_events",
+        ["event_type"],
+    ) in migration.op.method_calls
+    assert call.create_check_constraint(
+        "ck_market_events_expected_window_days_nonnegative",
+        "market_events",
+        "expected_window_days IS NULL OR expected_window_days >= 0",
+    ) in migration.op.method_calls
+
+
+def test_downgrade_removes_event_type_index_and_window_constraint():
+    migration = _load_migration()
+
+    migration.downgrade()
+
+    assert call.drop_index(
+        "ix_market_events_event_type",
+        table_name="market_events",
+    ) in migration.op.method_calls
+    assert call.drop_constraint(
+        "ck_market_events_expected_window_days_nonnegative",
+        "market_events",
+        type_="check",
+    ) in migration.op.method_calls
+
+
 def test_downgrade_guards_data_before_restoring_original_constraint():
     migration = _load_migration()
 

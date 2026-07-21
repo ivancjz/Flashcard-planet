@@ -17,9 +17,9 @@ from backend.app.schemas.catalyst import (
     ConfidenceLabel,
     ImpactLabel,
 )
+from backend.app.services.market_event_service import resolve_catalyst_window_days
 
 
-DEFAULT_CATALYST_WINDOW_DAYS = 14
 MAX_CURATED_CATALYST_ROWS = 1000
 
 
@@ -36,11 +36,7 @@ def _as_utc(value: datetime) -> datetime:
 
 def _active_until(event: _LifecycleEvent) -> datetime:
     event_date = _as_utc(event.event_date)
-    window_days = (
-        DEFAULT_CATALYST_WINDOW_DAYS
-        if event.expected_window_days is None
-        else event.expected_window_days
-    )
+    window_days = resolve_catalyst_window_days(event.expected_window_days)
     return event_date + timedelta(days=window_days)
 
 

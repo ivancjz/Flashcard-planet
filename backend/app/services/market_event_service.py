@@ -17,24 +17,20 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
+from backend.app.models.enums import CatalystEventType
 from backend.app.models.predictions import MarketEvent
 
 
-CATALYST_EVENT_TYPES = frozenset(
-    {
-        "INFLUENCER",
-        "SUPPLY",
-        "TOURNAMENT",
-        "RELEASE",
-        "REPRINT",
-        "PRICE_CHANGE",
-        "ANNIVERSARY",
-        "COLLABORATION",
-        "LIMITED_PRODUCT",
-        "POLICY",
-        "SOCIAL_TREND",
-    }
-)
+CATALYST_EVENT_TYPES = frozenset(event_type.value for event_type in CatalystEventType)
+DEFAULT_CATALYST_WINDOW_DAYS = 14
+
+
+def resolve_catalyst_window_days(expected_window_days: int | None) -> int:
+    if expected_window_days is None:
+        return DEFAULT_CATALYST_WINDOW_DAYS
+    if expected_window_days < 0:
+        raise ValueError("market_event expected_window_days cannot be negative")
+    return expected_window_days
 
 
 class EvidenceMissingError(ValueError):
@@ -77,6 +73,7 @@ def create_market_event(db: Session, data: MarketEventCreate) -> MarketEvent:
         raise ValueError("market_event impact_score must be between 0 and 100")
     if data.confidence_score is not None and not 0 <= data.confidence_score <= 100:
         raise ValueError("market_event confidence_score must be between 0 and 100")
+    resolve_catalyst_window_days(data.expected_window_days)
 
     if not data.source_url or not data.source_url.strip():
         raise EvidenceMissingError(

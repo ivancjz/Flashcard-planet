@@ -83,6 +83,16 @@ def upgrade() -> None:
         "market_events",
         "confidence_score IS NULL OR confidence_score BETWEEN 0 AND 100",
     )
+    op.create_check_constraint(
+        "ck_market_events_expected_window_days_nonnegative",
+        "market_events",
+        "expected_window_days IS NULL OR expected_window_days >= 0",
+    )
+    op.create_index(
+        "ix_market_events_event_type",
+        "market_events",
+        ["event_type"],
+    )
 
 
 def downgrade() -> None:
@@ -105,6 +115,15 @@ def downgrade() -> None:
         """
     )
     op.drop_column("daily_market_reports", "catalysts_json")
+    op.drop_index(
+        "ix_market_events_event_type",
+        table_name="market_events",
+    )
+    op.drop_constraint(
+        "ck_market_events_expected_window_days_nonnegative",
+        "market_events",
+        type_="check",
+    )
     op.drop_constraint(
         "ck_market_events_confidence_score_range",
         "market_events",

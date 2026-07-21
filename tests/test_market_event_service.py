@@ -131,6 +131,14 @@ def test_create_market_event_rejects_unknown_event_type():
         create_market_event(MagicMock(), _valid_event(event_type="RUMOR"))
 
 
+def test_create_market_event_rejects_negative_expected_window():
+    with pytest.raises(ValueError, match="expected_window_days"):
+        create_market_event(
+            MagicMock(),
+            _valid_event(expected_window_days=-1),
+        )
+
+
 def test_create_market_event_rejects_empty_affected_games():
     with pytest.raises(ValueError, match="affected_games"):
         create_market_event(MagicMock(), _valid_event(affected_games=[]))

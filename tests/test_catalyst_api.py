@@ -152,6 +152,19 @@ def test_list_catalysts_rejects_invalid_status_before_calling_service(mocker):
     app.dependency_overrides.clear()
 
 
+def test_list_catalysts_rejects_unknown_event_type_before_calling_service(mocker):
+    app, client, _db = _client()
+    service = mocker.patch(
+        "backend.app.api.routes.market.list_catalysts",
+    )
+
+    response = client.get("/api/v1/market/catalysts?event_type=RUMOR")
+
+    assert response.status_code == 422
+    service.assert_not_called()
+    app.dependency_overrides.clear()
+
+
 def test_get_catalyst_passes_uuid_and_serializes_typed_response(
     mocker,
     catalyst_response: CatalystResponse,

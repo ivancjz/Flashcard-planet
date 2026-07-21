@@ -90,6 +90,13 @@ def test_recency_score_none_window_defaults_to_14():
     assert s_none == pytest.approx(s_14)
 
 
+def test_recency_score_zero_window_expires_after_event_instant():
+    now = datetime.now(UTC)
+
+    assert _recency_score(now, now, 0) == 1.0
+    assert _recency_score(now - timedelta(microseconds=1), now, 0) == 0.0
+
+
 def test_existing_event_type_mappings_and_weights_unchanged():
     expected_drivers = {
         "INFLUENCER": "EVENT_DRIVEN",

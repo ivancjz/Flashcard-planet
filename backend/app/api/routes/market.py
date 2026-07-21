@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_database
+from backend.app.models.enums import CatalystEventType
 from backend.app.schemas.catalyst import (
     CatalystLifecycle,
     CatalystListResponse,
@@ -36,19 +37,16 @@ def market_overview(db: Session = Depends(get_database)) -> MarketOverviewRespon
 def catalyst_list(
     status: list[CatalystLifecycle] | None = Query(None),
     game: str | None = None,
-    event_type: str | None = None,
+    event_type: CatalystEventType | None = None,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_database),
 ) -> CatalystListResponse:
-    normalized_event_type = (
-        event_type.strip().upper() if event_type is not None else None
-    )
     return list_catalysts(
         db,
         statuses=status,
         game=game,
-        event_type=normalized_event_type,
+        event_type=event_type.value if event_type is not None else None,
         limit=limit,
         offset=offset,
     )

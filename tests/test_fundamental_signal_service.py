@@ -91,6 +91,16 @@ def test_contamination_windows_none_expected_defaults_to_14():
     assert end > ev.event_date + timedelta(days=14)
 
 
+def test_contamination_windows_zero_expected_does_not_default_to_14():
+    ev = _mk_event(days_ago=10, window_days=0)
+
+    windows = _contamination_windows([ev])
+
+    assert windows[0][1] == ev.event_date + timedelta(
+        days=POST_EVENT_BUFFER_DAYS
+    )
+
+
 # ── _is_contaminated (pure function) ─────────────────────────────────────────
 
 def test_is_contaminated_inside_window():
