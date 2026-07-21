@@ -260,14 +260,17 @@ Frontend coverage includes:
 
 ## Implementation Evidence
 
-- Implementation commits run from `b9b932b` through `009bc70`, inclusive.
+- Implementation commits run from `b9b932b` through `1eb1d7b`, inclusive.
 - Migration `0042` extends the existing `market_events` registry with Catalyst scope and nullable scores, adds immutable `daily_market_reports.catalysts_json` snapshots, and preserves `market_events` as the single event source.
 - The public Catalyst endpoints are `GET /api/v1/market/catalysts` and `GET /api/v1/market/catalysts/{catalyst_id}`. Daily Report list, latest, and dated reads return the stored Catalyst snapshot in their existing response contract.
 - The main frontend surfaces are the independent Dashboard `MarketCatalystsPanel` and the Daily Report detail `Market Catalysts` section rendered from `report.catalysts`.
-- Fresh backend verification passed 146 tests. Python compilation passed for all changed backend modules and migration `0042`.
+- Fresh backend verification passed 152 Catalyst-related tests. Python compilation passed for all changed backend modules and migration `0042`.
 - Fresh frontend verification passed 123 tests across 15 files. The production TypeScript/Vite build transformed 70 modules, and the scoped Catalyst ESLint command completed with no errors.
-- A fresh disposable `postgres:16` container completed `upgrade head`, `downgrade 0041`, and `upgrade head`; `alembic current` confirmed `0042 (head)`. The pre-existing migration `0038` required the PostgreSQL 16 pgvector package to be installed in the disposable container. The container used a dynamic host port and was removed afterward.
+- A fresh disposable `postgres:16` container completed `upgrade head`, `downgrade 0041`, and `upgrade head`; `alembic current` confirmed `0042 (head)`. Direct PostgreSQL inspection confirmed `ix_market_events_event_type` and `ck_market_events_expected_window_days_nonnegative`. The pre-existing migration `0038` required the PostgreSQL 16 pgvector package to be installed in the disposable container. The container used a dynamic host port and was removed afterward.
+- Live browser QA passed at desktop `1440x900` and mobile `390x844`. The populated Dashboard, Dashboard empty state, Pokemon-to-Yu-Gi-Oh switch, and populated Daily Report detail showed no page-level horizontal overflow, stale cross-game Catalyst rows, incoherent overlap, broken supported evidence links, or browser console warnings/errors. The report section order remained Evidence, Market Catalysts, then Market Indexes. Focused component tests cover Dashboard loading/error presentation and empty Daily Report snapshots.
 - Public-safety inspection confirmed that `verified_by` is not exposed, Catalyst routes are GET-only, null scores remain unknown, only `REPRINT` adds driver attribution, report reads use stored snapshots, and no LLM, scraping, notification, recommendation, prediction behavior, or automatic scoring was added in this range.
+- Final review findings were closed in `1eb1d7b`: zero-day windows now remain zero across lifecycle, attribution, and fundamental analysis; negative windows are rejected at service and database boundaries; unknown `event_type` filters return `422` while case-insensitive canonical values remain accepted; and the specified type index is present. Follow-up review found no remaining blocking or important issues.
+- The full backend suite completed with 1,360 passes and one unrelated existing failure in `tests/test_ebay_ingestion_deadline.py::DeadlineTriggerTests::test_meta_json_carries_deadline_flag`; the isolated test reproduces the same failure outside the Catalyst scope.
 
 ## Non-Blocking Follow-Ups
 

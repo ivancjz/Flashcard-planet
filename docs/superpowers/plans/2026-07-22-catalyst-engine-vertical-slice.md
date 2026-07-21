@@ -665,7 +665,7 @@ python -m alembic upgrade head
 
 Expected: `0042` upgrades, reverses, and reapplies without data or constraint errors.
 
-- [ ] **Step 5: Perform browser QA**
+- [x] **Step 5: Perform browser QA**
 
 Start the existing local app, then inspect desktop `1440x900` and mobile `390x844`:
 
@@ -674,6 +674,8 @@ Start the existing local app, then inspect desktop `1440x900` and mobile `390x84
 - Game switch from Pokemon to Yu-Gi-Oh without stale catalyst rows.
 - Daily Report detail with populated and empty catalyst snapshots.
 - No overlapping text, page-level horizontal overflow, layout shifts, or broken external evidence links.
+
+Recorded evidence: the live app was checked at `1440x900` and `390x844` with populated Dashboard and Daily Report snapshots, the Dashboard empty state, and a Pokemon-to-Yu-Gi-Oh switch. The browser showed no page-level horizontal overflow, stale Pokemon rows, broken supported evidence links, or console warnings/errors. Dashboard loading/error presentation and empty Daily Report snapshots are covered by focused component tests.
 
 - [x] **Step 6: Review scope and public safety**
 
@@ -686,7 +688,7 @@ Confirm with searches and API responses:
 - Daily Report pages read stored snapshots rather than live catalyst data.
 - No LLM, auto-scoring, scraping, notification, recommendation, or prediction behavior was introduced.
 
-- [ ] **Step 7: Update delivery documents and plan checkboxes**
+- [x] **Step 7: Update delivery documents and plan checkboxes**
 
 Mark Phase 4 Catalyst Engine complete in `CODEX_EXECUTION_PLAN.md`, add verification evidence and implementation commit references to the approved design, and check off each completed item in this plan.
 
@@ -698,7 +700,7 @@ git add -f frontend/dist
 git commit -m "docs: complete catalyst engine vertical slice"
 ```
 
-- [ ] **Step 9: Final branch review and publish**
+- [x] **Step 9: Final branch review and publish**
 
 Run:
 

@@ -90,7 +90,7 @@ Delivered:
 - Added the independent Dashboard Catalyst panel and the Daily Report detail snapshot section, including loading, empty, error, null-score, and stale-request behavior.
 - Added focused persistence, lifecycle, API, attribution, Daily Report, scheduler, client, and UI regression coverage.
 
-Done evidence: 146 selected backend tests and 123 frontend tests across 15 files passed; changed backend modules and migration `0042` compiled; scoped Catalyst ESLint and the production frontend build succeeded; and a fresh disposable PostgreSQL 16 database completed `upgrade head`, `downgrade 0041`, `upgrade head`, with `alembic current` confirming `0042 (head)`.
+Done evidence: 152 selected backend tests and 123 frontend tests across 15 files passed; changed backend modules and migration `0042` compiled; scoped Catalyst ESLint and the production frontend build succeeded; and a fresh disposable PostgreSQL 16 database completed `upgrade head`, `downgrade 0041`, `upgrade head`, with `alembic current` confirming `0042 (head)`. Direct inspection confirmed the Catalyst type index and non-negative event-window constraint. Desktop and mobile browser checks passed, and final review found no remaining blocking or important issues.
 
 Phase 5 AI Intelligence remains next and is out of scope for the completed Catalyst Engine slice.
 
