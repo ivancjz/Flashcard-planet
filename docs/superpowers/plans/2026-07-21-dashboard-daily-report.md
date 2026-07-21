@@ -106,7 +106,7 @@ Expected: TypeScript and Vite complete with exit code 0.
 
 Open the Dashboard in the in-app browser at desktop and mobile widths. Verify that the report band is visible, text does not overlap, evidence wraps cleanly, and no horizontal scrolling appears.
 
-- [ ] **Step 4: Commit and push**
+- [x] **Step 4: Commit and push**
 
 Commit message:
 
@@ -114,6 +114,6 @@ Commit message:
 feat: show daily market report on dashboard
 ```
 
-- [ ] **Step 5: Update PR #82**
+- [x] **Step 5: Update PR #82**
 
 Add a concise PR comment listing the new Dashboard behavior, verification results, and commit.
