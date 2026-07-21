@@ -30,6 +30,50 @@ export interface TickerItem {
   current_price: number | null
 }
 
+export type MarketDirection = 'up' | 'down' | 'flat'
+export type MarketSentiment = 'bullish' | 'neutral' | 'bearish' | 'insufficient_data'
+export type MarketConfidence = 'high' | 'medium' | 'low' | 'insufficient'
+export type MarketNumber = number | string
+
+export interface MarketIndex {
+  game: string
+  label: string
+  change_pct: MarketNumber
+  direction: MarketDirection
+  observed_assets: number
+  current_assets: number
+  confidence_label: MarketConfidence
+}
+
+export interface MarketTopMover {
+  asset_id: string
+  name: string
+  game: string
+  set_name: string | null
+  latest_price: MarketNumber
+  previous_price: MarketNumber
+  percent_change: MarketNumber
+  absolute_change: MarketNumber
+  direction: MarketDirection
+}
+
+export interface MarketSignalSummary {
+  label: string
+  count: number
+  average_confidence: MarketNumber | null
+}
+
+export interface MarketOverview {
+  generated_at: string
+  market_sentiment: MarketSentiment
+  confidence_label: MarketConfidence
+  indexes: MarketIndex[]
+  top_movers: MarketTopMover[]
+  signal_summary: MarketSignalSummary[]
+  commentary: string
+  evidence: string[]
+}
+
 export interface CardSummary {
   asset_id: string
   name: string

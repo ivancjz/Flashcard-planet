@@ -7,8 +7,8 @@ import FilterDrawer from '../components/FilterDrawer'
 import CardGrid from '../components/CardGrid'
 import ProGate from '../components/ProGate'
 import type { FilterState } from '../components/FilterDrawer'
-import { fetchStats, fetchCards, fetchTicker, fetchSetOptions } from '../api/api'
-import type { Signal, CardSummary, MarketStats, TickerItem } from '../types/api'
+import { fetchStats, fetchCards, fetchTicker, fetchSetOptions, fetchMarketOverview } from '../api/api'
+import type { Signal, CardSummary, MarketStats, TickerItem, MarketOverview, MarketNumber } from '../types/api'
 
 type SortKey = 'change' | 'price' | 'volume' | 'recent' | 'signal'
 type SignalFilter = Signal | 'ALL' | 'INVESTMENT'
@@ -24,6 +24,8 @@ const FILTERS: Array<{ value: SignalFilter; label: string }> = [
 export default function DashboardPage() {
   const nav = useNavigate()
   const [stats, setStats] = useState<MarketStats | null>(null)
+  const [marketOverview, setMarketOverview] = useState<MarketOverview | null>(null)
+  const [marketOverviewUnavailable, setMarketOverviewUnavailable] = useState(false)
   const [ticker, setTicker] = useState<TickerItem[]>([])
   const [cards, setCards] = useState<CardSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -40,7 +42,16 @@ export default function DashboardPage() {
   const [priceMax, setPriceMax] = useState<number | null>(null)
   const [setNameMap, setSetNameMap] = useState<Record<string, string>>({})
 
-  useEffect(() => { fetchStats().then(setStats); fetchTicker().then(setTicker) }, [])
+  useEffect(() => {
+    fetchStats().then(setStats)
+    fetchTicker().then(setTicker)
+    fetchMarketOverview()
+      .then(data => {
+        setMarketOverview(data)
+        setMarketOverviewUnavailable(false)
+      })
+      .catch(() => setMarketOverviewUnavailable(true))
+  }, [])
 
   // Load set name map when drawer is first opened (for chip labels)
   useEffect(() => {
@@ -127,6 +138,8 @@ export default function DashboardPage() {
       <GameSwitcher activeGame={activeGame} onGameChange={handleGameChange} />
       <TickerBar items={ticker} />
       <div className="page-content">
+        <MarketOverviewPanel overview={marketOverview} unavailable={marketOverviewUnavailable} />
+
         {/* Stat tiles */}
         {stats && (
           <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginBottom: 28 }}>
@@ -300,6 +313,114 @@ export default function DashboardPage() {
         priceMax={priceMax}
         onChange={handleFilterChange}
       />
+    </div>
+  )
+}
+
+function formatMarketPercent(value: MarketNumber | null | undefined): string {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue)) return 'N/A'
+  return `${numericValue >= 0 ? '+' : ''}${numericValue.toFixed(2)}%`
+}
+
+function formatMarketLabel(value: string): string {
+  return value
+    .split('_')
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function MarketOverviewPanel({ overview, unavailable }: { overview: MarketOverview | null; unavailable: boolean }) {
+  if (unavailable) {
+    return (
+      <section className="surface" style={{ padding: 20, marginBottom: 24 }}>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+          Market Overview
+        </div>
+        <div style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 13 }}>Market overview unavailable.</div>
+      </section>
+    )
+  }
+
+  if (!overview) return null
+
+  const strongestIndex = overview.indexes[0]
+  const topMover = overview.top_movers[0]
+  const signalCount = overview.signal_summary.reduce((total, row) => total + row.count, 0)
+  const sentiment = formatMarketLabel(overview.market_sentiment)
+  const confidence = `${formatMarketLabel(overview.confidence_label)} confidence`
+
+  return (
+    <section className="surface" style={{ padding: 20, marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 18 }}>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0, marginBottom: 6 }}>
+            Market Overview
+          </div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 700, color: 'var(--text-primary)' }}>
+            {sentiment}
+          </div>
+        </div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', paddingTop: 4 }}>
+          {confidence}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+        <MarketOverviewMetric
+          label="Strongest market"
+          primary={strongestIndex?.label ?? 'No comparable market'}
+          secondary={strongestIndex ? formatMarketPercent(strongestIndex.change_pct) : 'Insufficient raw series'}
+          tone={strongestIndex?.direction}
+        />
+        <MarketOverviewMetric
+          label="Top mover"
+          primary={topMover?.name ?? 'No comparable mover'}
+          secondary={topMover ? formatMarketPercent(topMover.percent_change) : 'Insufficient raw series'}
+          tone={topMover?.direction}
+        />
+        <MarketOverviewMetric
+          label="Signals"
+          primary={`${signalCount} signals`}
+          secondary={`${overview.signal_summary.length} active label${overview.signal_summary.length === 1 ? '' : 's'}`}
+        />
+      </div>
+
+      <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6 }}>
+        {overview.commentary}
+      </p>
+      {overview.evidence.length > 0 && (
+        <div style={{ marginTop: 12, color: 'var(--text-muted)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+          Evidence: {overview.evidence.slice(0, 2).join(' | ')}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function MarketOverviewMetric({
+  label,
+  primary,
+  secondary,
+  tone,
+}: {
+  label: string
+  primary: string
+  secondary: string
+  tone?: 'up' | 'down' | 'flat'
+}) {
+  const toneColor = tone === 'up' ? 'var(--up)' : tone === 'down' ? 'var(--down)' : 'var(--text-secondary)'
+
+  return (
+    <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: '12px 14px', minHeight: 82 }}>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>{label}</div>
+      <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: 'var(--text-primary)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {primary}
+      </div>
+      <div style={{ marginTop: 6, color: toneColor, fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+        {secondary}
+      </div>
     </div>
   )
 }

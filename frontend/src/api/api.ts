@@ -1,5 +1,5 @@
 // frontend/src/api/api.ts
-import type { MarketStats, TickerItem, CardsResponse, CardDetail, AlertsResponse, Signal, SetOption, RarityOption } from '../types/api'
+import type { MarketStats, TickerItem, CardsResponse, CardDetail, AlertsResponse, Signal, SetOption, RarityOption, MarketOverview } from '../types/api'
 
 const BASE = ''  // same-origin: FastAPI serves both API and SPA
 
@@ -30,6 +30,12 @@ export async function fetchCalibration(): Promise<{ total_calls: number; total_r
 export async function fetchTicker(): Promise<TickerItem[]> {
   const res = await fetch(`${BASE}/api/v1/web/ticker`)
   if (!res.ok) throw new Error('ticker fetch failed')
+  return res.json()
+}
+
+export async function fetchMarketOverview(): Promise<MarketOverview> {
+  const res = await fetch(`${BASE}/api/v1/market/overview`)
+  if (!res.ok) throw new Error('market overview fetch failed')
   return res.json()
 }
 
