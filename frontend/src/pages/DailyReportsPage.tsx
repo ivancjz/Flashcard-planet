@@ -38,6 +38,7 @@ export default function DailyReportsPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState(false)
   const [loadMoreError, setLoadMoreError] = useState(false)
+  const [loadMoreAnnouncement, setLoadMoreAnnouncement] = useState('')
 
   useEffect(() => {
     let active = true
@@ -64,12 +65,15 @@ export default function DailyReportsPage() {
   async function loadOlderReports() {
     setLoadingMore(true)
     setLoadMoreError(false)
+    setLoadMoreAnnouncement('Loading older reports...')
     try {
       const page = await fetchDailyMarketReports({ limit: PAGE_SIZE, offset: reports.length })
       setReports(current => [...current, ...page.reports])
       setTotal(page.total)
+      setLoadMoreAnnouncement(`${page.reports.length} older report${page.reports.length === 1 ? '' : 's'} loaded.`)
     } catch {
       setLoadMoreError(true)
+      setLoadMoreAnnouncement('Older reports could not be loaded.')
     } finally {
       setLoadingMore(false)
     }
@@ -93,8 +97,18 @@ export default function DailyReportsPage() {
         </header>
 
         {loading ? (
-          <div className="surface daily-reports-state" role="status" aria-live="polite" aria-busy="true">
-            Loading daily reports...
+          <div className="daily-reports-loading" role="status" aria-live="polite" aria-busy="true">
+            <span className="sr-only">Loading daily reports...</span>
+            {[0, 1, 2].map(row => (
+              <div key={row} className="daily-report-skeleton" data-testid="daily-report-skeleton" aria-hidden="true">
+                <span className="skeleton daily-report-skeleton-date" />
+                <span className="daily-report-skeleton-copy">
+                  <span className="skeleton daily-report-skeleton-title" />
+                  <span className="skeleton daily-report-skeleton-summary" />
+                </span>
+                <span className="skeleton daily-report-skeleton-meta" />
+              </div>
+            ))}
           </div>
         ) : error ? (
           <div className="surface daily-reports-state" role="status" aria-live="polite">
@@ -131,8 +145,12 @@ export default function DailyReportsPage() {
               ))}
             </div>
 
+            <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+              {loadMoreAnnouncement}
+            </div>
+
             {loadMoreError && (
-              <div className="daily-reports-more-error" role="status" aria-live="polite">
+              <div className="daily-reports-more-error">
                 Older reports could not be loaded. Try again.
               </div>
             )}

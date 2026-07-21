@@ -119,6 +119,20 @@ describe('DailyReportDetailPage', () => {
     expect(within(signals).getByText('88.00% confidence')).toBeTruthy()
   })
 
+  it('does not turn unavailable signal confidence into a numeric measurement', async () => {
+    const report = makeReport()
+    report.overview.signal_summary = [
+      { label: 'WATCH', count: 2, average_confidence: null },
+    ]
+    vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(report)
+
+    renderPage()
+
+    const signals = await screen.findByRole('region', { name: 'Signal Summary' })
+    expect(within(signals).getByText('Confidence unavailable')).toBeTruthy()
+    expect(within(signals).queryByText('0.00% confidence')).toBeNull()
+  })
+
   it('renders a missing report state', async () => {
     vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(null)
 

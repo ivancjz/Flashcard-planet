@@ -35,6 +35,13 @@ function formatMoney(value: MarketNumber): string {
   return `$${numeric.toFixed(2)}`
 }
 
+function formatConfidence(value: MarketNumber | null): string {
+  if (value === null) return 'Confidence unavailable'
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return 'Confidence unavailable'
+  return `${numeric.toFixed(2)}% confidence`
+}
+
 function directionColor(direction: 'up' | 'down' | 'flat'): string {
   if (direction === 'up') return 'var(--up)'
   if (direction === 'down') return 'var(--down)'
@@ -221,7 +228,7 @@ function DailyReportContent({ report }: { report: DailyMarketReport }) {
               <div className="daily-report-signal-row" key={signal.label}>
                 <strong>{formatLabel(signal.label)}</strong>
                 <span>{signal.count} signal{signal.count === 1 ? '' : 's'}</span>
-                <span>{Number(signal.average_confidence).toFixed(2)}% confidence</span>
+                <span>{formatConfidence(signal.average_confidence)}</span>
               </div>
             ))}
           </div>

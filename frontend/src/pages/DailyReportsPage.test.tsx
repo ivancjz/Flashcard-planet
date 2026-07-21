@@ -59,6 +59,7 @@ describe('DailyReportsPage', () => {
     const status = screen.getByRole('status')
     expect(status.getAttribute('aria-busy')).toBe('true')
     expect(status.textContent).toContain('Loading daily reports')
+    expect(screen.getAllByTestId('daily-report-skeleton')).toHaveLength(3)
   })
 
   it('renders reports as links to their dated pages', async () => {
@@ -125,5 +126,25 @@ describe('DailyReportsPage', () => {
     expect(screen.getByText('Flashcard Planet Daily - 2026-07-21')).toBeTruthy()
     expect(fetchDailyMarketReports).toHaveBeenNthCalledWith(2, { limit: 30, offset: 1 })
     expect(screen.queryByRole('button', { name: 'Load older reports' })).toBeNull()
+    expect(screen.getByRole('status').textContent).toBe('1 older report loaded.')
+  })
+
+  it('announces pagination progress in a live status region', async () => {
+    vi.mocked(fetchDailyMarketReports)
+      .mockResolvedValueOnce({
+        reports: [makeReport('2026-07-21', 'Flashcard Planet Daily - 2026-07-21')],
+        total: 2,
+        limit: 30,
+        offset: 0,
+      })
+      .mockReturnValueOnce(new Promise(() => {}))
+
+    renderPage()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Load older reports' }))
+
+    const status = screen.getByRole('status')
+    expect(status.getAttribute('aria-live')).toBe('polite')
+    expect(status.textContent).toBe('Loading older reports...')
   })
 })

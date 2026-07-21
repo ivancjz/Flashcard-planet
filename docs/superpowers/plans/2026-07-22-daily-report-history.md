@@ -223,7 +223,7 @@ Run `npm test` and `npm run build` from `frontend/`.
 
 Verify `/reports` and `/reports/2026-07-21` at desktop and mobile widths. Confirm no text overlap, page-level horizontal scroll, clipped evidence, or unusable controls.
 
-- [ ] **Step 4: Request independent code review**
+- [x] **Step 4: Request independent code review**
 
 Review the full phase diff against the design and resolve all actionable findings.
 
