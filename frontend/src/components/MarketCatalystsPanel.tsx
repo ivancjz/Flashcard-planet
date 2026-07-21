@@ -34,6 +34,15 @@ function formatSafeNumber(value: MarketNumber): string | null {
   return formatted
 }
 
+function getExternalSourceUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? value : null
+  } catch {
+    return null
+  }
+}
+
 function formatImpact(catalyst: Catalyst): string {
   if (catalyst.impact_score == null || catalyst.impact_label === 'unscored') {
     return 'Impact: Unscored'
@@ -80,30 +89,40 @@ export default function MarketCatalystsPanel({
         <div className="market-catalysts-state">No verified catalysts are active or upcoming for this market.</div>
       ) : (
         <div className="market-catalysts-list">
-          {catalysts.slice(0, 3).map(catalyst => (
-            <article className="market-catalyst-row" key={catalyst.id}>
-              <div className="market-catalyst-identity">
-                <span className="market-catalyst-status">{formatLabel(catalyst.status)}</span>
-                <span className="market-catalyst-type">{formatLabel(catalyst.event_type)}</span>
-                <time dateTime={catalyst.event_date}>{formatEventDate(catalyst.event_date)}</time>
-              </div>
+          {catalysts.slice(0, 3).map(catalyst => {
+            const eventType = formatLabel(catalyst.event_type)
+            const sourceUrl = getExternalSourceUrl(catalyst.source_url)
 
-              <p className="market-catalyst-description">{catalyst.description}</p>
+            return (
+              <article className="market-catalyst-row" key={catalyst.id}>
+                <div className="market-catalyst-identity">
+                  <span className="market-catalyst-status">{formatLabel(catalyst.status)}</span>
+                  <span className="market-catalyst-type">{eventType}</span>
+                  <time dateTime={catalyst.event_date}>{formatEventDate(catalyst.event_date)}</time>
+                </div>
 
-              <div className="market-catalyst-evidence">
-                <span>{formatImpact(catalyst)}</span>
-                <span>{formatConfidence(catalyst)}</span>
-                <a
-                  className="market-catalyst-source-link"
-                  href={catalyst.source_url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  View evidence
-                </a>
-              </div>
-            </article>
-          ))}
+                <p className="market-catalyst-description">{catalyst.description}</p>
+
+                <div className="market-catalyst-evidence">
+                  <span>{formatImpact(catalyst)}</span>
+                  <span>{formatConfidence(catalyst)}</span>
+                  {sourceUrl === null ? (
+                    <span>Evidence unavailable</span>
+                  ) : (
+                    <a
+                      aria-label={`View evidence for ${eventType}: ${catalyst.description}`}
+                      className="market-catalyst-source-link"
+                      href={sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      View evidence
+                    </a>
+                  )}
+                </div>
+              </article>
+            )
+          })}
         </div>
       )}
     </section>

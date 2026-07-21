@@ -83,11 +83,54 @@ describe('MarketCatalystsPanel', () => {
     expect(within(panel).getByText('Impact: High (88)')).toBeTruthy()
     expect(within(panel).getByText('Confidence: High (91.50%)')).toBeTruthy()
 
-    const evidenceLinks = within(panel).getAllByRole('link', { name: 'View evidence' })
+    const evidenceLinks = within(panel).getAllByText('View evidence')
     expect(evidenceLinks).toHaveLength(2)
     expect(evidenceLinks[1].getAttribute('href')).toBe('https://example.com/festival')
     expect(evidenceLinks[1].getAttribute('target')).toBe('_blank')
     expect(evidenceLinks[1].getAttribute('rel')).toBe('noreferrer')
+  })
+
+  it('gives each evidence link a distinct contextual name while retaining its visible text', () => {
+    const festivalDescription = 'A verified community festival is scheduled.'
+    render(
+      <MarketCatalystsPanel
+        unavailable={false}
+        catalysts={[
+          baseCatalyst,
+          catalyst({
+            id: 'community-festival-2026',
+            event_type: 'COMMUNITY_FESTIVAL',
+            description: festivalDescription,
+            source_url: 'https://example.com/festival',
+          }),
+        ]}
+      />,
+    )
+
+    const reprintLink = screen.getByRole('link', {
+      name: 'View evidence for Reprint: A verified Pokemon reprint window.',
+    })
+    const festivalLink = screen.getByRole('link', {
+      name: `View evidence for Community Festival: ${festivalDescription}`,
+    })
+    expect(reprintLink.textContent).toBe('View evidence')
+    expect(festivalLink.textContent).toBe('View evidence')
+  })
+
+  it.each([
+    ['a javascript URL', 'javascript:alert(1)'],
+    ['a relative URL', '/evidence/reprint'],
+    ['a malformed URL', 'not a valid URL'],
+  ])('renders evidence as unavailable for %s', (_case, sourceUrl) => {
+    render(
+      <MarketCatalystsPanel
+        unavailable={false}
+        catalysts={[catalyst({ source_url: sourceUrl })]}
+      />,
+    )
+
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.getByText('Evidence unavailable')).toBeTruthy()
   })
 
   it('shows invalid dates unchanged and omits nonfinite confidence numbers', () => {
@@ -120,7 +163,7 @@ describe('MarketCatalystsPanel', () => {
       />,
     )
 
-    expect(screen.getAllByRole('link', { name: 'View evidence' })).toHaveLength(3)
+    expect(screen.getAllByText('View evidence')).toHaveLength(3)
     expect(screen.getByText('Catalyst description 3')).toBeTruthy()
     expect(screen.queryByText('Catalyst description 4')).toBeNull()
   })

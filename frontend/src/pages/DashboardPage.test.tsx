@@ -5,6 +5,8 @@ import DashboardPage from './DashboardPage'
 import { fetchCards, fetchCatalysts, fetchLatestDailyMarketReport, fetchMarketOverview, fetchStats, fetchTicker } from '../api/api'
 import type { Catalyst, CatalystListResponse } from '../types/api'
 
+const gameCommitProbe = vi.hoisted(() => vi.fn())
+
 vi.mock('../api/api', () => ({
   fetchStats: vi.fn(),
   fetchTicker: vi.fn(),
@@ -17,14 +19,24 @@ vi.mock('../api/api', () => ({
 
 vi.mock('../components/NavBar', () => ({ default: () => <nav aria-label="Main navigation" /> }))
 vi.mock('../components/TickerBar', () => ({ default: () => <div data-testid="ticker-bar" /> }))
-vi.mock('../components/GameSwitcher', () => ({
-  default: ({ activeGame, onGameChange }: { activeGame: string; onGameChange: (game: string) => void }) => (
-    <div data-testid="game-switcher">
-      <span>{activeGame}</span>
-      <button type="button" onClick={() => onGameChange('yugioh')}>Select Yu-Gi-Oh</button>
-    </div>
-  ),
-}))
+vi.mock('../components/GameSwitcher', async () => {
+  const { useLayoutEffect } = await import('react')
+
+  function MockGameSwitcher({ activeGame, onGameChange }: { activeGame: string; onGameChange: (game: string) => void }) {
+    useLayoutEffect(() => {
+      gameCommitProbe(activeGame, document.body.textContent ?? '')
+    }, [activeGame])
+
+    return (
+      <div data-testid="game-switcher">
+        <span>{activeGame}</span>
+        <button type="button" onClick={() => onGameChange('yugioh')}>Select Yu-Gi-Oh</button>
+      </div>
+    )
+  }
+
+  return { default: MockGameSwitcher }
+})
 vi.mock('../components/FilterDrawer', () => ({ default: () => null }))
 vi.mock('../components/CardGrid', () => ({
   default: ({ cards, loading }: { cards: unknown[]; loading?: boolean }) => (
@@ -241,6 +253,25 @@ describe('DashboardPage market overview', () => {
       limit: 3,
       offset: 0,
     })
+  })
+
+  it('clears the previous game catalysts in the same commit as a game switch', async () => {
+    const pendingYugiohRequest = new Promise<CatalystListResponse>(() => {})
+    vi.mocked(fetchCatalysts)
+      .mockResolvedValueOnce(catalystPage([pokemonCatalyst]))
+      .mockReturnValueOnce(pendingYugiohRequest)
+
+    renderDashboard()
+    await screen.findByText('Pokemon regional championship registration opens.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Yu-Gi-Oh' }))
+
+    const yugiohCommit = gameCommitProbe.mock.calls.find(([game]) => game === 'yugioh')
+    const yugiohCommitText = yugiohCommit?.[1] ?? ''
+    expect(yugiohCommitText).not.toContain('Pokemon regional championship registration opens.')
+    expect(yugiohCommitText).toContain('Loading market catalysts...')
+    expect(screen.queryByText('Pokemon regional championship registration opens.')).toBeNull()
+    expect(screen.getByText('Loading market catalysts...')).toBeTruthy()
   })
 
   it('ignores a stale Pokemon response after switching to Yugioh', async () => {
