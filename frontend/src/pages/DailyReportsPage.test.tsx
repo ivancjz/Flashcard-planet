@@ -34,6 +34,7 @@ function makeReport(reportDate: string, title: string): DailyMarketReport {
       commentary: `Market summary for ${reportDate}.`,
       evidence: ['market_segment=raw'],
     },
+    catalysts: [],
     evidence: ['market_segment=raw'],
   }
 }

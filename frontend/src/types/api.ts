@@ -34,6 +34,36 @@ export type MarketDirection = 'up' | 'down' | 'flat'
 export type MarketSentiment = 'bullish' | 'neutral' | 'bearish' | 'insufficient_data'
 export type MarketConfidence = 'high' | 'medium' | 'low' | 'insufficient'
 export type MarketNumber = number | string
+export type CatalystStatus = 'upcoming' | 'active' | 'expired'
+export type CatalystImpactLabel = 'high' | 'medium' | 'low' | 'unscored'
+export type CatalystConfidenceLabel = 'high' | 'medium' | 'low' | 'insufficient_data'
+
+export interface Catalyst {
+  id: string
+  event_date: string
+  active_until: string
+  event_type: string
+  description: string
+  source_url: string
+  affected_games: string[]
+  affected_asset_ids: string[]
+  affected_set_ids: string[]
+  expected_window_days: number | null
+  impact_score: number | null
+  impact_label: CatalystImpactLabel
+  confidence_score: MarketNumber | null
+  confidence_label: CatalystConfidenceLabel
+  status: CatalystStatus
+  verified_at: string
+}
+
+export interface CatalystListResponse {
+  catalysts: Catalyst[]
+  total: number
+  limit: number
+  offset: number
+  as_of: string
+}
 
 export interface MarketIndex {
   game: string
@@ -84,6 +114,7 @@ export interface DailyMarketReport {
   confidence_label: MarketConfidence
   summary: string
   overview: MarketOverview
+  catalysts: Catalyst[]
   evidence: string[]
 }
 

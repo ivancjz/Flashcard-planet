@@ -1,5 +1,5 @@
 // frontend/src/api/api.ts
-import type { MarketStats, TickerItem, CardsResponse, CardDetail, AlertsResponse, Signal, SetOption, RarityOption, MarketOverview, DailyMarketReport, DailyMarketReportListResponse } from '../types/api'
+import type { MarketStats, TickerItem, CardsResponse, CardDetail, AlertsResponse, Signal, SetOption, RarityOption, MarketOverview, DailyMarketReport, DailyMarketReportListResponse, Catalyst, CatalystListResponse, CatalystStatus } from '../types/api'
 
 const BASE = ''  // same-origin: FastAPI serves both API and SPA
 
@@ -36,6 +36,37 @@ export async function fetchTicker(): Promise<TickerItem[]> {
 export async function fetchMarketOverview(): Promise<MarketOverview> {
   const res = await fetch(`${BASE}/api/v1/market/overview`)
   if (!res.ok) throw new Error('market overview fetch failed')
+  return res.json()
+}
+
+export async function fetchCatalysts(params: {
+  status?: CatalystStatus[]
+  game?: string
+  eventType?: string
+  limit?: number
+  offset?: number
+} = {}): Promise<CatalystListResponse> {
+  const qs = new URLSearchParams()
+  params.status?.forEach((status) => qs.append('status', status))
+
+  const game = params.game?.trim()
+  if (game) qs.set('game', game)
+
+  const eventType = params.eventType?.trim()
+  if (eventType) qs.set('event_type', eventType.toUpperCase())
+
+  qs.set('limit', String(params.limit ?? 20))
+  qs.set('offset', String(params.offset ?? 0))
+
+  const res = await fetch(`${BASE}/api/v1/market/catalysts?${qs}`)
+  if (!res.ok) throw new Error('catalyst list fetch failed')
+  return res.json()
+}
+
+export async function fetchCatalyst(catalystId: string): Promise<Catalyst | null> {
+  const res = await fetch(`${BASE}/api/v1/market/catalysts/${encodeURIComponent(catalystId)}`)
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error('catalyst fetch failed')
   return res.json()
 }
 

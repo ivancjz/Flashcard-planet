@@ -71,6 +71,7 @@ describe('DashboardPage market overview', () => {
         commentary: 'High-end Pokemon cards led the raw market today.',
         evidence: ['market_segment=raw'],
       },
+      catalysts: [],
       evidence: ['market_segment=raw', 'active price source: sample_seed'],
     })
     vi.mocked(fetchMarketOverview).mockResolvedValue({

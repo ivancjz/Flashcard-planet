@@ -57,6 +57,7 @@ function makeReport(): DailyMarketReport {
       commentary: 'Raw Pokemon price series produced the strongest verified move.',
       evidence: ['market_segment=raw'],
     },
+    catalysts: [],
     evidence: ['market_segment=raw', 'active price source: sample_seed'],
   }
 }
