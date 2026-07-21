@@ -6,6 +6,11 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy import create_engine, select
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 import backend.app.services.market_event_service as market_event_service
 from backend.app.models.daily_market_report import DailyMarketReport
@@ -28,6 +33,25 @@ EXPECTED_CATALYST_EVENT_TYPES = frozenset(
         "SOCIAL_TREND",
     }
 )
+
+
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_for_sqlite(_type, _compiler, **_kwargs):
+    return "JSON"
+
+
+@pytest.fixture
+def sqlite_market_event_session():
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    MarketEvent.__table__.create(engine)
+    with Session(engine) as session:
+        yield session
+    engine.dispose()
 
 
 def _valid_event(**overrides) -> MarketEventCreate:
@@ -53,26 +77,33 @@ def test_catalyst_event_types_are_exact_and_immutable():
     assert isinstance(market_event_service.CATALYST_EVENT_TYPES, frozenset)
 
 
-def test_create_market_event_persists_every_field():
-    db = MagicMock()
+def test_create_market_event_persists_every_field(sqlite_market_event_session):
     data = _valid_event()
 
-    event = create_market_event(db, data)
+    event = create_market_event(sqlite_market_event_session, data)
+    event_id = event.id
+    sqlite_market_event_session.commit()
+    sqlite_market_event_session.expunge_all()
 
-    assert event.event_date == data.event_date
-    assert event.event_type == data.event_type
-    assert event.description == data.description
-    assert event.source_url == data.source_url
-    assert event.verified_at == data.verified_at
-    assert event.verified_by == data.verified_by
-    assert event.affected_games == data.affected_games
-    assert event.affected_asset_ids == data.affected_asset_ids
-    assert event.affected_set_ids == data.affected_set_ids
-    assert event.expected_window_days == data.expected_window_days
-    assert event.impact_score == data.impact_score
-    assert event.confidence_score == data.confidence_score
-    db.add.assert_called_once_with(event)
-    db.flush.assert_called_once_with()
+    stored = sqlite_market_event_session.scalar(
+        select(MarketEvent).where(MarketEvent.id == event_id)
+    )
+
+    assert stored is not None
+    assert stored.id == event_id
+    assert stored.event_date == data.event_date.replace(tzinfo=None)
+    assert stored.event_type == data.event_type
+    assert stored.description == data.description
+    assert stored.source_url == data.source_url
+    assert stored.verified_at == data.verified_at.replace(tzinfo=None)
+    assert stored.verified_by == data.verified_by
+    assert stored.affected_games == data.affected_games
+    assert stored.affected_asset_ids == data.affected_asset_ids
+    assert stored.affected_set_ids == data.affected_set_ids
+    assert stored.expected_window_days == data.expected_window_days
+    assert stored.impact_score == data.impact_score
+    assert stored.confidence_score == Decimal("91.50")
+    assert stored.created_at is not None
 
 
 def test_create_market_event_normalizes_type_and_games():
