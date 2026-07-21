@@ -146,6 +146,17 @@ describe('DashboardPage market overview', () => {
     expect(await screen.findByText("Today's report has not been generated yet.")).toBeTruthy()
   })
 
+  it('announces the pending daily report as a live loading region', async () => {
+    vi.mocked(fetchLatestDailyMarketReport).mockReturnValueOnce(new Promise(() => {}))
+
+    renderDashboard()
+
+    const report = await screen.findByRole('region', { name: 'Flashcard Planet Daily' })
+    expect(report.getAttribute('aria-busy')).toBe('true')
+    expect(report.getAttribute('aria-live')).toBe('polite')
+    expect(within(report).getByText('Loading the latest market brief...')).toBeTruthy()
+  })
+
   it('shows an unavailable state when the daily report request fails', async () => {
     vi.mocked(fetchLatestDailyMarketReport).mockRejectedValueOnce(new Error('network error'))
 

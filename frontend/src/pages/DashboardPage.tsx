@@ -363,7 +363,7 @@ function DailyMarketReportPanel({
 }) {
   if (unavailable) {
     return (
-      <section aria-label="Flashcard Planet Daily" className="surface" style={{ padding: 20, minHeight: 96, marginBottom: 24, borderLeft: '3px solid var(--down)' }}>
+      <section aria-label="Flashcard Planet Daily" aria-live="polite" aria-atomic="true" className="surface" style={{ padding: 20, minHeight: 96, marginBottom: 24, borderLeft: '3px solid var(--down)' }}>
         <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
           Flashcard Planet Daily
         </div>
@@ -374,7 +374,7 @@ function DailyMarketReportPanel({
 
   if (report === undefined) {
     return (
-      <section aria-label="Flashcard Planet Daily" aria-busy="true" className="surface" style={{ padding: 20, minHeight: 96, marginBottom: 24, borderLeft: '3px solid var(--border-strong)' }}>
+      <section aria-label="Flashcard Planet Daily" aria-live="polite" aria-atomic="true" aria-busy="true" className="surface" style={{ padding: 20, minHeight: 96, marginBottom: 24, borderLeft: '3px solid var(--border-strong)' }}>
         <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
           Flashcard Planet Daily
         </div>
@@ -385,7 +385,7 @@ function DailyMarketReportPanel({
 
   if (report === null) {
     return (
-      <section aria-label="Flashcard Planet Daily" className="surface" style={{ padding: 20, minHeight: 96, marginBottom: 24, borderLeft: '3px solid var(--border-strong)' }}>
+      <section aria-label="Flashcard Planet Daily" aria-live="polite" aria-atomic="true" className="surface" style={{ padding: 20, minHeight: 96, marginBottom: 24, borderLeft: '3px solid var(--border-strong)' }}>
         <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
           Flashcard Planet Daily
         </div>
@@ -405,6 +405,8 @@ function DailyMarketReportPanel({
   return (
     <section
       aria-label="Flashcard Planet Daily"
+      aria-live="polite"
+      aria-atomic="true"
       className="surface-emphasis"
       style={{ padding: 20, marginBottom: 24, borderLeft: '3px solid var(--gold)' }}
     >
@@ -433,7 +435,7 @@ function DailyMarketReportPanel({
       </p>
 
       {report.evidence.length > 0 && (
-        <ul style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px 20px', margin: '16px 0 0', padding: '14px 0 0 18px', borderTop: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.5 }}>
+        <ul style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: '8px 20px', margin: '16px 0 0', padding: '14px 0 0 18px', borderTop: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.5 }}>
           {report.evidence.slice(0, 3).map(item => (
             <li key={item} style={{ paddingLeft: 2, overflowWrap: 'anywhere' }}>{item}</li>
           ))}
