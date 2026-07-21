@@ -15,8 +15,30 @@ down_revision = "0041"
 branch_labels = None
 depends_on = None
 
+_EVENT_TYPE_CONSTRAINT_NAME = "ck_market_events_event_type"
+_EXPANDED_EVENT_TYPE_CONDITION = (
+    "event_type IN ("
+    "'INFLUENCER','SUPPLY','TOURNAMENT','RELEASE','REPRINT',"
+    "'PRICE_CHANGE','ANNIVERSARY','COLLABORATION','LIMITED_PRODUCT',"
+    "'POLICY','SOCIAL_TREND'"
+    ")"
+)
+_ORIGINAL_EVENT_TYPE_CONDITION = (
+    "event_type IN ('INFLUENCER','SUPPLY','TOURNAMENT','RELEASE')"
+)
+
 
 def upgrade() -> None:
+    op.drop_constraint(
+        _EVENT_TYPE_CONSTRAINT_NAME,
+        "market_events",
+        type_="check",
+    )
+    op.create_check_constraint(
+        _EVENT_TYPE_CONSTRAINT_NAME,
+        "market_events",
+        _EXPANDED_EVENT_TYPE_CONDITION,
+    )
     op.add_column(
         "market_events",
         sa.Column("affected_games", postgresql.JSONB(), nullable=True),
@@ -64,6 +86,24 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM market_events
+                WHERE event_type NOT IN (
+                    'INFLUENCER','SUPPLY','TOURNAMENT','RELEASE'
+                )
+            ) THEN
+                RAISE EXCEPTION
+                    'Cannot downgrade 0042: new catalyst event types must be migrated or removed explicitly before downgrading.';
+            END IF;
+        END
+        $$;
+        """
+    )
     op.drop_column("daily_market_reports", "catalysts_json")
     op.drop_constraint(
         "ck_market_events_confidence_score_range",
@@ -83,3 +123,13 @@ def downgrade() -> None:
     op.drop_column("market_events", "confidence_score")
     op.drop_column("market_events", "impact_score")
     op.drop_column("market_events", "affected_games")
+    op.drop_constraint(
+        _EVENT_TYPE_CONSTRAINT_NAME,
+        "market_events",
+        type_="check",
+    )
+    op.create_check_constraint(
+        _EVENT_TYPE_CONSTRAINT_NAME,
+        "market_events",
+        _ORIGINAL_EVENT_TYPE_CONDITION,
+    )
