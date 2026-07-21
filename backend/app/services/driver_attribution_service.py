@@ -41,6 +41,7 @@ _EVENT_TYPE_TO_DRIVER: dict[str, str] = {
     "TOURNAMENT": "EVENT_DRIVEN",
     "RELEASE": "MACRO",
     "SUPPLY": "SUPPLY_SHOCK",
+    "REPRINT": "SUPPLY_SHOCK",
 }
 
 # Per-driver confidence multiplier (based on how reliably each event type
@@ -49,6 +50,7 @@ _EVENT_TYPE_CONFIDENCE_WEIGHT: dict[str, float] = {
     "INFLUENCER": 0.90,
     "TOURNAMENT": 0.70,
     "SUPPLY": 0.85,
+    "REPRINT": 0.85,
     # RELEASE=0.75: predictable, scheduled, well-documented (Pokemon.com source of truth),
     # high market impact. Higher than SUPPLY (0.68 effective) because releases are
     # announced months in advance and the investor community tracks them closely.
@@ -313,19 +315,19 @@ def attribute_signal(
         window_start=supply_window_start,
         window_end=window_end,
         now=now,
-        event_types=["SUPPLY"],
+        event_types=["SUPPLY", "REPRINT"],
     )
 
     if supply_events:
         best = _best_event(supply_events, now, extra_multiplier=0.8)
         recency = _recency_score(best.event_date, now, best.expected_window_days)
-        weight = _EVENT_TYPE_CONFIDENCE_WEIGHT["SUPPLY"]
+        weight = _EVENT_TYPE_CONFIDENCE_WEIGHT[best.event_type]
         confidence = round(recency * weight * 0.8, 3)
         return DriverAttribution(
             driver="SUPPLY_SHOCK",
             confidence=confidence,
             reason=(
-                f"SUPPLY event '{best.description[:80]}' "
+                f"{best.event_type} event '{best.description[:80]}' "
                 f"on {best.event_date.date()} "
                 f"(recency={recency:.2f})"
             ),
