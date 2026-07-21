@@ -326,7 +326,7 @@ git commit -m "feat: attribute verified reprints"
 - Modify: `tests/test_daily_market_report_service.py`
 - Modify: `tests/test_daily_market_report_api.py`
 
-- [ ] **Step 1: Write failing report snapshot tests**
+- [x] **Step 1: Write failing report snapshot tests**
 
 Cover these behaviors:
 
@@ -338,13 +338,13 @@ Cover these behaviors:
 - Changing a source event after publication does not change a previously returned stored snapshot.
 - An exception during catalyst selection aborts before `db.commit()` and does not publish a partial report.
 
-- [ ] **Step 2: Run report tests and verify RED**
+- [x] **Step 2: Run report tests and verify RED**
 
 Run: `python -m pytest tests/test_daily_market_report_service.py tests/test_daily_market_report_api.py -q`
 
 Expected: the report contract has no catalysts and generation does not select them.
 
-- [ ] **Step 3: Add a report-selection helper**
+- [x] **Step 3: Add a report-selection helper**
 
 In `catalyst_service.py`, implement:
 
@@ -370,13 +370,13 @@ def select_daily_report_catalysts(
     return eligible[:limit]
 ```
 
-- [ ] **Step 4: Persist and return typed snapshots**
+- [x] **Step 4: Persist and return typed snapshots**
 
 Add `catalysts: list[CatalystResponse]` to `DailyMarketReportResponse`. During generation, select catalysts before mutating/publishing the report row, serialize with `model_dump(mode="json")`, and assign `row.catalysts_json`. In `_response_from_row`, validate stored entries with `CatalystResponse.model_validate` and never re-query live events.
 
 Update API fixtures to include `catalysts=[]`. Preserve the existing report date and overview behavior.
 
-- [ ] **Step 5: Run Daily Report regressions and verify GREEN**
+- [x] **Step 5: Run Daily Report regressions and verify GREEN**
 
 Run:
 
@@ -386,7 +386,7 @@ python -m pytest tests/test_daily_market_report_service.py tests/test_daily_mark
 
 Expected: persisted catalyst snapshots, API serialization, empty behavior, and scheduler generation all pass.
 
-- [ ] **Step 6: Commit report integration**
+- [x] **Step 6: Commit report integration**
 
 ```text
 git add backend/app/schemas/daily_market_report.py backend/app/services/catalyst_service.py backend/app/services/daily_market_report_service.py tests/test_daily_market_report_service.py tests/test_daily_market_report_api.py
