@@ -148,10 +148,13 @@ Create these contracts:
 
 ```python
 CatalystLifecycle = Literal["upcoming", "active", "expired"]
+ImpactLabel = Literal["high", "medium", "low", "unscored"]
+ConfidenceLabel = Literal["high", "medium", "low", "insufficient_data"]
 
 class CatalystResponse(BaseModel):
     id: UUID
     event_date: datetime
+    active_until: datetime
     event_type: str
     description: str
     source_url: str
@@ -160,7 +163,9 @@ class CatalystResponse(BaseModel):
     affected_set_ids: list[str]
     expected_window_days: int | None
     impact_score: int | None
+    impact_label: ImpactLabel
     confidence_score: Decimal | None
+    confidence_label: ConfidenceLabel
     status: CatalystLifecycle
     verified_at: datetime
 
@@ -188,7 +193,7 @@ def catalyst_lifecycle(event: MarketEvent, *, as_of: datetime) -> CatalystLifecy
     return "expired"
 ```
 
-Add `list_catalysts(...)`, `get_catalyst(...)`, and a shared row-to-response mapper. Query only verified rows, normalize `as_of` to UTC, filter the small curated registry in service code for JSON-array and computed-status compatibility, then paginate after filtering. Order active first, upcoming second, expired last; put scored rows before unscored rows and retain deterministic event-date/id tie-breakers.
+Add `list_catalysts(...)`, `get_catalyst(...)`, score-label helpers, and a shared row-to-response mapper. Query only verified rows, normalize `as_of` to UTC, filter the small curated registry in service code for JSON-array and computed-status compatibility, then paginate after filtering. Order active by impact descending then event date descending, upcoming by event date ascending then impact descending, and expired by event date descending then impact descending. Null impact scores sort after scored rows within each lifecycle group; retain a deterministic ID tie-breaker.
 
 - [ ] **Step 5: Run the service test and verify GREEN**
 
@@ -427,6 +432,7 @@ export type CatalystStatus = 'upcoming' | 'active' | 'expired'
 export interface Catalyst {
   id: string
   event_date: string
+  active_until: string
   event_type: string
   description: string
   source_url: string
@@ -435,7 +441,9 @@ export interface Catalyst {
   affected_set_ids: string[]
   expected_window_days: number | null
   impact_score: number | null
+  impact_label: 'high' | 'medium' | 'low' | 'unscored'
   confidence_score: MarketNumber | null
+  confidence_label: 'high' | 'medium' | 'low' | 'insufficient_data'
   status: CatalystStatus
   verified_at: string
 }
