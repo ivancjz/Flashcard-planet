@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+from datetime import UTC, date, datetime
+from decimal import Decimal
+from uuid import UUID
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from backend.app.api.deps import get_database
+from backend.app.api.router import api_router
+from backend.app.api.routes.market import router as market_router
+from backend.app.schemas.daily_market_report import DailyMarketReportResponse
+from backend.app.schemas.market import MarketOverviewResponse
+
+
+def _report_response() -> DailyMarketReportResponse:
+    overview = MarketOverviewResponse(
+        generated_at=datetime(2026, 7, 21, 10, 0, tzinfo=UTC),
+        market_sentiment="bullish",
+        confidence_label="medium",
+        indexes=[],
+        top_movers=[],
+        signal_summary=[],
+        commentary="Market is bullish.",
+        evidence=["market_segment=raw"],
+    )
+    return DailyMarketReportResponse(
+        id=UUID("22222222-2222-2222-2222-222222222222"),
+        report_date=date(2026, 7, 21),
+        generated_at=datetime(2026, 7, 21, 10, 30, tzinfo=UTC),
+        status="published",
+        title="Flashcard Planet Daily - 2026-07-21",
+        market_sentiment="bullish",
+        confidence_label="medium",
+        summary="Market is bullish.",
+        overview=overview,
+        evidence=["market_segment=raw"],
+    )
+
+
+def _client(db=object()) -> tuple[FastAPI, TestClient, object]:
+    app = FastAPI()
+    app.include_router(market_router, prefix="/api/v1")
+    app.dependency_overrides[get_database] = lambda: db
+    return app, TestClient(app), db
+
+
+def test_generate_daily_market_report_route(mocker):
+    app, client, db = _client()
+    service = mocker.patch(
+        "backend.app.api.routes.market.create_daily_market_report",
+        return_value=_report_response(),
+    )
+
+    response = client.post("/api/v1/market/daily-report/generate?report_date=2026-07-21")
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "Flashcard Planet Daily - 2026-07-21"
+    service.assert_called_once_with(db, report_date=date(2026, 7, 21))
+    app.dependency_overrides.clear()
+
+
+def test_latest_daily_market_report_route(mocker):
+    app, client, db = _client()
+    service = mocker.patch(
+        "backend.app.api.routes.market.get_latest_daily_market_report",
+        return_value=_report_response(),
+    )
+
+    response = client.get("/api/v1/market/daily-report/latest")
+
+    assert response.status_code == 200
+    assert response.json()["report_date"] == "2026-07-21"
+    service.assert_called_once_with(db)
+    app.dependency_overrides.clear()
+
+
+def test_dated_daily_market_report_route_returns_404_when_missing(mocker):
+    app, client, db = _client()
+    service = mocker.patch(
+        "backend.app.api.routes.market.get_daily_market_report_by_date",
+        return_value=None,
+    )
+
+    response = client.get("/api/v1/market/daily-report/2026-07-19")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "No daily market report found for 2026-07-19."
+    service.assert_called_once_with(db, date(2026, 7, 19))
+    app.dependency_overrides.clear()
+
+
+def test_api_router_registers_daily_market_report_routes():
+    paths = [route.path for route in api_router.routes]
+
+    assert "/api/v1/market/daily-report/generate" in paths
+    assert "/api/v1/market/daily-report/latest" in paths
+    assert "/api/v1/market/daily-report/{report_date}" in paths
