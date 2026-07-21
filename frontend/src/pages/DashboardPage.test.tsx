@@ -1,8 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import DashboardPage from './DashboardPage'
-import { fetchCards, fetchLatestDailyMarketReport, fetchMarketOverview, fetchStats, fetchTicker } from '../api/api'
+import { fetchCards, fetchCatalysts, fetchLatestDailyMarketReport, fetchMarketOverview, fetchStats, fetchTicker } from '../api/api'
+import type { Catalyst, CatalystListResponse } from '../types/api'
 
 vi.mock('../api/api', () => ({
   fetchStats: vi.fn(),
@@ -11,12 +12,18 @@ vi.mock('../api/api', () => ({
   fetchSetOptions: vi.fn(),
   fetchMarketOverview: vi.fn(),
   fetchLatestDailyMarketReport: vi.fn(),
+  fetchCatalysts: vi.fn(),
 }))
 
 vi.mock('../components/NavBar', () => ({ default: () => <nav aria-label="Main navigation" /> }))
 vi.mock('../components/TickerBar', () => ({ default: () => <div data-testid="ticker-bar" /> }))
 vi.mock('../components/GameSwitcher', () => ({
-  default: ({ activeGame }: { activeGame: string }) => <div data-testid="game-switcher">{activeGame}</div>,
+  default: ({ activeGame, onGameChange }: { activeGame: string; onGameChange: (game: string) => void }) => (
+    <div data-testid="game-switcher">
+      <span>{activeGame}</span>
+      <button type="button" onClick={() => onGameChange('yugioh')}>Select Yu-Gi-Oh</button>
+    </div>
+  ),
 }))
 vi.mock('../components/FilterDrawer', () => ({ default: () => null }))
 vi.mock('../components/CardGrid', () => ({
@@ -25,6 +32,43 @@ vi.mock('../components/CardGrid', () => ({
   ),
 }))
 vi.mock('../components/ProGate', () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
+
+const pokemonCatalyst: Catalyst = {
+  id: 'pokemon-regionals-2026',
+  event_date: '2026-08-10',
+  active_until: '2026-08-12',
+  event_type: 'REGIONAL_CHAMPIONSHIP',
+  description: 'Pokemon regional championship registration opens.',
+  source_url: 'https://example.com/pokemon-regionals',
+  affected_games: ['pokemon'],
+  affected_asset_ids: [],
+  affected_set_ids: [],
+  expected_window_days: 3,
+  impact_score: 72,
+  impact_label: 'medium',
+  confidence_score: '84.00',
+  confidence_label: 'high',
+  status: 'upcoming',
+  verified_at: '2026-07-22T01:00:00Z',
+}
+
+function catalystPage(catalysts: Catalyst[]): CatalystListResponse {
+  return {
+    catalysts,
+    total: catalysts.length,
+    limit: 3,
+    offset: 0,
+    as_of: '2026-07-22T01:00:00Z',
+  }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(resolvePromise => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
 
 function renderDashboard() {
   return render(
@@ -52,6 +96,7 @@ describe('DashboardPage market overview', () => {
     })
     vi.mocked(fetchTicker).mockResolvedValue([])
     vi.mocked(fetchCards).mockResolvedValue({ cards: [], total: 0, limit: 50, offset: 0 })
+    vi.mocked(fetchCatalysts).mockResolvedValue(catalystPage([pokemonCatalyst]))
     vi.mocked(fetchLatestDailyMarketReport).mockResolvedValue({
       id: '22222222-2222-2222-2222-222222222222',
       report_date: '2026-07-21',
@@ -168,5 +213,79 @@ describe('DashboardPage market overview', () => {
 
     expect(await screen.findByText('Daily report unavailable.')).toBeTruthy()
     expect(screen.queryByRole('link', { name: 'Read full report' })).toBeNull()
+  })
+
+  it('requests Pokemon catalysts and renders the returned event', async () => {
+    renderDashboard()
+
+    const panel = await screen.findByRole('region', { name: 'Market Catalysts' })
+    expect(within(panel).getByText('Pokemon regional championship registration opens.')).toBeTruthy()
+    expect(fetchCatalysts).toHaveBeenCalledWith({
+      status: ['active', 'upcoming'],
+      game: 'pokemon',
+      limit: 3,
+      offset: 0,
+    })
+  })
+
+  it('requests catalysts again when the active game changes', async () => {
+    renderDashboard()
+    await screen.findByText('Pokemon regional championship registration opens.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Yu-Gi-Oh' }))
+
+    await waitFor(() => expect(fetchCatalysts).toHaveBeenCalledTimes(2))
+    expect(fetchCatalysts).toHaveBeenNthCalledWith(2, {
+      status: ['active', 'upcoming'],
+      game: 'yugioh',
+      limit: 3,
+      offset: 0,
+    })
+  })
+
+  it('ignores a stale Pokemon response after switching to Yugioh', async () => {
+    const pokemonRequest = deferred<CatalystListResponse>()
+    const yugiohRequest = deferred<CatalystListResponse>()
+    const stalePokemonCatalyst = {
+      ...pokemonCatalyst,
+      description: 'Late Pokemon catalyst response.',
+    }
+    const yugiohCatalyst = {
+      ...pokemonCatalyst,
+      id: 'yugioh-championship-2026',
+      affected_games: ['yugioh'],
+      description: 'Current Yugioh championship event.',
+    }
+    vi.mocked(fetchCatalysts).mockImplementation(params => (
+      params?.game === 'pokemon' ? pokemonRequest.promise : yugiohRequest.promise
+    ))
+
+    renderDashboard()
+    fireEvent.click(screen.getByRole('button', { name: 'Select Yu-Gi-Oh' }))
+    await waitFor(() => expect(fetchCatalysts).toHaveBeenCalledTimes(2))
+
+    await act(async () => {
+      yugiohRequest.resolve(catalystPage([yugiohCatalyst]))
+      await Promise.resolve()
+    })
+    expect(await screen.findByText('Current Yugioh championship event.')).toBeTruthy()
+
+    await act(async () => {
+      pokemonRequest.resolve(catalystPage([stalePokemonCatalyst]))
+      await Promise.resolve()
+    })
+    expect(screen.queryByText('Late Pokemon catalyst response.')).toBeNull()
+    expect(screen.getByText('Current Yugioh championship event.')).toBeTruthy()
+  })
+
+  it('isolates catalyst request failures from the other dashboard sections', async () => {
+    vi.mocked(fetchCatalysts).mockRejectedValueOnce(new Error('network error'))
+
+    renderDashboard()
+
+    expect(await screen.findByText('Market catalysts unavailable.')).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Flashcard Planet Daily' })).toBeTruthy()
+    expect(await screen.findByRole('region', { name: 'Market Overview' })).toBeTruthy()
+    expect(screen.getByTestId('card-grid')).toBeTruthy()
   })
 })

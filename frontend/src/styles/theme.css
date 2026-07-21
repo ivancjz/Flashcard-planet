@@ -469,6 +469,112 @@ a { color: inherit; text-decoration: none; }
   flex-wrap: wrap;
 }
 
+/* Dashboard market catalysts: one operational band with unframed rows. */
+.market-catalysts-panel {
+  max-width: 100%;
+  min-height: 132px;
+  margin-bottom: var(--space-6);
+  padding: 0 var(--space-5);
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  letter-spacing: 0;
+}
+
+.market-catalysts-header {
+  padding: var(--space-4) 0 var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.market-catalysts-header h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  line-height: 1.4;
+}
+
+.market-catalysts-state {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.market-catalyst-row {
+  display: grid;
+  grid-template-columns: minmax(0, 168px) minmax(0, 1fr) minmax(0, 220px);
+  gap: var(--space-5);
+  align-items: start;
+  min-width: 0;
+  padding: var(--space-4) 0;
+}
+
+.market-catalyst-row + .market-catalyst-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.market-catalyst-identity,
+.market-catalyst-evidence {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
+.market-catalyst-status {
+  color: var(--gold);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+.market-catalyst-type {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.market-catalyst-identity time,
+.market-catalyst-evidence {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.market-catalyst-description {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.market-catalyst-source-link {
+  width: fit-content;
+  margin-top: var(--space-1);
+  color: var(--gold);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
+.market-catalyst-source-link:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+@media (max-width: 700px) {
+  .market-catalyst-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+}
+
 /* Landing hero: text left, floating cards right — stacks on mobile */
 .landing-hero-grid {
   display: grid;

@@ -6,9 +6,10 @@ import GameSwitcher from '../components/GameSwitcher'
 import FilterDrawer from '../components/FilterDrawer'
 import CardGrid from '../components/CardGrid'
 import ProGate from '../components/ProGate'
+import MarketCatalystsPanel from '../components/MarketCatalystsPanel'
 import type { FilterState } from '../components/FilterDrawer'
-import { fetchStats, fetchCards, fetchTicker, fetchSetOptions, fetchMarketOverview, fetchLatestDailyMarketReport } from '../api/api'
-import type { Signal, CardSummary, MarketStats, TickerItem, MarketOverview, MarketNumber, DailyMarketReport } from '../types/api'
+import { fetchStats, fetchCards, fetchTicker, fetchSetOptions, fetchMarketOverview, fetchLatestDailyMarketReport, fetchCatalysts } from '../api/api'
+import type { Signal, CardSummary, MarketStats, TickerItem, MarketOverview, MarketNumber, DailyMarketReport, Catalyst } from '../types/api'
 
 type SortKey = 'change' | 'price' | 'volume' | 'recent' | 'signal'
 type SignalFilter = Signal | 'ALL' | 'INVESTMENT'
@@ -20,6 +21,7 @@ const FILTERS: Array<{ value: SignalFilter; label: string }> = [
   { value: 'WATCH', label: '◆ Watch' },
   { value: 'IDLE', label: '— Idle' },
 ]
+const LIVE_GAMES = ['pokemon', 'yugioh']
 
 export default function DashboardPage() {
   const nav = useNavigate()
@@ -28,6 +30,8 @@ export default function DashboardPage() {
   const [dailyReportUnavailable, setDailyReportUnavailable] = useState(false)
   const [marketOverview, setMarketOverview] = useState<MarketOverview | null>(null)
   const [marketOverviewUnavailable, setMarketOverviewUnavailable] = useState(false)
+  const [catalysts, setCatalysts] = useState<Catalyst[] | undefined>(undefined)
+  const [catalystsUnavailable, setCatalystsUnavailable] = useState(false)
   const [ticker, setTicker] = useState<TickerItem[]>([])
   const [cards, setCards] = useState<CardSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -64,6 +68,35 @@ export default function DashboardPage() {
       .catch(() => setMarketOverviewUnavailable(true))
   }, [])
 
+  useEffect(() => {
+    let active = true
+    /* eslint-disable react-hooks/set-state-in-effect -- Reset the game-scoped request state before starting its replacement. */
+    setCatalysts(undefined)
+    setCatalystsUnavailable(false)
+    /* eslint-enable react-hooks/set-state-in-effect */
+
+    fetchCatalysts({
+      status: ['active', 'upcoming'],
+      game: activeGame,
+      limit: 3,
+      offset: 0,
+    })
+      .then(response => {
+        if (!active) return
+        setCatalysts(response.catalysts)
+        setCatalystsUnavailable(false)
+      })
+      .catch(() => {
+        if (!active) return
+        setCatalysts([])
+        setCatalystsUnavailable(true)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [activeGame])
+
   // Load set name map when drawer is first opened (for chip labels)
   useEffect(() => {
     if (!drawerOpen) return
@@ -80,8 +113,6 @@ export default function DashboardPage() {
     return () => clearTimeout(t)
   }, [search])
 
-  const LIVE_GAMES = ['pokemon', 'yugioh']
-
   const activeFilterCount =
     (selectedSets.length > 0 ? 1 : 0) +
     (selectedRarities.length > 0 ? 1 : 0) +
@@ -89,6 +120,8 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!LIVE_GAMES.includes(activeGame)) return
+    // Loading belongs to this request lifecycle and resets whenever its filters change.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
     fetchCards({
       game: activeGame,
@@ -151,6 +184,7 @@ export default function DashboardPage() {
       <div className="page-content">
         <DailyMarketReportPanel report={dailyReport} unavailable={dailyReportUnavailable} />
         <MarketOverviewPanel overview={marketOverview} unavailable={marketOverviewUnavailable} />
+        <MarketCatalystsPanel catalysts={catalysts} unavailable={catalystsUnavailable} />
 
         {/* Stat tiles */}
         {stats && (
