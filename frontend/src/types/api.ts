@@ -74,6 +74,19 @@ export interface MarketOverview {
   evidence: string[]
 }
 
+export interface DailyMarketReport {
+  id: string
+  report_date: string
+  generated_at: string
+  status: string
+  title: string
+  market_sentiment: MarketSentiment
+  confidence_label: MarketConfidence
+  summary: string
+  overview: MarketOverview
+  evidence: string[]
+}
+
 export interface CardSummary {
   asset_id: string
   name: string

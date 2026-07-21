@@ -17,7 +17,7 @@
 - Modify: `frontend/src/api/api.ts`
 - Test: `frontend/src/api/api.test.ts`
 
-- [ ] **Step 1: Write failing API tests**
+- [x] **Step 1: Write failing API tests**
 
 Add tests that call `fetchLatestDailyMarketReport()` and assert:
 
@@ -28,13 +28,13 @@ expect(result?.title).toBe('Flashcard Planet Daily')
 
 Also assert that a `404` response returns `null` and a `503` response rejects with `daily market report fetch failed`.
 
-- [ ] **Step 2: Run the API tests and verify RED**
+- [x] **Step 2: Run the API tests and verify RED**
 
 Run: `npm test -- src/api/api.test.ts`
 
 Expected: FAIL because `fetchLatestDailyMarketReport` is not exported.
 
-- [ ] **Step 3: Add the response type and API function**
+- [x] **Step 3: Add the response type and API function**
 
 Add a `DailyMarketReport` interface with the backend fields and implement:
 
@@ -47,7 +47,7 @@ export async function fetchLatestDailyMarketReport(): Promise<DailyMarketReport 
 }
 ```
 
-- [ ] **Step 4: Run the API tests and verify GREEN**
+- [x] **Step 4: Run the API tests and verify GREEN**
 
 Run: `npm test -- src/api/api.test.ts`
 
@@ -59,17 +59,17 @@ Expected: all API tests pass.
 - Modify: `frontend/src/pages/DashboardPage.tsx`
 - Test: `frontend/src/pages/DashboardPage.test.tsx`
 
-- [ ] **Step 1: Write failing Dashboard tests**
+- [x] **Step 1: Write failing Dashboard tests**
 
 Mock `fetchLatestDailyMarketReport` and assert the available state renders `Flashcard Planet Daily`, the report title, `Bullish`, `Medium confidence`, the report date, summary, and evidence. Add separate tests for a `null` result and a rejected request.
 
-- [ ] **Step 2: Run the Dashboard tests and verify RED**
+- [x] **Step 2: Run the Dashboard tests and verify RED**
 
 Run: `npm test -- src/pages/DashboardPage.test.tsx`
 
 Expected: FAIL because the Dashboard does not fetch or render Daily Market Reports.
 
-- [ ] **Step 3: Implement request state and presentation**
+- [x] **Step 3: Implement request state and presentation**
 
 Add `dailyReport` and `dailyReportUnavailable` state, fetch the report in the initial effect, and render:
 
@@ -79,7 +79,7 @@ Add `dailyReport` and `dailyReportUnavailable` state, fetch the report in the in
 
 The panel must use `undefined` for loading, `null` for not generated, and a report object for success. It must render before `MarketOverviewPanel` and use existing theme tokens.
 
-- [ ] **Step 4: Run the Dashboard tests and verify GREEN**
+- [x] **Step 4: Run the Dashboard tests and verify GREEN**
 
 Run: `npm test -- src/pages/DashboardPage.test.tsx`
 
@@ -90,19 +90,19 @@ Expected: all Dashboard tests pass.
 **Files:**
 - Modify: `frontend/dist/**` through the existing build command
 
-- [ ] **Step 1: Run complete frontend tests**
+- [x] **Step 1: Run complete frontend tests**
 
 Run: `npm test`
 
 Expected: zero failed test files and zero failed tests.
 
-- [ ] **Step 2: Build production assets**
+- [x] **Step 2: Build production assets**
 
 Run: `npm run build`
 
 Expected: TypeScript and Vite complete with exit code 0.
 
-- [ ] **Step 3: Inspect desktop and mobile layouts**
+- [x] **Step 3: Inspect desktop and mobile layouts**
 
 Open the Dashboard in the in-app browser at desktop and mobile widths. Verify that the report band is visible, text does not overlap, evidence wraps cleanly, and no horizontal scrolling appears.
 

@@ -7,8 +7,8 @@ import FilterDrawer from '../components/FilterDrawer'
 import CardGrid from '../components/CardGrid'
 import ProGate from '../components/ProGate'
 import type { FilterState } from '../components/FilterDrawer'
-import { fetchStats, fetchCards, fetchTicker, fetchSetOptions, fetchMarketOverview } from '../api/api'
-import type { Signal, CardSummary, MarketStats, TickerItem, MarketOverview, MarketNumber } from '../types/api'
+import { fetchStats, fetchCards, fetchTicker, fetchSetOptions, fetchMarketOverview, fetchLatestDailyMarketReport } from '../api/api'
+import type { Signal, CardSummary, MarketStats, TickerItem, MarketOverview, MarketNumber, DailyMarketReport } from '../types/api'
 
 type SortKey = 'change' | 'price' | 'volume' | 'recent' | 'signal'
 type SignalFilter = Signal | 'ALL' | 'INVESTMENT'
@@ -24,6 +24,8 @@ const FILTERS: Array<{ value: SignalFilter; label: string }> = [
 export default function DashboardPage() {
   const nav = useNavigate()
   const [stats, setStats] = useState<MarketStats | null>(null)
+  const [dailyReport, setDailyReport] = useState<DailyMarketReport | null | undefined>(undefined)
+  const [dailyReportUnavailable, setDailyReportUnavailable] = useState(false)
   const [marketOverview, setMarketOverview] = useState<MarketOverview | null>(null)
   const [marketOverviewUnavailable, setMarketOverviewUnavailable] = useState(false)
   const [ticker, setTicker] = useState<TickerItem[]>([])
@@ -45,6 +47,15 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchStats().then(setStats)
     fetchTicker().then(setTicker)
+    fetchLatestDailyMarketReport()
+      .then(data => {
+        setDailyReport(data)
+        setDailyReportUnavailable(false)
+      })
+      .catch(() => {
+        setDailyReport(null)
+        setDailyReportUnavailable(true)
+      })
     fetchMarketOverview()
       .then(data => {
         setMarketOverview(data)
@@ -138,6 +149,7 @@ export default function DashboardPage() {
       <GameSwitcher activeGame={activeGame} onGameChange={handleGameChange} />
       <TickerBar items={ticker} />
       <div className="page-content">
+        <DailyMarketReportPanel report={dailyReport} unavailable={dailyReportUnavailable} />
         <MarketOverviewPanel overview={marketOverview} unavailable={marketOverviewUnavailable} />
 
         {/* Stat tiles */}
@@ -331,10 +343,110 @@ function formatMarketLabel(value: string): string {
     .join(' ')
 }
 
+function formatReportDate(value: string): string {
+  const parsed = new Date(`${value}T00:00:00Z`)
+  if (Number.isNaN(parsed.getTime())) return value
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(parsed)
+}
+
+function DailyMarketReportPanel({
+  report,
+  unavailable,
+}: {
+  report: DailyMarketReport | null | undefined
+  unavailable: boolean
+}) {
+  if (unavailable) {
+    return (
+      <section aria-label="Flashcard Planet Daily" className="surface" style={{ padding: 20, minHeight: 96, marginBottom: 24, borderLeft: '3px solid var(--down)' }}>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+          Flashcard Planet Daily
+        </div>
+        <div style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 13 }}>Daily report unavailable.</div>
+      </section>
+    )
+  }
+
+  if (report === undefined) {
+    return (
+      <section aria-label="Flashcard Planet Daily" aria-busy="true" className="surface" style={{ padding: 20, minHeight: 96, marginBottom: 24, borderLeft: '3px solid var(--border-strong)' }}>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+          Flashcard Planet Daily
+        </div>
+        <div style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 13 }}>Loading the latest market brief...</div>
+      </section>
+    )
+  }
+
+  if (report === null) {
+    return (
+      <section aria-label="Flashcard Planet Daily" className="surface" style={{ padding: 20, minHeight: 96, marginBottom: 24, borderLeft: '3px solid var(--border-strong)' }}>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+          Flashcard Planet Daily
+        </div>
+        <div style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 13 }}>Today's report has not been generated yet.</div>
+      </section>
+    )
+  }
+
+  const sentiment = formatMarketLabel(report.market_sentiment)
+  const confidence = `${formatMarketLabel(report.confidence_label)} confidence`
+  const sentimentColor = report.market_sentiment === 'bullish'
+    ? 'var(--up)'
+    : report.market_sentiment === 'bearish'
+      ? 'var(--down)'
+      : 'var(--text-secondary)'
+
+  return (
+    <section
+      aria-label="Flashcard Planet Daily"
+      className="surface-emphasis"
+      style={{ padding: 20, marginBottom: 24, borderLeft: '3px solid var(--gold)' }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: 0, marginBottom: 6 }}>
+            Flashcard Planet Daily
+          </div>
+          <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 20, lineHeight: 1.3, color: 'var(--text-primary)', overflowWrap: 'anywhere' }}>
+            {report.title}
+          </h2>
+        </div>
+        <time dateTime={report.report_date} style={{ flexShrink: 0, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12, paddingTop: 2 }}>
+          {formatReportDate(report.report_date)}
+        </time>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 14, fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+        <span style={{ color: sentimentColor, fontWeight: 700 }}>{sentiment}</span>
+        <span aria-hidden="true" style={{ color: 'var(--border-strong)' }}>|</span>
+        <span style={{ color: 'var(--text-muted)' }}>{confidence}</span>
+      </div>
+
+      <p style={{ margin: '16px 0 0', maxWidth: 880, color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.65 }}>
+        {report.summary}
+      </p>
+
+      {report.evidence.length > 0 && (
+        <ul style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px 20px', margin: '16px 0 0', padding: '14px 0 0 18px', borderTop: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.5 }}>
+          {report.evidence.slice(0, 3).map(item => (
+            <li key={item} style={{ paddingLeft: 2, overflowWrap: 'anywhere' }}>{item}</li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 function MarketOverviewPanel({ overview, unavailable }: { overview: MarketOverview | null; unavailable: boolean }) {
   if (unavailable) {
     return (
-      <section className="surface" style={{ padding: 20, marginBottom: 24 }}>
+      <section aria-label="Market Overview" className="surface" style={{ padding: 20, marginBottom: 24 }}>
         <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
           Market Overview
         </div>
@@ -352,7 +464,7 @@ function MarketOverviewPanel({ overview, unavailable }: { overview: MarketOvervi
   const confidence = `${formatMarketLabel(overview.confidence_label)} confidence`
 
   return (
-    <section className="surface" style={{ padding: 20, marginBottom: 24 }}>
+    <section aria-label="Market Overview" className="surface" style={{ padding: 20, marginBottom: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0, marginBottom: 6 }}>

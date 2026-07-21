@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import DashboardPage from './DashboardPage'
-import { fetchCards, fetchMarketOverview, fetchStats, fetchTicker } from '../api/api'
+import { fetchCards, fetchLatestDailyMarketReport, fetchMarketOverview, fetchStats, fetchTicker } from '../api/api'
 
 vi.mock('../api/api', () => ({
   fetchStats: vi.fn(),
@@ -10,6 +10,7 @@ vi.mock('../api/api', () => ({
   fetchCards: vi.fn(),
   fetchSetOptions: vi.fn(),
   fetchMarketOverview: vi.fn(),
+  fetchLatestDailyMarketReport: vi.fn(),
 }))
 
 vi.mock('../components/NavBar', () => ({ default: () => <nav aria-label="Main navigation" /> }))
@@ -51,6 +52,27 @@ describe('DashboardPage market overview', () => {
     })
     vi.mocked(fetchTicker).mockResolvedValue([])
     vi.mocked(fetchCards).mockResolvedValue({ cards: [], total: 0, limit: 50, offset: 0 })
+    vi.mocked(fetchLatestDailyMarketReport).mockResolvedValue({
+      id: '22222222-2222-2222-2222-222222222222',
+      report_date: '2026-07-21',
+      generated_at: '2026-07-21T10:00:00Z',
+      status: 'published',
+      title: 'Flashcard Planet Daily - 2026-07-21',
+      market_sentiment: 'bullish',
+      confidence_label: 'medium',
+      summary: 'High-end Pokemon cards led the raw market today.',
+      overview: {
+        generated_at: '2026-07-21T10:00:00Z',
+        market_sentiment: 'bullish',
+        confidence_label: 'medium',
+        indexes: [],
+        top_movers: [],
+        signal_summary: [],
+        commentary: 'High-end Pokemon cards led the raw market today.',
+        evidence: ['market_segment=raw'],
+      },
+      evidence: ['market_segment=raw', 'active price source: sample_seed'],
+    })
     vi.mocked(fetchMarketOverview).mockResolvedValue({
       generated_at: '2026-07-21T10:00:00Z',
       market_sentiment: 'bullish',
@@ -92,13 +114,43 @@ describe('DashboardPage market overview', () => {
     renderDashboard()
 
     expect(await screen.findByText('Market Overview')).toBeTruthy()
-    expect(screen.getByText('Bullish')).toBeTruthy()
-    expect(screen.getByText('Pokemon Market')).toBeTruthy()
-    expect(screen.getByText('+12.34%')).toBeTruthy()
-    expect(screen.getByText('Charizard')).toBeTruthy()
-    expect(screen.getByText('+20.00%')).toBeTruthy()
-    expect(screen.getByText('3 signals')).toBeTruthy()
-    expect(screen.getByText('Market is bullish based on 4 raw price series.')).toBeTruthy()
+    const overview = screen.getByRole('region', { name: 'Market Overview' })
+    expect(within(overview).getByText('Bullish')).toBeTruthy()
+    expect(within(overview).getByText('Pokemon Market')).toBeTruthy()
+    expect(within(overview).getByText('+12.34%')).toBeTruthy()
+    expect(within(overview).getByText('Charizard')).toBeTruthy()
+    expect(within(overview).getByText('+20.00%')).toBeTruthy()
+    expect(within(overview).getByText('3 signals')).toBeTruthy()
+    expect(within(overview).getByText('Market is bullish based on 4 raw price series.')).toBeTruthy()
     expect(fetchMarketOverview).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders the latest daily market report', async () => {
+    renderDashboard()
+
+    expect(await screen.findByText('Flashcard Planet Daily - 2026-07-21')).toBeTruthy()
+    const report = screen.getByRole('region', { name: 'Flashcard Planet Daily' })
+    expect(within(report).getByText('Jul 21, 2026')).toBeTruthy()
+    expect(within(report).getByText('Bullish')).toBeTruthy()
+    expect(within(report).getByText('Medium confidence')).toBeTruthy()
+    expect(within(report).getByText('High-end Pokemon cards led the raw market today.')).toBeTruthy()
+    expect(within(report).getByText('market_segment=raw')).toBeTruthy()
+    expect(fetchLatestDailyMarketReport).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows a neutral state when no daily report has been generated', async () => {
+    vi.mocked(fetchLatestDailyMarketReport).mockResolvedValueOnce(null)
+
+    renderDashboard()
+
+    expect(await screen.findByText("Today's report has not been generated yet.")).toBeTruthy()
+  })
+
+  it('shows an unavailable state when the daily report request fails', async () => {
+    vi.mocked(fetchLatestDailyMarketReport).mockRejectedValueOnce(new Error('network error'))
+
+    renderDashboard()
+
+    expect(await screen.findByText('Daily report unavailable.')).toBeTruthy()
   })
 })
