@@ -497,8 +497,8 @@ Cover stable loading, request error, empty state, populated active/upcoming rows
 ```text
 Market Catalysts
 No verified catalysts are active or upcoming for this market.
-Impact unscored
-Confidence unavailable
+Impact: Unscored
+Confidence: Insufficient evidence
 ```
 
 - [ ] **Step 2: Run the component test and verify RED**
