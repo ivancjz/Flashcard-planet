@@ -30,6 +30,101 @@ export interface TickerItem {
   current_price: number | null
 }
 
+export type MarketDirection = 'up' | 'down' | 'flat'
+export type MarketSentiment = 'bullish' | 'neutral' | 'bearish' | 'insufficient_data'
+export type MarketConfidence = 'high' | 'medium' | 'low' | 'insufficient'
+export type MarketNumber = number | string
+export type CatalystStatus = 'upcoming' | 'active' | 'expired'
+export type CatalystImpactLabel = 'high' | 'medium' | 'low' | 'unscored'
+export type CatalystConfidenceLabel = 'high' | 'medium' | 'low' | 'insufficient_data'
+
+export interface Catalyst {
+  id: string
+  event_date: string
+  active_until: string
+  event_type: string
+  description: string
+  source_url: string
+  affected_games: string[]
+  affected_asset_ids: string[]
+  affected_set_ids: string[]
+  expected_window_days: number | null
+  impact_score: number | null
+  impact_label: CatalystImpactLabel
+  confidence_score: MarketNumber | null
+  confidence_label: CatalystConfidenceLabel
+  status: CatalystStatus
+  verified_at: string
+}
+
+export interface CatalystListResponse {
+  catalysts: Catalyst[]
+  total: number
+  limit: number
+  offset: number
+  as_of: string
+}
+
+export interface MarketIndex {
+  game: string
+  label: string
+  change_pct: MarketNumber
+  direction: MarketDirection
+  observed_assets: number
+  current_assets: number
+  confidence_label: MarketConfidence
+}
+
+export interface MarketTopMover {
+  asset_id: string
+  name: string
+  game: string
+  set_name: string | null
+  latest_price: MarketNumber
+  previous_price: MarketNumber
+  percent_change: MarketNumber
+  absolute_change: MarketNumber
+  direction: MarketDirection
+}
+
+export interface MarketSignalSummary {
+  label: string
+  count: number
+  average_confidence: MarketNumber | null
+}
+
+export interface MarketOverview {
+  generated_at: string
+  market_sentiment: MarketSentiment
+  confidence_label: MarketConfidence
+  indexes: MarketIndex[]
+  top_movers: MarketTopMover[]
+  signal_summary: MarketSignalSummary[]
+  commentary: string
+  evidence: string[]
+}
+
+export interface DailyMarketReport {
+  id: string
+  report_date: string
+  generated_at: string
+  status: string
+  title: string
+  market_sentiment: MarketSentiment
+  confidence_label: MarketConfidence
+  summary: string
+  overview: MarketOverview
+  catalysts: Catalyst[]
+  evidence: string[]
+}
+
+export interface DailyMarketReportListResponse {
+  reports: DailyMarketReport[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export interface CardSummary {
   asset_id: string
   name: string

@@ -12,6 +12,7 @@ from backend.app.services.backfill_retry_service import run_retry_pass
 from backend.app.services.scheduler_run_log_service import (
     JOB_BULK_REFRESH,
     JOB_CARDMARKET,
+    JOB_DAILY_REPORT,
     JOB_DIGEST,
     JOB_EBAY,
     JOB_EBAY_WEB_SOLD,
@@ -125,6 +126,7 @@ _STARTUP_DELAY: dict[str, int] = {
     "bulk-set-price-refresh": 900,   # 15 min — after ingestion (120s+~5min run) and signal (600s)
     "explanation-sweep":      960,   # 16 min — after signal-sweep so new signals get explanations fast
     "market-digest-send":     1200,  # 20 min — after all other jobs have warmed up
+    "daily-market-report":    1320,  # 22 min — after digest warmup, persists dashboard snapshot
     "signal-history-prune":           1500,  # 25 min — last; pure DB DELETE, no upstream dependency (TASK-105)
     "trial-expiry-sweep":             900,   # 15 min — subscription maintenance, no upstream dependency
     "subscription-data-cleanup":      1620,  # 27 min — daily grace-period cleanup, after history prune
@@ -427,7 +429,23 @@ def _send_heartbeat() -> None:
         # no job_blocked_reason set on this path — the job "succeeds" but is useless.
         # Monitoring it produces a false-positive alert every 24h with no actionable signal.
         # The 25h absence check above (hardcoded) still runs independently for JOB_EBAY.
-        _monitored_jobs = [JOB_INGESTION, JOB_BULK_REFRESH, JOB_SIGNALS, JOB_YGO, JOB_CARDMARKET, JOB_EXPLANATION, JOB_DIGEST, JOB_TRIAL_EXPIRY, JOB_SEALED_INGEST, JOB_EBAY_WEB_SOLD, JOB_RESOLVE, JOB_REDDIT_UPDATE, JOB_NITTER_UPDATE, JOB_SUB_CLEANUP]
+        _monitored_jobs = [
+            JOB_INGESTION,
+            JOB_BULK_REFRESH,
+            JOB_SIGNALS,
+            JOB_YGO,
+            JOB_CARDMARKET,
+            JOB_EXPLANATION,
+            JOB_DIGEST,
+            JOB_DAILY_REPORT,
+            JOB_TRIAL_EXPIRY,
+            JOB_SEALED_INGEST,
+            JOB_EBAY_WEB_SOLD,
+            JOB_RESOLVE,
+            JOB_REDDIT_UPDATE,
+            JOB_NITTER_UPDATE,
+            JOB_SUB_CLEANUP,
+        ]
         with SessionLocal() as _zero_session:
             zero_output = get_zero_output_jobs(
                 _zero_session,
@@ -1383,6 +1401,56 @@ def _run_resolve_predictions() -> None:
             prune_old_runs(_log_session, JOB_RESOLVE)
 
 
+def _run_daily_market_report_snapshot() -> None:
+    """Persist one deterministic Daily Market Report snapshot for the current UTC day."""
+    with SessionLocal() as db:
+        run_id = start_run(db, JOB_DAILY_REPORT)
+        try:
+            from backend.app.services.daily_market_report_service import create_daily_market_report
+
+            report = create_daily_market_report(db)
+            finish_run(
+                db,
+                run_id,
+                status="success",
+                records_written=1,
+                meta_json={
+                    "report_date": report.report_date.isoformat(),
+                    "market_sentiment": report.market_sentiment,
+                    "confidence_label": report.confidence_label,
+                },
+            )
+        except Exception as exc:
+            logger.exception("daily-market-report job failed")
+            finish_run(
+                db,
+                run_id,
+                status="error",
+                records_written=0,
+                errors=1,
+                error_message=str(exc),
+            )
+        finally:
+            prune_old_runs(db, JOB_DAILY_REPORT)
+
+
+def _register_daily_market_report_job(scheduler: BackgroundScheduler) -> None:
+    scheduler.add_job(
+        _run_daily_market_report_snapshot,
+        "interval",
+        hours=24,
+        id=JOB_DAILY_REPORT,
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=None,
+    )
+    logger.info(
+        "daily-market-report registered. trigger=interval/24h first_run=startup+%ds",
+        _STARTUP_DELAY.get(JOB_DAILY_REPORT, 1320),
+    )
+
+
 def build_scheduler() -> BackgroundScheduler:
     settings = get_settings()
     scheduler = BackgroundScheduler(timezone="UTC")
@@ -1572,6 +1640,8 @@ def build_scheduler() -> BackgroundScheduler:
         "Market Digest job registered. trigger=interval/30min first_run=startup+%ds",
         _STARTUP_DELAY.get("market-digest-send", 1200),
     )
+
+    _register_daily_market_report_job(scheduler)
 
     scheduler.add_job(
         _run_signal_history_prune,

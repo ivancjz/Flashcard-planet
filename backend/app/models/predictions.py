@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import BigInteger, Boolean, DateTime, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -56,12 +57,15 @@ class MarketEvent(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     event_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    affected_games: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     affected_asset_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     affected_set_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     expected_window_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    impact_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    confidence_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     verified_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

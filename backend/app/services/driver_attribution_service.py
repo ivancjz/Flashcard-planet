@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 from backend.app.models.asset import Asset
 from backend.app.models.asset_signal import AssetSignal
 from backend.app.models.predictions import MarketEvent
+from backend.app.services.market_event_service import resolve_catalyst_window_days
 
 # Event type → driver mapping
 _EVENT_TYPE_TO_DRIVER: dict[str, str] = {
@@ -41,6 +42,7 @@ _EVENT_TYPE_TO_DRIVER: dict[str, str] = {
     "TOURNAMENT": "EVENT_DRIVEN",
     "RELEASE": "MACRO",
     "SUPPLY": "SUPPLY_SHOCK",
+    "REPRINT": "SUPPLY_SHOCK",
 }
 
 # Per-driver confidence multiplier (based on how reliably each event type
@@ -49,6 +51,7 @@ _EVENT_TYPE_CONFIDENCE_WEIGHT: dict[str, float] = {
     "INFLUENCER": 0.90,
     "TOURNAMENT": 0.70,
     "SUPPLY": 0.85,
+    "REPRINT": 0.85,
     # RELEASE=0.75: predictable, scheduled, well-documented (Pokemon.com source of truth),
     # high market impact. Higher than SUPPLY (0.68 effective) because releases are
     # announced months in advance and the investor community tracks them closely.
@@ -83,8 +86,10 @@ def _recency_score(
     expected_window_days: int | None,
 ) -> float:
     """0.0–1.0: 1.0 = event just happened; decays linearly to 0 at window end."""
-    window = expected_window_days or 14
+    window = resolve_catalyst_window_days(expected_window_days)
     days_elapsed = max((now - event_date).total_seconds() / 86400, 0)
+    if window == 0:
+        return 1.0 if days_elapsed == 0 else 0.0
     return max(0.0, 1.0 - days_elapsed / window)
 
 
@@ -139,7 +144,7 @@ def _matching_events(
     for ev in events:
         # Check temporal overlap: event active window [event_date, event_date + window]
         # must overlap with [window_start, window_end]
-        effective_window = ev.expected_window_days or 14
+        effective_window = resolve_catalyst_window_days(ev.expected_window_days)
         ev_end = ev.event_date + timedelta(days=effective_window)
         if ev_end < window_start:
             continue  # event fully expired before our window
@@ -313,19 +318,19 @@ def attribute_signal(
         window_start=supply_window_start,
         window_end=window_end,
         now=now,
-        event_types=["SUPPLY"],
+        event_types=["SUPPLY", "REPRINT"],
     )
 
     if supply_events:
         best = _best_event(supply_events, now, extra_multiplier=0.8)
         recency = _recency_score(best.event_date, now, best.expected_window_days)
-        weight = _EVENT_TYPE_CONFIDENCE_WEIGHT["SUPPLY"]
+        weight = _EVENT_TYPE_CONFIDENCE_WEIGHT[best.event_type]
         confidence = round(recency * weight * 0.8, 3)
         return DriverAttribution(
             driver="SUPPLY_SHOCK",
             confidence=confidence,
             reason=(
-                f"SUPPLY event '{best.description[:80]}' "
+                f"{best.event_type} event '{best.description[:80]}' "
                 f"on {best.event_date.date()} "
                 f"(recency={recency:.2f})"
             ),

@@ -34,3 +34,26 @@ class AccessTier(str, Enum):
     FREE = "free"
     PLUS = "plus"
     PRO  = "pro"
+
+
+class CatalystEventType(str, Enum):
+    INFLUENCER = "INFLUENCER"
+    SUPPLY = "SUPPLY"
+    TOURNAMENT = "TOURNAMENT"
+    RELEASE = "RELEASE"
+    REPRINT = "REPRINT"
+    PRICE_CHANGE = "PRICE_CHANGE"
+    ANNIVERSARY = "ANNIVERSARY"
+    COLLABORATION = "COLLABORATION"
+    LIMITED_PRODUCT = "LIMITED_PRODUCT"
+    POLICY = "POLICY"
+    SOCIAL_TREND = "SOCIAL_TREND"
+
+    @classmethod
+    def _missing_(cls, value):
+        if isinstance(value, str):
+            normalized = value.strip().upper()
+            for member in cls:
+                if member.value == normalized:
+                    return member
+        return None

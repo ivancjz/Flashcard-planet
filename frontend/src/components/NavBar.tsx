@@ -91,6 +91,7 @@ export default function NavBar() {
       {/* Primary nav links: Market · Sealed · Watchlist · Alerts */}
       <div className="nav-links" style={{ justifyContent: 'flex-start' }}>
         {link('/market', '🎴 Market')}
+        {link('/reports', 'Daily')}
         {link('/sealed', '📦 Sealed')}
         {link('/watchlist', '⭐ Watchlist',
           watchlistCount > 0 && (

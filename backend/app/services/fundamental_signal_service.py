@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 from backend.app.models.asset import Asset
 from backend.app.models.asset_signal import AssetSignal
 from backend.app.models.predictions import MarketEvent
+from backend.app.services.market_event_service import resolve_catalyst_window_days
 from backend.app.models.price_history import PriceHistory
 
 # Days before an event to start excluding price data (pre-event anticipation
@@ -87,7 +88,7 @@ def _contamination_windows(events: list[MarketEvent]) -> list[tuple[datetime, da
     """Build exclusion intervals from market events."""
     windows: list[tuple[datetime, datetime]] = []
     for ev in events:
-        window_days = ev.expected_window_days or 14
+        window_days = resolve_catalyst_window_days(ev.expected_window_days)
         start = ev.event_date - timedelta(days=PRE_EVENT_BUFFER_DAYS)
         end = ev.event_date + timedelta(days=window_days + POST_EVENT_BUFFER_DAYS)
         windows.append((start, end))

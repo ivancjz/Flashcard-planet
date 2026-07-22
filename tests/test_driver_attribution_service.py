@@ -18,6 +18,7 @@ from backend.app.services.driver_attribution_service import (
     SUPPLY_LOOKBACK_EXTENSION_DAYS,
     UNKNOWN_CONFIDENCE,
     _EVENT_TYPE_CONFIDENCE_WEIGHT,
+    _EVENT_TYPE_TO_DRIVER,
     _recency_score,
     attribute_signal,
 )
@@ -89,6 +90,42 @@ def test_recency_score_none_window_defaults_to_14():
     assert s_none == pytest.approx(s_14)
 
 
+def test_recency_score_zero_window_expires_after_event_instant():
+    now = datetime.now(UTC)
+
+    assert _recency_score(now, now, 0) == 1.0
+    assert _recency_score(now - timedelta(microseconds=1), now, 0) == 0.0
+
+
+def test_existing_event_type_mappings_and_weights_unchanged():
+    expected_drivers = {
+        "INFLUENCER": "EVENT_DRIVEN",
+        "TOURNAMENT": "EVENT_DRIVEN",
+        "RELEASE": "MACRO",
+        "SUPPLY": "SUPPLY_SHOCK",
+    }
+    expected_weights = {
+        "INFLUENCER": 0.90,
+        "TOURNAMENT": 0.70,
+        "RELEASE": 0.75,
+        "SUPPLY": 0.85,
+    }
+
+    assert {
+        event_type: _EVENT_TYPE_TO_DRIVER[event_type]
+        for event_type in expected_drivers
+    } == expected_drivers
+    assert {
+        event_type: _EVENT_TYPE_CONFIDENCE_WEIGHT[event_type]
+        for event_type in expected_weights
+    } == expected_weights
+
+
+def test_reprint_maps_to_supply_shock_with_supply_weight():
+    assert _EVENT_TYPE_TO_DRIVER["REPRINT"] == "SUPPLY_SHOCK"
+    assert _EVENT_TYPE_CONFIDENCE_WEIGHT["REPRINT"] == 0.85
+
+
 # ── attribute_signal: UNKNOWN default ────────────────────────────────────────
 
 def test_unknown_when_asset_not_found():
@@ -109,6 +146,45 @@ def test_unknown_when_no_events_no_breadth():
         result = attribute_signal(db, asset_id=a.id, signal_move_pct=Decimal("5"), signal_window_days=7)
     assert result.driver == "UNKNOWN"
     assert result.confidence == UNKNOWN_CONFIDENCE
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        "PRICE_CHANGE",
+        "ANNIVERSARY",
+        "COLLABORATION",
+        "LIMITED_PRODUCT",
+        "POLICY",
+        "SOCIAL_TREND",
+    ],
+)
+def test_display_only_event_types_do_not_create_causal_attribution(event_type):
+    a = _asset()
+    db = _db_returning(a)
+    display_only_event = _event(event_type=event_type, asset=a)
+
+    def _mock_matching(*args, **kwargs):
+        requested_types = kwargs.get("event_types") or []
+        return [display_only_event] if event_type in requested_types else []
+
+    with (
+        patch.object(_das, "_matching_events", side_effect=_mock_matching),
+        patch.object(_das, "_check_macro_breadth", return_value=None),
+    ):
+        result = attribute_signal(
+            db,
+            asset_id=a.id,
+            signal_move_pct=Decimal("5"),
+            signal_window_days=7,
+        )
+
+    assert event_type not in _EVENT_TYPE_TO_DRIVER
+    assert event_type not in _EVENT_TYPE_CONFIDENCE_WEIGHT
+    assert result.driver == "UNKNOWN"
+    assert result.event_id is None
+    assert result.event_description is None
+    assert result.event_type is None
 
 
 # ── attribute_signal: EVENT_DRIVEN (INFLUENCER) ───────────────────────────────
@@ -269,11 +345,10 @@ def test_macro_corroborated_by_release_event():
 # ── attribute_signal: SUPPLY_SHOCK ───────────────────────────────────────────
 
 def test_supply_shock_from_supply_event():
-    a = _asset()
+    a = _asset(set_name="Evolving Skies")
     db = _db_returning(a)
     supply_ev = _event(event_type="SUPPLY", days_ago=10, set_name="Evolving Skies")
 
-    # First two calls (EVENT_DRIVEN check) return empty, third call (SUPPLY) returns event
     calls = [[], supply_ev]
 
     def _mock_matching(*args, **kwargs):
@@ -288,6 +363,80 @@ def test_supply_shock_from_supply_event():
 
     assert result.driver == "SUPPLY_SHOCK"
     assert result.confidence > 0
+    assert result.event_id == supply_ev.id
+    assert result.event_description == supply_ev.description
+    assert result.event_type == "SUPPLY"
+    assert result.reason.startswith("SUPPLY event")
+
+
+def test_rule3_requests_supply_and_reprint_events():
+    a = _asset()
+    db = _db_returning(a)
+    matching_events = MagicMock(return_value=[])
+
+    with (
+        patch.object(_das, "_matching_events", matching_events),
+        patch.object(_das, "_check_macro_breadth", return_value=None),
+    ):
+        attribute_signal(
+            db,
+            asset_id=a.id,
+            signal_move_pct=Decimal("-8"),
+            signal_window_days=7,
+        )
+
+    requested_event_types = [
+        call.kwargs["event_types"] for call in matching_events.call_args_list
+    ]
+    assert ["SUPPLY", "REPRINT"] in requested_event_types
+
+
+def test_supply_shock_from_reprint_event_uses_reprint_metadata_and_weight():
+    a = _asset(set_name="Evolving Skies")
+    db = _db_returning(a)
+    reference_time = datetime(2026, 7, 22, tzinfo=UTC)
+    reprint_ev = _event(
+        event_type="REPRINT",
+        description="Evolving Skies booster reprint",
+        set_name=a.set_name,
+        asset=a,
+    )
+    reprint_ev.event_date = reference_time - timedelta(days=2)
+
+    def _mock_matching(*args, **kwargs):
+        if kwargs.get("event_types") == ["SUPPLY", "REPRINT"]:
+            return [reprint_ev]
+        return []
+
+    with (
+        patch.object(_das, "_matching_events", side_effect=_mock_matching),
+        patch.object(_das, "_check_macro_breadth", return_value=None),
+    ):
+        result = attribute_signal(
+            db,
+            asset_id=a.id,
+            signal_move_pct=Decimal("-12"),
+            signal_window_days=7,
+            reference_time=reference_time,
+        )
+
+    recency = _recency_score(
+        reprint_ev.event_date,
+        reference_time,
+        reprint_ev.expected_window_days,
+    )
+    expected_confidence = round(
+        recency * _EVENT_TYPE_CONFIDENCE_WEIGHT["REPRINT"] * 0.8,
+        3,
+    )
+
+    assert result.driver == "SUPPLY_SHOCK"
+    assert result.event_id == reprint_ev.id
+    assert result.event_description == reprint_ev.description
+    assert result.event_type == "REPRINT"
+    assert result.confidence == expected_confidence
+    assert result.reason.startswith("REPRINT event")
+    assert reprint_ev.description in result.reason
 
 
 def test_supply_confidence_lower_than_influencer():

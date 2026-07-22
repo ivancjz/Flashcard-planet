@@ -2,6 +2,7 @@ from backend.app.models.alert import Alert
 from backend.app.models.alert_history import AlertHistory
 from backend.app.models.asset import Asset
 from backend.app.models.asset_signal import AssetSignal
+from backend.app.models.daily_market_report import DailyMarketReport
 from backend.app.models.failed_backfill_queue import FailedBackfillQueue
 from backend.app.models.graded_observation_audit import GradedObservationAudit
 from backend.app.models.listing_snapshot import ListingSnapshot
@@ -17,4 +18,4 @@ from backend.app.models.predictions import MarketEvent, Prediction, PredictionAu
 from backend.app.models.tweet_keyword import TweetKeyword
 from backend.app.models.tweet_summary import TweetSummary
 
-__all__ = ["Alert", "AlertHistory", "Asset", "AssetSignal", "FailedBackfillQueue", "GradedObservationAudit", "ListingSnapshot", "MarketEvent", "ObservationMatchLog", "Prediction", "PredictionAudit", "PriceHistory", "ProWaitlist", "SchedulerRunLog", "SubscriptionEvent", "TweetKeyword", "TweetSummary", "UpgradeRequest", "User", "Watchlist"]
+__all__ = ["Alert", "AlertHistory", "Asset", "AssetSignal", "DailyMarketReport", "FailedBackfillQueue", "GradedObservationAudit", "ListingSnapshot", "MarketEvent", "ObservationMatchLog", "Prediction", "PredictionAudit", "PriceHistory", "ProWaitlist", "SchedulerRunLog", "SubscriptionEvent", "TweetKeyword", "TweetSummary", "UpgradeRequest", "User", "Watchlist"]

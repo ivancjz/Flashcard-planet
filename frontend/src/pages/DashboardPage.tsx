@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import NavBar from '../components/NavBar'
 import TickerBar from '../components/TickerBar'
 import GameSwitcher from '../components/GameSwitcher'
 import FilterDrawer from '../components/FilterDrawer'
 import CardGrid from '../components/CardGrid'
 import ProGate from '../components/ProGate'
+import MarketCatalystsPanel from '../components/MarketCatalystsPanel'
 import type { FilterState } from '../components/FilterDrawer'
-import { fetchStats, fetchCards, fetchTicker, fetchSetOptions } from '../api/api'
-import type { Signal, CardSummary, MarketStats, TickerItem } from '../types/api'
+import { fetchStats, fetchCards, fetchTicker, fetchSetOptions, fetchMarketOverview, fetchLatestDailyMarketReport, fetchCatalysts } from '../api/api'
+import type { Signal, CardSummary, MarketStats, TickerItem, MarketOverview, MarketNumber, DailyMarketReport, Catalyst } from '../types/api'
 
 type SortKey = 'change' | 'price' | 'volume' | 'recent' | 'signal'
 type SignalFilter = Signal | 'ALL' | 'INVESTMENT'
@@ -20,10 +21,17 @@ const FILTERS: Array<{ value: SignalFilter; label: string }> = [
   { value: 'WATCH', label: '◆ Watch' },
   { value: 'IDLE', label: '— Idle' },
 ]
+const LIVE_GAMES = ['pokemon', 'yugioh']
 
 export default function DashboardPage() {
   const nav = useNavigate()
   const [stats, setStats] = useState<MarketStats | null>(null)
+  const [dailyReport, setDailyReport] = useState<DailyMarketReport | null | undefined>(undefined)
+  const [dailyReportUnavailable, setDailyReportUnavailable] = useState(false)
+  const [marketOverview, setMarketOverview] = useState<MarketOverview | null>(null)
+  const [marketOverviewUnavailable, setMarketOverviewUnavailable] = useState(false)
+  const [catalysts, setCatalysts] = useState<Catalyst[] | undefined>(undefined)
+  const [catalystsUnavailable, setCatalystsUnavailable] = useState(false)
   const [ticker, setTicker] = useState<TickerItem[]>([])
   const [cards, setCards] = useState<CardSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -40,7 +48,54 @@ export default function DashboardPage() {
   const [priceMax, setPriceMax] = useState<number | null>(null)
   const [setNameMap, setSetNameMap] = useState<Record<string, string>>({})
 
-  useEffect(() => { fetchStats().then(setStats); fetchTicker().then(setTicker) }, [])
+  useEffect(() => {
+    fetchStats().then(setStats)
+    fetchTicker().then(setTicker)
+    fetchLatestDailyMarketReport()
+      .then(data => {
+        setDailyReport(data)
+        setDailyReportUnavailable(false)
+      })
+      .catch(() => {
+        setDailyReport(null)
+        setDailyReportUnavailable(true)
+      })
+    fetchMarketOverview()
+      .then(data => {
+        setMarketOverview(data)
+        setMarketOverviewUnavailable(false)
+      })
+      .catch(() => setMarketOverviewUnavailable(true))
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    /* eslint-disable react-hooks/set-state-in-effect -- Reset the game-scoped request state before starting its replacement. */
+    setCatalysts(undefined)
+    setCatalystsUnavailable(false)
+    /* eslint-enable react-hooks/set-state-in-effect */
+
+    fetchCatalysts({
+      status: ['active', 'upcoming'],
+      game: activeGame,
+      limit: 3,
+      offset: 0,
+    })
+      .then(response => {
+        if (!active) return
+        setCatalysts(response.catalysts)
+        setCatalystsUnavailable(false)
+      })
+      .catch(() => {
+        if (!active) return
+        setCatalysts([])
+        setCatalystsUnavailable(true)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [activeGame])
 
   // Load set name map when drawer is first opened (for chip labels)
   useEffect(() => {
@@ -58,8 +113,6 @@ export default function DashboardPage() {
     return () => clearTimeout(t)
   }, [search])
 
-  const LIVE_GAMES = ['pokemon', 'yugioh']
-
   const activeFilterCount =
     (selectedSets.length > 0 ? 1 : 0) +
     (selectedRarities.length > 0 ? 1 : 0) +
@@ -67,6 +120,8 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!LIVE_GAMES.includes(activeGame)) return
+    // Loading belongs to this request lifecycle and resets whenever its filters change.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
     fetchCards({
       game: activeGame,
@@ -83,6 +138,9 @@ export default function DashboardPage() {
   }, [signal, sort, activeGame, debouncedSearch, selectedSets, selectedRarities, priceMin, priceMax])
 
   function handleGameChange(gameId: string) {
+    if (gameId === activeGame) return
+    setCatalysts(undefined)
+    setCatalystsUnavailable(false)
     setActiveGame(gameId)
     setSearch('')
     setDebouncedSearch('')
@@ -127,6 +185,10 @@ export default function DashboardPage() {
       <GameSwitcher activeGame={activeGame} onGameChange={handleGameChange} />
       <TickerBar items={ticker} />
       <div className="page-content">
+        <DailyMarketReportPanel report={dailyReport} unavailable={dailyReportUnavailable} />
+        <MarketOverviewPanel overview={marketOverview} unavailable={marketOverviewUnavailable} />
+        <MarketCatalystsPanel catalysts={catalysts} unavailable={catalystsUnavailable} />
+
         {/* Stat tiles */}
         {stats && (
           <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginBottom: 28 }}>
@@ -300,6 +362,223 @@ export default function DashboardPage() {
         priceMax={priceMax}
         onChange={handleFilterChange}
       />
+    </div>
+  )
+}
+
+function formatMarketPercent(value: MarketNumber | null | undefined): string {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue)) return 'N/A'
+  return `${numericValue >= 0 ? '+' : ''}${numericValue.toFixed(2)}%`
+}
+
+function formatMarketLabel(value: string): string {
+  return value
+    .split('_')
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function formatReportDate(value: string): string {
+  const parsed = new Date(`${value}T00:00:00Z`)
+  if (Number.isNaN(parsed.getTime())) return value
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(parsed)
+}
+
+function DailyMarketReportPanel({
+  report,
+  unavailable,
+}: {
+  report: DailyMarketReport | null | undefined
+  unavailable: boolean
+}) {
+  if (unavailable) {
+    return (
+      <section aria-label="Flashcard Planet Daily" aria-live="polite" aria-atomic="true" className="surface" style={{ padding: 20, minHeight: 96, marginBottom: 24, borderLeft: '3px solid var(--down)' }}>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+          Flashcard Planet Daily
+        </div>
+        <div style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 13 }}>Daily report unavailable.</div>
+      </section>
+    )
+  }
+
+  if (report === undefined) {
+    return (
+      <section aria-label="Flashcard Planet Daily" aria-live="polite" aria-atomic="true" aria-busy="true" className="surface" style={{ padding: 20, minHeight: 96, marginBottom: 24, borderLeft: '3px solid var(--border-strong)' }}>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+          Flashcard Planet Daily
+        </div>
+        <div style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 13 }}>Loading the latest market brief...</div>
+      </section>
+    )
+  }
+
+  if (report === null) {
+    return (
+      <section aria-label="Flashcard Planet Daily" aria-live="polite" aria-atomic="true" className="surface" style={{ padding: 20, minHeight: 96, marginBottom: 24, borderLeft: '3px solid var(--border-strong)' }}>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+          Flashcard Planet Daily
+        </div>
+        <div style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 13 }}>Today's report has not been generated yet.</div>
+      </section>
+    )
+  }
+
+  const sentiment = formatMarketLabel(report.market_sentiment)
+  const confidence = `${formatMarketLabel(report.confidence_label)} confidence`
+  const sentimentColor = report.market_sentiment === 'bullish'
+    ? 'var(--up)'
+    : report.market_sentiment === 'bearish'
+      ? 'var(--down)'
+      : 'var(--text-secondary)'
+
+  return (
+    <section
+      aria-label="Flashcard Planet Daily"
+      aria-live="polite"
+      aria-atomic="true"
+      className="surface-emphasis"
+      style={{ padding: 20, marginBottom: 24, borderLeft: '3px solid var(--gold)' }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: 0, marginBottom: 6 }}>
+            Flashcard Planet Daily
+          </div>
+          <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 20, lineHeight: 1.3, color: 'var(--text-primary)', overflowWrap: 'anywhere' }}>
+            {report.title}
+          </h2>
+        </div>
+        <time dateTime={report.report_date} style={{ flexShrink: 0, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12, paddingTop: 2 }}>
+          {formatReportDate(report.report_date)}
+        </time>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 14, fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+        <span style={{ color: sentimentColor, fontWeight: 700 }}>{sentiment}</span>
+        <span aria-hidden="true" style={{ color: 'var(--border-strong)' }}>|</span>
+        <span style={{ color: 'var(--text-muted)' }}>{confidence}</span>
+      </div>
+
+      <p style={{ margin: '16px 0 0', maxWidth: 880, color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.65 }}>
+        {report.summary}
+      </p>
+
+      {report.evidence.length > 0 && (
+        <ul style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: '8px 20px', margin: '16px 0 0', padding: '14px 0 0 18px', borderTop: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.5 }}>
+          {report.evidence.slice(0, 3).map(item => (
+            <li key={item} style={{ paddingLeft: 2, overflowWrap: 'anywhere' }}>{item}</li>
+          ))}
+        </ul>
+      )}
+      <Link
+        to={`/reports/${report.report_date}`}
+        className="btn btn-ghost btn-sm"
+        style={{ display: 'inline-flex', marginTop: 16, textDecoration: 'none' }}
+      >
+        Read full report
+      </Link>
+    </section>
+  )
+}
+
+function MarketOverviewPanel({ overview, unavailable }: { overview: MarketOverview | null; unavailable: boolean }) {
+  if (unavailable) {
+    return (
+      <section aria-label="Market Overview" className="surface" style={{ padding: 20, marginBottom: 24 }}>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+          Market Overview
+        </div>
+        <div style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 13 }}>Market overview unavailable.</div>
+      </section>
+    )
+  }
+
+  if (!overview) return null
+
+  const strongestIndex = overview.indexes[0]
+  const topMover = overview.top_movers[0]
+  const signalCount = overview.signal_summary.reduce((total, row) => total + row.count, 0)
+  const sentiment = formatMarketLabel(overview.market_sentiment)
+  const confidence = `${formatMarketLabel(overview.confidence_label)} confidence`
+
+  return (
+    <section aria-label="Market Overview" className="surface" style={{ padding: 20, marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 18 }}>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0, marginBottom: 6 }}>
+            Market Overview
+          </div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 700, color: 'var(--text-primary)' }}>
+            {sentiment}
+          </div>
+        </div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', paddingTop: 4 }}>
+          {confidence}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+        <MarketOverviewMetric
+          label="Strongest market"
+          primary={strongestIndex?.label ?? 'No comparable market'}
+          secondary={strongestIndex ? formatMarketPercent(strongestIndex.change_pct) : 'Insufficient raw series'}
+          tone={strongestIndex?.direction}
+        />
+        <MarketOverviewMetric
+          label="Top mover"
+          primary={topMover?.name ?? 'No comparable mover'}
+          secondary={topMover ? formatMarketPercent(topMover.percent_change) : 'Insufficient raw series'}
+          tone={topMover?.direction}
+        />
+        <MarketOverviewMetric
+          label="Signals"
+          primary={`${signalCount} signals`}
+          secondary={`${overview.signal_summary.length} active label${overview.signal_summary.length === 1 ? '' : 's'}`}
+        />
+      </div>
+
+      <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6 }}>
+        {overview.commentary}
+      </p>
+      {overview.evidence.length > 0 && (
+        <div style={{ marginTop: 12, color: 'var(--text-muted)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+          Evidence: {overview.evidence.slice(0, 2).join(' | ')}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function MarketOverviewMetric({
+  label,
+  primary,
+  secondary,
+  tone,
+}: {
+  label: string
+  primary: string
+  secondary: string
+  tone?: 'up' | 'down' | 'flat'
+}) {
+  const toneColor = tone === 'up' ? 'var(--up)' : tone === 'down' ? 'var(--down)' : 'var(--text-secondary)'
+
+  return (
+    <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: '12px 14px', minHeight: 82 }}>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>{label}</div>
+      <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: 'var(--text-primary)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {primary}
+      </div>
+      <div style={{ marginTop: 6, color: toneColor, fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+        {secondary}
+      </div>
     </div>
   )
 }
