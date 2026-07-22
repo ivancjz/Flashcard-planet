@@ -35,28 +35,47 @@ from backend.app.services.daily_market_report_service import (
 AS_OF = datetime(2026, 7, 21, 10, 30, tzinfo=UTC)
 
 
-def _coerce_postgres_types_for_sqlite() -> None:
+def _coerce_postgres_types_for_sqlite() -> list[tuple[object, object]]:
+    original_types = []
     for table in Base.metadata.tables.values():
         for column in table.columns:
             if isinstance(column.type, JSONB):
+                original_types.append((column, column.type))
                 column.type = JSON()
+    return original_types
 
 
 @pytest.fixture
 def sqlite_db():
-    _coerce_postgres_types_for_sqlite()
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        future=True,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
-    with session_local() as db:
-        yield db
-    Base.metadata.drop_all(engine)
-    engine.dispose()
+    original_types = _coerce_postgres_types_for_sqlite()
+    engine = None
+    try:
+        engine = create_engine(
+            "sqlite+pysqlite:///:memory:",
+            future=True,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        session_local = sessionmaker(
+            bind=engine,
+            autoflush=False,
+            autocommit=False,
+            future=True,
+        )
+        with session_local() as db:
+            yield db
+    finally:
+        try:
+            if engine is not None:
+                Base.metadata.drop_all(engine)
+        finally:
+            try:
+                if engine is not None:
+                    engine.dispose()
+            finally:
+                for column, original_type in original_types:
+                    column.type = original_type
 
 
 def _overview(*, sentiment: str = "bullish", commentary: str = "Market is bullish.") -> MarketOverviewResponse:
