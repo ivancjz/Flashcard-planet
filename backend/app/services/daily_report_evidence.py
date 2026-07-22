@@ -98,6 +98,7 @@ def _record(
     evidence_id: str,
     kind: str,
     label: str,
+    source_record_id: str | None,
     facts: dict[str, FactValue],
     source_url: str | None = None,
 ) -> DailyReportEvidenceRecord:
@@ -105,6 +106,7 @@ def _record(
         id=evidence_id,
         kind=kind,
         label=label,
+        source_record_id=source_record_id,
         facts=facts,
         source_url=source_url,
         target_anchor=evidence_target_anchor(evidence_id),
@@ -142,6 +144,7 @@ def build_daily_report_evidence_bundle(
                 evidence_id=evidence_id,
                 kind="index",
                 label=index.label,
+                source_record_id=index.game,
                 facts={
                     "game": _scalar_fact(index.game),
                     "label": _scalar_fact(index.label),
@@ -162,6 +165,7 @@ def build_daily_report_evidence_bundle(
                 evidence_id=evidence_id,
                 kind="mover",
                 label=mover.name,
+                source_record_id=canonical_asset_id,
                 facts={
                     "asset_id": canonical_asset_id,
                     "name": _scalar_fact(mover.name),
@@ -183,6 +187,7 @@ def build_daily_report_evidence_bundle(
                 evidence_id=evidence_id,
                 kind="signal",
                 label=signal.label,
+                source_record_id=signal.label,
                 facts={
                     "label": _scalar_fact(signal.label),
                     "count": _scalar_fact(signal.count),
@@ -199,6 +204,7 @@ def build_daily_report_evidence_bundle(
                 evidence_id=evidence_id,
                 kind="catalyst",
                 label=catalyst.description,
+                source_record_id=canonical_catalyst_id,
                 source_url=catalyst.source_url,
                 facts={
                     "event_date": _scalar_fact(catalyst.event_date),
@@ -240,6 +246,7 @@ def build_daily_report_evidence_bundle(
                 evidence_id=evidence_id,
                 kind="report_evidence",
                 label=text,
+                source_record_id=None,
                 facts={"text": text},
             )
         )

@@ -14,6 +14,7 @@ from backend.app.models.daily_market_report import DailyMarketReport
 from backend.app.schemas.catalyst import CatalystResponse
 from backend.app.schemas.daily_report_intelligence import (
     DailyReportEvidenceBundle,
+    DailyReportEvidenceCatalogItemResponse,
     DailyReportEvidenceRecord,
     DailyReportIntelligenceResponse,
     EvidenceSufficiency,
@@ -180,6 +181,14 @@ def test_build_bundle_has_exact_stable_id_order_across_all_kinds():
         "Alpha evidence",
         "Zulu evidence",
     ]
+    assert [record.source_record_id for record in bundle.records] == [
+        "pokemon",
+        str(ASSET_A),
+        "BREAKOUT",
+        str(CATALYST_A),
+        None,
+        None,
+    ]
 
 
 @pytest.mark.parametrize(
@@ -227,7 +236,20 @@ def test_accented_game_name_builds_ascii_stable_id_and_anchor():
     index_record = build_daily_report_evidence_bundle(report).records[0]
 
     assert index_record.id == "index:pokemon"
+    assert index_record.source_record_id == "Pok\u00e9mon"
     assert index_record.target_anchor == evidence_target_anchor("index:pokemon")
+
+
+def test_public_catalog_exposes_exact_privacy_safe_source_record_id():
+    catalog_item = DailyReportEvidenceCatalogItemResponse(
+        id=f"mover:{ASSET_A}",
+        kind="mover",
+        label="Charizard",
+        source_record_id=str(ASSET_A),
+        target_anchor="evidence-123456789abc",
+    )
+
+    assert catalog_item.source_record_id == str(ASSET_A)
 
 
 def test_target_anchor_has_exact_prefix_length_and_hash():
@@ -495,6 +517,7 @@ def test_evidence_models_are_strict_forbid_extras_and_freeze_sufficiency():
             label="Pokemon Market",
             facts={},
             source_url=None,
+            source_record_id="pokemon",
             target_anchor="evidence-123456789abc",
             unexpected=True,
         )
@@ -526,6 +549,7 @@ def test_public_response_defaults_do_not_share_mutable_lists():
             "id": "index:pokemon",
             "kind": "index",
             "label": "Pokemon Market",
+            "source_record_id": "pokemon",
             "target_anchor": "evidence-123456789abc",
         }
     )

@@ -21,6 +21,7 @@ class DailyReportEvidenceRecord(BaseModel):
     id: str
     kind: EvidenceKind
     label: str
+    source_record_id: str | None
     facts: dict[str, FactValue]
     source_url: str | None
     target_anchor: str
@@ -57,6 +58,7 @@ class DailyReportEvidenceCatalogItemResponse(BaseModel):
     id: str
     kind: EvidenceKind
     label: str
+    source_record_id: str | None
     target_anchor: str
 
 

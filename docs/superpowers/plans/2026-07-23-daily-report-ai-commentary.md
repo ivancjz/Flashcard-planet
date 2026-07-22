@@ -320,6 +320,14 @@ def test_bundle_assigns_stable_ids_and_canonical_order(report_row):
         "report:evidence:1",
         "report:evidence:2",
     ]
+    assert [record.source_record_id for record in bundle.records] == [
+        "pokemon",
+        "11111111-1111-1111-1111-111111111111",
+        "BREAKOUT",
+        "22222222-2222-2222-2222-222222222222",
+        None,
+        None,
+    ]
     assert bundle.records[0].facts["change_pct"] == "12.34"
     assert bundle.records[0].target_anchor.startswith("evidence-")
 
@@ -353,7 +361,7 @@ def test_sufficiency_requires_two_primary_records_and_index_coverage(report_row)
     assert decision == EvidenceSufficiency(sufficient=False, reason="fewer_than_two_primary_records")
 ```
 
-Also test duplicate normalized report evidence is retained once, numeric decimals never use exponent notation, and every `target_anchor` is 21 characters (`evidence-` plus 12 hex characters).
+Also test duplicate normalized report evidence is retained once, numeric decimals never use exponent notation, and every `target_anchor` is 21 characters (`evidence-` plus 12 hex characters). Add Unicode cases proving accented Latin transliterates to ASCII, non-Latin-only identifiers receive distinct deterministic hash fallbacks, and `source_record_id` retains the exact public source key for frontend lookup.
 
 - [ ] **Step 2: Run tests and confirm missing-module failure**
 
@@ -383,6 +391,7 @@ class DailyReportEvidenceRecord(BaseModel):
     id: str
     kind: EvidenceKind
     label: str
+    source_record_id: str | None
     facts: dict[str, FactValue]
     source_url: str | None = None
     target_anchor: str
@@ -413,6 +422,7 @@ class DailyReportEvidenceCatalogItemResponse(BaseModel):
     id: str
     kind: EvidenceKind
     label: str
+    source_record_id: str | None
     target_anchor: str
 
 
@@ -434,10 +444,25 @@ In `backend/app/services/daily_report_evidence.py`, define `EVIDENCE_SCHEMA_VERS
 Implement normalization with these concrete operations:
 
 ```python
-_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+import hashlib
+import json
+import re
+import unicodedata
+from decimal import Decimal
+
+_NON_ASCII_IDENTIFIER_RUN = re.compile(r"[^a-z0-9]+")
 
 def normalize_identifier(value: str) -> str:
-    return _NON_ALNUM.sub("-", value.strip().lower()).strip("-")
+    stripped = value.strip()
+    decomposed = unicodedata.normalize("NFKD", stripped)
+    ascii_value = decomposed.encode("ascii", "ignore").decode("ascii").lower()
+    identifier = _NON_ASCII_IDENTIFIER_RUN.sub("-", ascii_value).strip("-")
+    if identifier:
+        return identifier
+
+    fallback_source = unicodedata.normalize("NFKC", stripped).casefold()
+    digest = hashlib.sha256(fallback_source.encode("utf-8")).hexdigest()[:12]
+    return f"id-{digest}"
 
 def normalize_decimal(value: object) -> str:
     number = Decimal(str(value))
@@ -461,6 +486,8 @@ def evidence_hash(bundle: DailyReportEvidenceBundle) -> str:
 ```
 
 Build records in five separate private functions, one per evidence kind. Sort each kind by ID; sort and deduplicate report evidence by normalized text before assigning one-based IDs. Convert `overview_json` through `MarketOverviewResponse.model_validate` and catalysts through `TypeAdapter(list[CatalystResponse])` so malformed snapshots fail before prompting.
+
+Every record must set the privacy-safe `source_record_id` explicitly: exact index `game`, canonical mover asset UUID, exact signal label, canonical catalyst UUID, and `None` for free-form report evidence. This field is part of the canonical bundle and hash. It must contain only identifiers already present in the public persisted report; never place provider, model, cache, prompt, or internal database metadata in it.
 
 Implement the sufficiency checks in spec order and return these stable reasons: `report_not_published`, `insufficient_sentiment`, `low_confidence`, `fewer_than_two_primary_records`, `insufficient_index_coverage`, or `sufficient`.
 
@@ -970,6 +997,7 @@ def test_matching_published_intelligence_is_public(sqlite_db, published_report_a
     assert report.intelligence.status == "published"
     assert report.intelligence.headline == "Pokemon market breadth improved"
     assert report.intelligence.evidence_refs == ["index:pokemon"]
+    assert report.intelligence.evidence_catalog[0].source_record_id == "pokemon"
     assert report.intelligence.evidence_catalog[0].target_anchor.startswith("evidence-")
     payload = report.intelligence.model_dump()
     assert not ({"provider", "model", "attempt_count", "error_code", "evidence_hash", "prompt_version"} & payload.keys())
@@ -1028,7 +1056,8 @@ Add `_public_intelligence(row, candidates) -> DailyReportIntelligenceResponse` a
 1. Reconstruct observations by zipping `key_observations_json` with `evidence_refs_json["key_observations"]`.
 2. Flatten references in headline, commentary, observations, risk order while preserving first occurrence.
 3. Select only referenced bundle records for the catalog, preserving canonical bundle order.
-4. Never include internal columns.
+4. Copy each selected record's `source_record_id` unchanged into the catalog. Public catalog items contain only `id`, `kind`, `label`, `source_record_id`, and `target_anchor`; do not expose record facts or `source_url` through this catalog.
+5. Never include internal columns.
 
 Update latest and dated reads to call `load_intelligence_candidates` once for their one report ID. Update history to call it once for all page IDs and pass the mapped candidate list into `_response_from_row`.
 
@@ -1233,7 +1262,7 @@ import { MemoryRouter } from 'react-router-dom'
 import DailyReportEvidenceLinks from './DailyReportEvidenceLinks'
 
 const catalog = [
-  { id: 'index:pokemon', kind: 'index' as const, label: 'Pokemon Market', target_anchor: 'evidence-abc123abc123' },
+  { id: 'index:pokemon', kind: 'index' as const, label: 'Pokemon Market', source_record_id: 'pokemon', target_anchor: 'evidence-abc123abc123' },
 ]
 
 it('links known evidence to the dated report anchor', () => {
@@ -1274,6 +1303,7 @@ export interface DailyReportEvidenceCatalogItem {
   id: string
   kind: DailyReportEvidenceKind
   label: string
+  source_record_id: string | null
   target_anchor: string
 }
 
@@ -1381,7 +1411,7 @@ it('shows published AI commentary with up to three evidence links', async () => 
     risk_summary: 'Coverage remains limited.',
     key_observations: [],
     evidence_refs: ['index:pokemon'],
-    evidence_catalog: [{ id: 'index:pokemon', kind: 'index', label: 'Pokemon Market', target_anchor: 'evidence-abc123abc123' }],
+    evidence_catalog: [{ id: 'index:pokemon', kind: 'index', label: 'Pokemon Market', source_record_id: 'pokemon', target_anchor: 'evidence-abc123abc123' }],
     generated_at: '2026-07-22T01:00:00Z',
   }
   vi.mocked(fetchLatestDailyMarketReport).mockResolvedValueOnce(report)
@@ -1463,7 +1493,7 @@ git commit -m "feat: show AI commentary on dashboard reports"
 
 - [ ] **Step 1: Confirm the detail fixture has the required default**
 
-Confirm Task 9 added the unavailable intelligence object to `makeReport()`. Keep it as the default for every pre-existing detail test. Import `DailyReportIntelligence` and add these helpers so all new test references are defined:
+Confirm Task 9 added the unavailable intelligence object to `makeReport()`. Keep it as the default for every pre-existing detail test. Import `DailyReportIntelligence` and `DailyReportEvidenceKind`, then add these helpers so all new test references are defined:
 
 ```typescript
 function makePublishedIntelligence(
@@ -1479,8 +1509,8 @@ function makePublishedIntelligence(
     ],
     evidence_refs: ['index:pokemon', 'mover:asset-charizard'],
     evidence_catalog: [
-      { id: 'index:pokemon', kind: 'index', label: 'Pokemon Market', target_anchor: 'evidence-index000001' },
-      { id: 'mover:asset-charizard', kind: 'mover', label: 'Charizard', target_anchor: 'evidence-mover000001' },
+      { id: 'index:pokemon', kind: 'index', label: 'Pokemon Market', source_record_id: 'pokemon', target_anchor: 'evidence-index000001' },
+      { id: 'mover:asset-charizard', kind: 'mover', label: 'Charizard', source_record_id: 'asset-charizard', target_anchor: 'evidence-mover000001' },
     ],
     generated_at: '2026-07-22T01:00:00Z',
     ...overrides,
@@ -1500,11 +1530,11 @@ function makeReportWithCatalogForEveryKind(): DailyMarketReport {
       'report:evidence:2',
     ],
     evidence_catalog: [
-      { id: 'index:pokemon', kind: 'index', label: 'Pokemon Market', target_anchor: 'evidence-index000001' },
-      { id: 'mover:asset-charizard', kind: 'mover', label: 'Charizard', target_anchor: 'evidence-mover000001' },
-      { id: 'signal:breakout', kind: 'signal', label: 'BREAKOUT', target_anchor: 'evidence-signal00001' },
-      { id: `catalyst:${catalyst.id}`, kind: 'catalyst', label: catalyst.description, target_anchor: 'evidence-catalyst001' },
-      { id: 'report:evidence:2', kind: 'report_evidence', label: 'market_segment=raw', target_anchor: 'evidence-report00001' },
+      { id: 'index:pokemon', kind: 'index', label: 'Pokemon Market', source_record_id: 'pokemon', target_anchor: 'evidence-index000001' },
+      { id: 'mover:asset-charizard', kind: 'mover', label: 'Charizard', source_record_id: 'asset-charizard', target_anchor: 'evidence-mover000001' },
+      { id: 'signal:breakout', kind: 'signal', label: 'BREAKOUT', source_record_id: 'BREAKOUT', target_anchor: 'evidence-signal00001' },
+      { id: `catalyst:${catalyst.id}`, kind: 'catalyst', label: catalyst.description, source_record_id: catalyst.id, target_anchor: 'evidence-catalyst001' },
+      { id: 'report:evidence:2', kind: 'report_evidence', label: 'market_segment=raw', source_record_id: null, target_anchor: 'evidence-report00001' },
     ],
   })
   return report
@@ -1560,6 +1590,22 @@ it('assigns server-provided anchors to every evidence target', async () => {
 })
 
 
+it('matches Unicode rows through exact server source IDs without reconstructing evidence IDs', async () => {
+  const report = makeReportWithCatalogForEveryKind()
+  report.overview.indexes[0].game = 'Pok\u00e9mon'
+  report.overview.indexes[0].label = 'Pok\u00e9mon Market'
+  const catalogItem = report.intelligence.evidence_catalog.find(item => item.kind === 'index')!
+  catalogItem.id = 'index:pokemon'
+  catalogItem.label = 'Pok\u00e9mon Market'
+  catalogItem.source_record_id = 'Pok\u00e9mon'
+  vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(report)
+  const { container } = renderPage()
+  await screen.findByRole('region', { name: 'AI Market Commentary' })
+  const target = container.querySelector(`#${catalogItem.target_anchor}`)
+  expect(target?.textContent).toContain('Pok\u00e9mon Market')
+})
+
+
 it('focuses the cited target when the report route has an evidence fragment', async () => {
   const report = makeReportWithCatalogForEveryKind()
   vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(report)
@@ -1589,32 +1635,39 @@ Expected: AI section and anchor assertions fail.
 
 - [ ] **Step 4: Implement evidence-target lookup and AI section**
 
-Allow the test helper to accept an initial entry, defaulting to the current dated path. Add `useLocation` to the React Router imports. In `DailyReportContent`, create one local catalog map and deterministic identifier helpers:
+Allow the test helper to accept an initial entry, defaulting to the current dated path. Add `useLocation` to the React Router imports. In `DailyReportContent`, resolve targets directly from the exact server-provided catalog source keys:
 
 ```typescript
-function normalizeEvidenceIdentifier(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+const evidenceCatalog = report.intelligence.evidence_catalog
+
+const targetPropsForSource = (
+  kind: DailyReportEvidenceKind,
+  sourceRecordId: string,
+) => {
+  const item = evidenceCatalog.find(
+    candidate => candidate.kind === kind && candidate.source_record_id === sourceRecordId,
+  )
+  return item === undefined ? {} : { id: item.target_anchor, tabIndex: -1 }
 }
 
-const anchorByEvidenceId = new Map(
-  report.intelligence.evidence_catalog.map(item => [item.id, item.target_anchor]),
-)
-const targetProps = (evidenceId: string | undefined) => {
-  if (evidenceId === undefined) return {}
-  const id = anchorByEvidenceId.get(evidenceId)
-  return id === undefined ? {} : { id, tabIndex: -1 }
+const targetPropsForExactLabel = (
+  kind: DailyReportEvidenceKind,
+  label: string,
+) => {
+  const item = evidenceCatalog.find(
+    candidate => (
+      candidate.kind === kind
+      && candidate.source_record_id === null
+      && candidate.label === label
+    ),
+  )
+  return item === undefined ? {} : { id: item.target_anchor, tabIndex: -1 }
 }
-
-const indexEvidenceId = (game: string) => `index:${normalizeEvidenceIdentifier(game)}`
-const moverEvidenceId = (assetId: string) => `mover:${assetId.toLowerCase()}`
-const signalEvidenceId = (label: string) => `signal:${normalizeEvidenceIdentifier(label)}`
-const catalystEvidenceId = (id: string) => `catalyst:${id.toLowerCase()}`
-const reportEvidenceId = (label: string) => report.intelligence.evidence_catalog.find(
-  item => item.kind === 'report_evidence' && item.label === label,
-)?.id
 ```
 
-Apply `targetProps` to index, mover, signal, and catalyst rows using the helper for that kind. Apply a report-evidence anchor only to the first list item with a matching label so duplicate source statements never create duplicate DOM IDs. Add `daily-report-evidence-target` alongside each target's existing class instead of replacing existing classes. The frontend constructs stable evidence IDs but never hashes an anchor; `target_anchor` always comes from the server catalog.
+Apply `targetPropsForSource` with the row's exact public source value: `('index', index.game)`, `('mover', mover.asset_id)`, `('signal', signal.label)`, and `('catalyst', catalyst.id)`. Do not lowercase, normalize, transliterate, hash, prefix, or otherwise reconstruct an evidence ID in the frontend. The catalog's `id` remains the server-owned citation reference used by `DailyReportEvidenceLinks`; detail target lookup uses only exact `(kind, source_record_id)`.
+
+For report evidence, whose catalog entries intentionally have `source_record_id: null`, use `targetPropsForExactLabel('report_evidence', label)` and apply the returned anchor only to the first list item with that exact label so duplicate source statements never create duplicate DOM IDs. Add `daily-report-evidence-target` alongside each target's existing class instead of replacing existing classes. Every DOM `id` comes unchanged from the matched catalog item's `target_anchor`.
 
 Use `useLocation` and a focused effect to handle both initial fragments and citation clicks:
 
