@@ -1403,35 +1403,45 @@ def _run_resolve_predictions() -> None:
 
 def _run_daily_market_report_snapshot() -> None:
     """Persist one deterministic Daily Market Report snapshot for the current UTC day."""
+    status = "success"
+    records_written = 0
+    errors = 0
+    error_message = None
+    meta_json = None
+
     with SessionLocal() as db:
         run_id = start_run(db, JOB_DAILY_REPORT)
         try:
             from backend.app.services.daily_market_report_service import create_daily_market_report
 
             report = create_daily_market_report(db)
-            finish_run(
-                db,
-                run_id,
-                status="success",
-                records_written=1,
-                meta_json={
-                    "report_date": report.report_date.isoformat(),
-                    "market_sentiment": report.market_sentiment,
-                    "confidence_label": report.confidence_label,
-                },
-            )
+            records_written = 1
+            meta_json = {
+                "report_date": report.report_date.isoformat(),
+                "market_sentiment": report.market_sentiment,
+                "confidence_label": report.confidence_label,
+            }
         except Exception as exc:
             logger.exception("daily-market-report job failed")
-            finish_run(
-                db,
-                run_id,
-                status="error",
-                records_written=0,
-                errors=1,
-                error_message=str(exc),
-            )
-        finally:
-            prune_old_runs(db, JOB_DAILY_REPORT)
+            try:
+                db.rollback()
+            except Exception:
+                logger.exception("daily-market-report rollback failed")
+            status = "error"
+            errors = 1
+            error_message = str(exc)
+
+    with SessionLocal() as log_db:
+        finish_run(
+            log_db,
+            run_id,
+            status=status,
+            records_written=records_written,
+            errors=errors,
+            error_message=error_message,
+            meta_json=meta_json,
+        )
+        prune_old_runs(log_db, JOB_DAILY_REPORT)
 
 
 def _register_daily_market_report_job(scheduler: BackgroundScheduler) -> None:
