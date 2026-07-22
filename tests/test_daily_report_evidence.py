@@ -201,6 +201,35 @@ def test_normalize_identifier_collapses_non_alphanumeric_runs():
     assert normalize_identifier("  Pokemon__TCG / English  ") == "pokemon-tcg-english"
 
 
+def test_normalize_identifier_transliterates_accented_latin_to_ascii():
+    assert normalize_identifier("Pok\u00e9mon TCG") == "pokemon-tcg"
+    assert normalize_identifier("Poke\u0301mon TCG") == "pokemon-tcg"
+
+
+def test_normalize_identifier_hashes_non_latin_fallbacks_without_collisions():
+    pokemon_japanese = normalize_identifier("\u30dd\u30b1\u30e2\u30f3")
+    yugioh_japanese = normalize_identifier("\u904a\u622f\u738b")
+
+    assert pokemon_japanese == "id-777e866794dd"
+    assert yugioh_japanese == "id-70b84dcc51a0"
+    assert pokemon_japanese != yugioh_japanese
+    assert pokemon_japanese.isascii()
+    assert yugioh_japanese.isascii()
+
+
+def test_accented_game_name_builds_ascii_stable_id_and_anchor():
+    report = _report(
+        overview_json=_overview(
+            indexes=[_index(game="Pok\u00e9mon", label="Pok\u00e9mon Market")]
+        )
+    )
+
+    index_record = build_daily_report_evidence_bundle(report).records[0]
+
+    assert index_record.id == "index:pokemon"
+    assert index_record.target_anchor == evidence_target_anchor("index:pokemon")
+
+
 def test_target_anchor_has_exact_prefix_length_and_hash():
     evidence_id = "signal:breakout"
     expected_digest = hashlib.sha256(evidence_id.encode("utf-8")).hexdigest()[:12]

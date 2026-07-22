@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import unicodedata
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
@@ -32,20 +34,20 @@ _KIND_RANK = {
     "report_evidence": 4,
 }
 _PRIMARY_KINDS = frozenset({"index", "mover", "signal", "catalyst"})
+_NON_ASCII_IDENTIFIER_RUN = re.compile(r"[^a-z0-9]+")
 
 
 def normalize_identifier(value: str) -> str:
-    normalized: list[str] = []
-    pending_separator = False
-    for character in value.strip().lower():
-        if character.isalnum():
-            if pending_separator and normalized:
-                normalized.append("-")
-            normalized.append(character)
-            pending_separator = False
-        else:
-            pending_separator = True
-    return "".join(normalized)
+    stripped = value.strip()
+    decomposed = unicodedata.normalize("NFKD", stripped)
+    ascii_value = decomposed.encode("ascii", "ignore").decode("ascii").lower()
+    identifier = _NON_ASCII_IDENTIFIER_RUN.sub("-", ascii_value).strip("-")
+    if identifier:
+        return identifier
+
+    fallback_source = unicodedata.normalize("NFKC", stripped).casefold()
+    digest = hashlib.sha256(fallback_source.encode("utf-8")).hexdigest()[:12]
+    return f"id-{digest}"
 
 
 def normalize_decimal(value: Decimal | str | int | float) -> str:
