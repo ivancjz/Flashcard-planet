@@ -57,9 +57,10 @@ Run: `python -m pytest tests/test_daily_market_report_service.py`
 - [ ] **Step 1: Write failing API route tests**
 
 Cover:
-- `POST /api/v1/market/daily-report/generate`
 - `GET /api/v1/market/daily-report/latest`
 - `GET /api/v1/market/daily-report/{report_date}`
+
+Security follow-up: report generation is scheduler-internal. No unauthenticated public route may create or overwrite a published snapshot.
 
 - [ ] **Step 2: Implement routes**
 
@@ -81,7 +82,7 @@ Run: `python -m pytest tests/test_daily_market_report_api.py`
 Cover:
 - daily report job registration
 - successful snapshot run-log metadata
-- failed snapshot run-log metadata
+- failed snapshot run-log metadata written through a fresh database session after rolling back the report session
 
 - [ ] **Step 2: Implement scheduler integration**
 

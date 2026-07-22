@@ -18,7 +18,6 @@ from backend.app.schemas.daily_market_report import (
 from backend.app.schemas.market import MarketOverviewResponse
 from backend.app.services.catalyst_service import get_catalyst, list_catalysts
 from backend.app.services.daily_market_report_service import (
-    create_daily_market_report,
     get_daily_market_report_by_date,
     get_latest_daily_market_report,
     list_daily_market_reports,
@@ -61,14 +60,6 @@ def catalyst_detail(
     if catalyst is None:
         raise HTTPException(status_code=404, detail="Catalyst not found.")
     return catalyst
-
-
-@router.post("/daily-report/generate", response_model=DailyMarketReportResponse)
-def generate_daily_market_report(
-    report_date: date | None = Query(None, description="UTC report date to generate"),
-    db: Session = Depends(get_database),
-) -> DailyMarketReportResponse:
-    return create_daily_market_report(db, report_date=report_date)
 
 
 @router.get("/daily-report/latest", response_model=DailyMarketReportResponse)

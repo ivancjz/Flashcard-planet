@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from backend.app.api.deps import get_database
@@ -50,20 +51,19 @@ def _client(db=object()) -> tuple[FastAPI, TestClient, object]:
     return app, TestClient(app), db
 
 
-def test_generate_daily_market_report_route(mocker):
-    app, client, db = _client()
-    service = mocker.patch(
-        "backend.app.api.routes.market.create_daily_market_report",
-        return_value=_report_response(),
-    )
+def test_public_daily_market_report_routes_are_read_only():
+    report_routes = [
+        route
+        for route in api_router.routes
+        if isinstance(route, APIRoute)
+        and route.path.startswith("/api/v1/market/daily-report")
+    ]
 
-    response = client.post("/api/v1/market/daily-report/generate?report_date=2026-07-21")
-
-    assert response.status_code == 200
-    assert response.json()["title"] == "Flashcard Planet Daily - 2026-07-21"
-    assert response.json()["catalysts"] == []
-    service.assert_called_once_with(db, report_date=date(2026, 7, 21))
-    app.dependency_overrides.clear()
+    assert "/api/v1/market/daily-report/generate" not in {
+        route.path for route in report_routes
+    }
+    assert report_routes
+    assert all(route.methods == {"GET"} for route in report_routes)
 
 
 def test_latest_daily_market_report_route(mocker):
@@ -132,7 +132,6 @@ def test_dated_daily_market_report_route_returns_404_when_missing(mocker):
 def test_api_router_registers_daily_market_report_routes():
     paths = [route.path for route in api_router.routes]
 
-    assert "/api/v1/market/daily-report/generate" in paths
     assert "/api/v1/market/daily-report" in paths
     assert "/api/v1/market/daily-report/latest" in paths
     assert "/api/v1/market/daily-report/{report_date}" in paths

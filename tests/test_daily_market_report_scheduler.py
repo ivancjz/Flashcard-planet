@@ -82,3 +82,75 @@ def test_run_daily_market_report_snapshot_writes_error_run_log():
     assert finish.call_args.kwargs["errors"] == 1
     assert finish.call_args.kwargs["error_message"] == "report failed"
     prune.assert_called_once_with(session, JOB_DAILY_REPORT)
+
+
+def test_run_daily_market_report_snapshot_recovers_with_fresh_log_session():
+    from backend.app.backstage.scheduler import _run_daily_market_report_snapshot
+
+    report_session = MagicMock(name="report_session")
+    log_session = MagicMock(name="log_session")
+    report_ctx = MagicMock()
+    report_ctx.__enter__.return_value = report_session
+    report_ctx.__exit__.return_value = False
+    log_ctx = MagicMock()
+    log_ctx.__enter__.return_value = log_session
+    log_ctx.__exit__.return_value = False
+
+    with (
+        patch(
+            "backend.app.backstage.scheduler.SessionLocal",
+            side_effect=[report_ctx, log_ctx],
+        ),
+        patch("backend.app.backstage.scheduler.start_run", return_value=123),
+        patch(
+            "backend.app.services.daily_market_report_service.create_daily_market_report",
+            side_effect=RuntimeError("report failed"),
+        ),
+        patch("backend.app.backstage.scheduler.finish_run") as finish,
+        patch("backend.app.backstage.scheduler.prune_old_runs") as prune,
+    ):
+        _run_daily_market_report_snapshot()
+
+    report_session.rollback.assert_called_once_with()
+    finish.assert_called_once()
+    assert finish.call_args.args == (log_session, 123)
+    assert finish.call_args.kwargs["status"] == "error"
+    assert finish.call_args.kwargs["records_written"] == 0
+    assert finish.call_args.kwargs["errors"] == 1
+    assert finish.call_args.kwargs["error_message"] == "report failed"
+    prune.assert_called_once_with(log_session, JOB_DAILY_REPORT)
+
+
+def test_run_daily_market_report_snapshot_logs_failure_when_rollback_fails():
+    from backend.app.backstage.scheduler import _run_daily_market_report_snapshot
+
+    report_session = MagicMock(name="report_session")
+    report_session.rollback.side_effect = RuntimeError("connection lost")
+    log_session = MagicMock(name="log_session")
+    report_ctx = MagicMock()
+    report_ctx.__enter__.return_value = report_session
+    report_ctx.__exit__.return_value = False
+    log_ctx = MagicMock()
+    log_ctx.__enter__.return_value = log_session
+    log_ctx.__exit__.return_value = False
+
+    with (
+        patch(
+            "backend.app.backstage.scheduler.SessionLocal",
+            side_effect=[report_ctx, log_ctx],
+        ),
+        patch("backend.app.backstage.scheduler.start_run", return_value=123),
+        patch(
+            "backend.app.services.daily_market_report_service.create_daily_market_report",
+            side_effect=RuntimeError("report failed"),
+        ),
+        patch("backend.app.backstage.scheduler.finish_run") as finish,
+        patch("backend.app.backstage.scheduler.prune_old_runs") as prune,
+    ):
+        _run_daily_market_report_snapshot()
+
+    finish.assert_called_once()
+    assert finish.call_args.args == (log_session, 123)
+    assert finish.call_args.kwargs["status"] == "error"
+    assert finish.call_args.kwargs["error_message"] == "report failed"
+    prune.assert_called_once_with(log_session, JOB_DAILY_REPORT)
