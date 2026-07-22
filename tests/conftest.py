@@ -16,6 +16,26 @@ from backend.app.db.base import Base
 from backend.app.models.game import Game
 
 
+@pytest.fixture(scope="session")
+def canonical_model_column_types() -> tuple[tuple[object, object], ...]:
+    """Capture the production column types before SQLite tests replace them."""
+    return tuple(
+        (column, column.type)
+        for table in Base.metadata.tables.values()
+        for column in table.columns
+    )
+
+
+@pytest.fixture(autouse=True)
+def restore_model_column_types(canonical_model_column_types):
+    """Prevent SQLite type coercion in one test from leaking into another."""
+    try:
+        yield
+    finally:
+        for column, original_type in canonical_model_column_types:
+            column.type = original_type
+
+
 @pytest.fixture(scope="module")
 def sqlite_engine():
     """SQLite in-memory engine with all schema tables created.
