@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-22
 
-**Status:** Approved design; awaiting written-spec review
+**Status:** Approved
 
 **Phase:** Flashcard Planet v2, Phase 5 AI Intelligence Engine
 **Implementation dependency:** Merge PR #83 before implementation begins
