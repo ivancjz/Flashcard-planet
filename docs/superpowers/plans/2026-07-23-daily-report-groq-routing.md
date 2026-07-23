@@ -303,4 +303,3 @@ gh pr view 84 --repo ivancjz/Flashcard-planet --json url,isDraft,mergeable,merge
 Expected: Draft PR #84 targets `main`, uses
 `feat/daily-report-ai-commentary`, and reports `MERGEABLE` with
 `mergeStateStatus` equal to `CLEAN`.
-

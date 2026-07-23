@@ -124,4 +124,3 @@ a separately approved live smoke test occurs.
 - The implementation does not change another task route or the global default.
 - No credentials or provider response content are committed.
 - PR #84 accurately describes the Groq-first route.
-
