@@ -310,14 +310,73 @@ class ProviderRouterTests(unittest.TestCase):
         self.assertIsInstance(provider._primary, m.OpenAIProvider)
         self.assertIsInstance(provider._fallback, m.GroqProvider)
 
-    def test_daily_report_commentary_routes_to_openai_primary(self):
+    def test_daily_report_commentary_routes_to_groq_primary(self):
         import backend.app.services.llm_provider as m
 
         provider = m.get_llm_provider_for_task("daily_report_commentary")
 
         self.assertIsInstance(provider, m.FallbackLLMProvider)
-        self.assertIsInstance(provider._primary, m.OpenAIProvider)
-        self.assertIsInstance(provider._fallback, m.GroqProvider)
+        self.assertIsInstance(provider._primary, m.GroqProvider)
+        self.assertIsInstance(provider._fallback, m.OpenAIProvider)
+
+    def test_daily_report_commentary_uses_groq_without_calling_openai(self):
+        import backend.app.services.llm_provider as m
+
+        groq_result = m.LLMTextResult(
+            text='{"headline":"Groq"}',
+            provider="groq",
+            model="groq-test-model",
+        )
+        openai_result = m.LLMTextResult(
+            text='{"headline":"OpenAI"}',
+            provider="openai",
+            model="openai-test-model",
+        )
+        with (
+            patch.object(
+                m.GroqProvider,
+                "generate_text_result",
+                return_value=groq_result,
+            ) as groq_call,
+            patch.object(
+                m.OpenAIProvider,
+                "generate_text_result",
+                return_value=openai_result,
+            ) as openai_call,
+        ):
+            provider = m.get_llm_provider_for_task("daily_report_commentary")
+            result = provider.generate_text_result("system", "user", 256)
+
+        self.assertEqual(result, groq_result)
+        groq_call.assert_called_once_with("system", "user", 256)
+        openai_call.assert_not_called()
+
+    def test_daily_report_commentary_falls_back_to_openai(self):
+        import backend.app.services.llm_provider as m
+
+        openai_result = m.LLMTextResult(
+            text='{"headline":"OpenAI"}',
+            provider="openai",
+            model="openai-test-model",
+        )
+        with (
+            patch.object(
+                m.GroqProvider,
+                "generate_text_result",
+                return_value=None,
+            ) as groq_call,
+            patch.object(
+                m.OpenAIProvider,
+                "generate_text_result",
+                return_value=openai_result,
+            ) as openai_call,
+        ):
+            provider = m.get_llm_provider_for_task("daily_report_commentary")
+            result = provider.generate_text_result("system", "user", 256)
+
+        self.assertEqual(result, openai_result)
+        groq_call.assert_called_once_with("system", "user", 256)
+        openai_call.assert_called_once_with("system", "user", 256)
 
     def test_unknown_task_type_falls_back_to_anthropic_and_logs(self):
         import backend.app.services.llm_provider as m

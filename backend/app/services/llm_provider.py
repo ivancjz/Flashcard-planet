@@ -321,7 +321,7 @@ _TASK_ROUTING: dict[str, tuple[str, str]] = {
     "signal_explanation":    ("openai", "groq"),
     "mapping_disambiguation": ("groq",   "openai"),
     "structured_tagging":    ("openai",  "groq"),
-    "daily_report_commentary": ("openai", "groq"),
+    "daily_report_commentary": ("groq", "openai"),
 }
 
 _PROVIDER_MAP: dict[str, type] = {
