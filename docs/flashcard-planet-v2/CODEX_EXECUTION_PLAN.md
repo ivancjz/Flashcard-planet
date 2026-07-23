@@ -1,7 +1,7 @@
 # Codex Execution Plan: Flashcard Planet v2
 
 Status: active
-Date: 2026-07-21
+Date: 2026-07-23
 
 ## Objective
 
@@ -92,19 +92,30 @@ Delivered:
 
 Done evidence: 152 selected backend tests and 123 frontend tests across 15 files passed; changed backend modules and migration `0042` compiled; scoped Catalyst ESLint and the production frontend build succeeded; and a fresh disposable PostgreSQL 16 database completed `upgrade head`, `downgrade 0041`, `upgrade head`, with `alembic current` confirming `0042 (head)`. Direct inspection confirmed the Catalyst type index and non-negative event-window constraint. Desktop and mobile browser checks passed, and final review found no remaining blocking or important issues.
 
-Phase 5 AI Intelligence remains next and is out of scope for the completed Catalyst Engine slice.
+## Phase 5: Daily Report AI Intelligence - Complete 2026-07-23
 
-## Phase 5: AI Intelligence Engine
+Delivered:
 
-Add LLM only after deterministic evidence objects exist.
+- Added migration `0043` and a cache-keyed Daily Report intelligence model. Rows are unique by report, evidence hash, and prompt version, with bounded attempts and explicit pending, published, insufficient-evidence, and failed states.
+- Built canonical evidence bundles for indexes, movers, signals, catalysts, and report evidence. Citation IDs and DOM target anchors are server-owned, deterministic, ASCII-safe, and carry exact public source record keys.
+- Added strict plain-JSON commentary validation. Unknown citations, unsupported numbers, markup, URLs, advice, forecasts, guarantees, and unsupported causal claims are rejected before persistence or publication.
+- Added provider metadata without storing or logging raw model responses or complete prompts. Public responses omit provider, model, attempt, error, prompt, and source URL details.
+- Implemented concurrency-safe claims with row locking, stale-claim recovery, a three-attempt limit, and claim ownership checks. The database session is closed before provider execution and a fresh session revalidates the evidence hash before publication.
+- Added a default-off interval scheduler job. Insufficient evidence does not call a provider, and published cache keys are not generated twice.
+- Extended the existing read-only Daily Report routes. No public generation endpoint or write route was added, and invalid stored commentary degrades to unavailable rather than reaching clients.
+- Added Dashboard and Daily Report detail experiences for published, insufficient-evidence, and unavailable states. Commentary is rendered as React text, citations navigate to focused evidence targets, and deterministic report content remains usable for every fallback.
 
-Rules:
+Verification evidence:
 
-- AI may summarize evidence.
-- AI may not invent causes.
-- Every explanation must reference evidence fields.
-- Low confidence must produce "Insufficient evidence."
-- LLM failure must not break API responses.
+- 201 focused backend tests passed, covering persistence, evidence contracts, validation, repository state transitions, cross-session orchestration, API boundaries, scheduling, startup, and provider metadata.
+- The complete backend suite produced 1495 passes and three existing eBay scheduler failures. All three failures were reproduced unchanged on the pre-Phase-5 merged baseline commit `adc262b`; no Daily Report AI test failed.
+- 136 frontend tests across 16 files passed. Scoped ESLint passed for every changed Daily Report frontend file, and the TypeScript production build completed successfully.
+- Repository-wide ESLint still reports 18 existing errors in unrelated, unchanged frontend modules. These remain baseline debt and were not mixed into the Daily Report AI change.
+- A fresh disposable PostgreSQL 16 plus pgvector database completed `upgrade head`, `downgrade 0042`, and `upgrade head`; `alembic current` confirmed `0043 (head)`. Direct inspection confirmed the foreign key, cache-key unique constraint, both check constraints, and both business indexes.
+- Security scans found no public generation route, model-content HTML or Markdown rendering, non-GET Daily Report route, raw provider response persistence, or complete prompt persistence/logging.
+- Browser QA used the real FastAPI API with `DAILY_REPORT_AI_ENABLED=false` at 1440x900 and 375x812. Published commentary wrapped without page overflow, all five evidence target kinds were present, and a citation focused the exact target row. Insufficient evidence remained neutral and used the deterministic Dashboard fallback. Unavailable intelligence omitted the AI section while preserving Evidence, Catalysts, Indexes, Movers, and Signal Summary. Browser consoles contained no errors.
+
+Provider note: no production or staging provider call was made during this verification. The published browser fixture was locally persisted only after passing the same production validator.
 
 ## Engineering Guardrails
 
