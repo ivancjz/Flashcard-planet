@@ -53,6 +53,25 @@ class AnthropicProviderTests(unittest.TestCase):
             finally:
                 m._Anthropic = original
 
+    def test_metadata_result_reports_configured_model(self):
+        import backend.app.services.llm_provider as m
+
+        provider = m.AnthropicProvider()
+        with (
+            patch.object(provider, "generate_text", return_value="anthropic result"),
+            patch.dict(os.environ, {"ANTHROPIC_MODEL": "anthropic-test-model"}),
+        ):
+            result = provider.generate_text_result("sys", "user", 256)
+
+        self.assertEqual(
+            result,
+            m.LLMTextResult(
+                text="anthropic result",
+                provider="anthropic",
+                model="anthropic-test-model",
+            ),
+        )
+
 
 class GroqProviderTests(unittest.TestCase):
     def test_returns_none_when_key_empty(self):
@@ -79,6 +98,25 @@ class GroqProviderTests(unittest.TestCase):
         with patch.dict(os.environ, {"LLM_PROVIDER": "groq"}):
             import backend.app.services.llm_provider as m
             self.assertIsInstance(m.get_llm_provider(), m.GroqProvider)
+
+    def test_metadata_result_reports_configured_model(self):
+        import backend.app.services.llm_provider as m
+
+        provider = m.GroqProvider()
+        with (
+            patch.object(provider, "generate_text", return_value="groq result"),
+            patch.dict(os.environ, {"GROQ_MODEL": "groq-test-model"}),
+        ):
+            result = provider.generate_text_result("sys", "user", 256)
+
+        self.assertEqual(
+            result,
+            m.LLMTextResult(
+                text="groq result",
+                provider="groq",
+                model="groq-test-model",
+            ),
+        )
 
 
 class NoiseFallbackTests(unittest.TestCase):
@@ -150,6 +188,25 @@ class OpenAIProviderTests(unittest.TestCase):
             import backend.app.services.llm_provider as m
             self.assertIsInstance(m.get_llm_provider(), m.OpenAIProvider)
 
+    def test_metadata_result_reports_configured_model(self):
+        import backend.app.services.llm_provider as m
+
+        provider = m.OpenAIProvider()
+        with (
+            patch.object(provider, "generate_text", return_value="openai result"),
+            patch.dict(os.environ, {"OPENAI_MODEL": "openai-test-model"}),
+        ):
+            result = provider.generate_text_result("sys", "user", 256)
+
+        self.assertEqual(
+            result,
+            m.LLMTextResult(
+                text="openai result",
+                provider="openai",
+                model="openai-test-model",
+            ),
+        )
+
 
 class FallbackLLMProviderTests(unittest.TestCase):
     def test_returns_primary_result_when_primary_succeeds(self):
@@ -183,6 +240,53 @@ class FallbackLLMProviderTests(unittest.TestCase):
         result = provider.generate_text("sys", "user", 256)
         self.assertIsNone(result)
 
+    def test_metadata_result_reports_actual_successful_fallback(self):
+        import backend.app.services.llm_provider as m
+
+        primary = MagicMock()
+        primary.generate_text_result.return_value = None
+        fallback = MagicMock()
+        fallback.generate_text_result.return_value = m.LLMTextResult(
+            text='{"headline":"ok"}',
+            provider="groq",
+            model="fallback-model",
+        )
+
+        result = m.FallbackLLMProvider(primary, fallback).generate_text_result(
+            "sys",
+            "user",
+            900,
+        )
+
+        self.assertEqual(
+            result,
+            m.LLMTextResult(
+                text='{"headline":"ok"}',
+                provider="groq",
+                model="fallback-model",
+            ),
+        )
+        primary.generate_text_result.assert_called_once_with("sys", "user", 900)
+        fallback.generate_text_result.assert_called_once_with("sys", "user", 900)
+
+    def test_existing_text_only_fallback_does_not_call_metadata_method(self):
+        import backend.app.services.llm_provider as m
+
+        primary = MagicMock()
+        primary.generate_text.return_value = "existing result"
+        fallback = MagicMock()
+
+        result = m.FallbackLLMProvider(primary, fallback).generate_text(
+            "sys",
+            "user",
+            256,
+        )
+
+        self.assertEqual(result, "existing result")
+        primary.generate_text_result.assert_not_called()
+        fallback.generate_text.assert_not_called()
+        fallback.generate_text_result.assert_not_called()
+
 
 class ProviderRouterTests(unittest.TestCase):
     def test_signal_explanation_routes_to_openai_primary(self):
@@ -202,6 +306,15 @@ class ProviderRouterTests(unittest.TestCase):
     def test_structured_tagging_routes_to_openai_primary(self):
         import backend.app.services.llm_provider as m
         provider = m.get_llm_provider_for_task("structured_tagging")
+        self.assertIsInstance(provider, m.FallbackLLMProvider)
+        self.assertIsInstance(provider._primary, m.OpenAIProvider)
+        self.assertIsInstance(provider._fallback, m.GroqProvider)
+
+    def test_daily_report_commentary_routes_to_openai_primary(self):
+        import backend.app.services.llm_provider as m
+
+        provider = m.get_llm_provider_for_task("daily_report_commentary")
+
         self.assertIsInstance(provider, m.FallbackLLMProvider)
         self.assertIsInstance(provider._primary, m.OpenAIProvider)
         self.assertIsInstance(provider._fallback, m.GroqProvider)
