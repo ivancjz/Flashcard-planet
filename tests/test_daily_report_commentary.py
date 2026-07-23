@@ -224,6 +224,14 @@ def test_number_supported_only_by_unreferenced_record_is_rejected(
         "Coverage includes 4, 12 observed assets.",
         "Coverage includes 4/12 observed assets.",
         "Coverage includes PSA4 assets.",
+        "Coverage includes 4_000 observed assets.",
+        "Coverage includes 4% observed assets.",
+        "Coverage includes +4 observed assets.",
+        "Coverage includes 4.0 observed assets.",
+        "Coverage includes 4 % observed assets.",
+        "Coverage includes 4 percent observed assets.",
+        "Coverage includes 4 thousand observed assets.",
+        "Coverage includes \u0664 observed assets.",
     ],
 )
 def test_altered_numeric_expressions_are_rejected_as_unsupported(
@@ -292,6 +300,11 @@ def test_recommendation_and_forecast_variants_are_rejected(
         "The market is expected to climb.",
         "The set is poised for a rebound.",
         "Collectors could consider adding copies.",
+        "Adding these cards to a collection is sensible.",
+        "Prices appear set to climb tomorrow.",
+        "Collectors ought to own these cards.",
+        "Prices seem ready to increase.",
+        "Prices are headed higher.",
     ],
 )
 def test_recommendation_and_forecast_paraphrases_are_rejected(
@@ -335,6 +348,9 @@ def test_unsupported_causality_variants_are_rejected(
         "Collector interest contributed to the move.",
         "The move arose from market demand.",
         "The move improved thanks to collector interest.",
+        "The move was explained by collector demand.",
+        "Collector demand underpinned the move.",
+        "Collector demand explains the move.",
     ],
 )
 def test_unsupported_causality_paraphrases_are_rejected(
@@ -345,6 +361,85 @@ def test_unsupported_causality_paraphrases_are_rejected(
         parse_and_validate_commentary(_raw(commentary=text), bundle)
 
     assert exc.value.code == "unsupported_causality"
+
+
+def test_risk_uncertainty_language_is_allowed(
+    bundle: DailyReportEvidenceBundle,
+) -> None:
+    parsed = parse_and_validate_commentary(
+        _raw(
+            risk_summary="Coverage may not represent the full market.",
+        ),
+        bundle,
+    )
+
+    assert parsed.risk_summary == "Coverage may not represent the full market."
+
+
+def test_observational_coincidence_language_is_allowed(
+    bundle: DailyReportEvidenceBundle,
+) -> None:
+    parsed = parse_and_validate_commentary(
+        _raw(
+            commentary=(
+                "The observed move coincided with collector interest."
+            ),
+        ),
+        bundle,
+    )
+
+    assert parsed.commentary == (
+        "The observed move coincided with collector interest."
+    )
+
+
+@pytest.mark.parametrize(
+    "commentary",
+    [
+        "The snapshot date was 2026-07-21.",
+        "Charizard was observed at $120.",
+    ],
+)
+def test_exact_context_and_price_numbers_are_allowed(
+    bundle: DailyReportEvidenceBundle,
+    commentary: str,
+) -> None:
+    parsed = parse_and_validate_commentary(
+        _raw(
+            commentary=commentary,
+            commentary_evidence_refs=[MOVER_ID],
+        ),
+        bundle,
+    )
+
+    assert parsed.commentary == commentary
+
+
+def test_unconstrained_risk_modal_is_rejected(
+    bundle: DailyReportEvidenceBundle,
+) -> None:
+    with pytest.raises(CommentaryValidationError) as exc:
+        parse_and_validate_commentary(
+            _raw(risk_summary="Coverage may be incomplete."),
+            bundle,
+        )
+
+    assert exc.value.code == "forbidden_recommendation"
+
+
+def test_percentage_unit_cannot_be_borrowed_from_a_price(
+    bundle: DailyReportEvidenceBundle,
+) -> None:
+    with pytest.raises(CommentaryValidationError) as exc:
+        parse_and_validate_commentary(
+            _raw(
+                commentary="Charizard was observed at 120%.",
+                commentary_evidence_refs=[MOVER_ID],
+            ),
+            bundle,
+        )
+
+    assert exc.value.code == "unsupported_number"
 
 
 def test_provider_none_returns_provider_unavailable(

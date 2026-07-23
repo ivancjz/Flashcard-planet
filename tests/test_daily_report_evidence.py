@@ -364,6 +364,15 @@ def test_hash_changes_when_evidence_content_changes(changed_value):
     )
 
 
+def test_hash_ignores_whitespace_only_report_evidence_source_changes():
+    normalized = _report(evidence_json=["Alpha evidence"])
+    padded = _report(evidence_json=["  Alpha   evidence "])
+
+    assert evidence_hash(
+        build_daily_report_evidence_bundle(normalized)
+    ) == evidence_hash(build_daily_report_evidence_bundle(padded))
+
+
 def test_canonical_json_excludes_target_anchors():
     bundle = build_daily_report_evidence_bundle(_report())
     payload = json.loads(canonical_evidence_json(bundle))

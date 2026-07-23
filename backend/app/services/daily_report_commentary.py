@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
 import json
 import re
 from typing import Iterable
@@ -13,19 +12,35 @@ from backend.app.services.daily_report_evidence import canonical_evidence_json
 from backend.app.services.llm_provider import MetadataLLMProvider
 
 
-PROMPT_VERSION = "daily-report-commentary-v1"
+PROMPT_VERSION = "daily-report-commentary-v2"
 MAX_COMMENTARY_TOKENS = 900
 
 _NUMBER_TOKEN = re.compile(
-    r"(?<![A-Za-z0-9_.])[-+]?(?:\d+(?:\.\d+)?|\.\d+)%?"
-    r"(?![A-Za-z0-9_.])"
+    r"(?<![A-Za-z0-9_.])"
+    r"(?P<number>[+-]?(?:0|[1-9]\d*)(?:\.\d+)?)"
+    r"(?P<unit>%?)"
+    r"(?![A-Za-z0-9_])"
 )
-_NUMBER_VALUE = re.compile(r"[-+]?\d+(?:\.\d+)?%?\Z")
-_AMBIGUOUS_NUMBER_FORMAT = re.compile(
+_NUMBER_VALUE = re.compile(
+    r"[+-]?(?:0|[1-9]\d*)(?:\.\d+)?%?\Z"
+)
+_COMPOUND_NUMBER = re.compile(
+    r"(?:\d\s*(?:[,/_:]|\.\.)\s*[+-]?\d|\d\s*-\s*\d)"
+)
+_ALTERED_NUMBER_UNIT = re.compile(
     r"(?i)(?:"
-    r"\d\s*,\s*\d|\d\s*/\s*\d|\d(?:\.\d+)?e[+-]?\d+|"
-    r"[A-Za-z]\d|\d[A-Za-z]"
+    r"\d\s+%|"
+    r"\d\s+(?:percent(?:age)?|per\s+cent|thousand|million|billion|trillion|"
+    r"k|m|b)\b"
     r")"
+)
+_PERCENT_FACT_KEYS = frozenset(
+    {
+        "average_confidence",
+        "change_pct",
+        "confidence_score",
+        "percent_change",
+    }
 )
 _MARKDOWN_LINK = re.compile(r"\[[^\]\r\n]*\]\([^\)\r\n]+\)")
 _MARKDOWN_HEADING = re.compile(r"(?m)^\s*#{1,6}(?:\s|$)")
@@ -36,12 +51,32 @@ _URL_SCHEME = re.compile(
 _RECOMMENDATION = re.compile(
     r"(?i)\b(?:"
     r"strong\s+buy|strong\s+sell|buy|sell|hold|avoid|purchase|acquire|"
-    r"accumulate|dispose|recommend\w*|advis\w*|price\s+target|"
+    r"accumulate|dispose|add|adding|reduce|trim|enter|exit|"
+    r"recommend\w*|advis\w*|consider\w*|price\s+target|"
     r"guaranteed\s+return|guaranteed|expected\s+return|"
-    r"expect\w*|forecast\w*|predict\w*|project\w*|"
-    r"outperform\w*|underperform\w*|poised|"
-    r"upside|downside|likely|probably|possibly|may|might|could|should|"
-    r"would|will|future|next\s+(?:day|week|month|quarter|year)"
+    r"sensible|wise|prudent|attractive|worthwhile|advisable|"
+    r"ought|own|ownership"
+    r")\b"
+)
+_FORECAST = re.compile(
+    r"(?i)\b(?:"
+    r"expect\w*|forecast\w*|predict\w*|project\w*|poised|"
+    r"outperform\w*|underperform\w*|upside|downside|"
+    r"likely|probably|possibly|future|tomorrow|"
+    r"next\s+(?:day|week|month|quarter|year)"
+    r")\b|"
+    r"\b(?:appear\w*|seem\w*|look\w*)?\s*"
+    r"(?:set|ready|bound|destined)\s+to\s+(?:"
+    r"rise|fall|climb|decline|increase|decrease|gain|lose|rebound|"
+    r"appreciate|depreciate|outperform|underperform"
+    r")\b|"
+    r"\bheaded\s+(?:higher|lower|for)\b|"
+    r"\bon\s+(?:track|course)\s+to\b"
+)
+_MODAL = re.compile(r"(?i)\b(?:may|might|could|should|would|will)\b")
+_SAFE_RISK_UNCERTAINTY = re.compile(
+    r"(?i)\b(?:may|might|could)\s+not\s+(?:"
+    r"represent|reflect|capture|cover|include|generalize\s+to|extend\s+to"
     r")\b"
 )
 _CAUSALITY = re.compile(
@@ -50,7 +85,9 @@ _CAUSALITY = re.compile(
     r"|stemm?ed\s+from|attributed\s+to|owing\s+to|on\s+account\s+of"
     r"|as\s+a\s+result\s+of|sparked\s+by|triggered\s+by"
     r"|in\s+response\s+to|contributed\s+to|propelled\s+by|fueled\s+by"
-    r"|responsible\s+for|arose\s+from|thanks\s+to"
+    r"|responsible\s+for|arose\s+from|thanks\s+to|explain\w*"
+    r"|accounted\s+for\s+by|produced\s+by|originated\s+from"
+    r"|traceable\s+to|as\s+a\s+consequence\s+of|underpinn\w*"
     r")\b"
 )
 
@@ -152,7 +189,9 @@ Return exactly these keys:
 headline, headline_evidence_refs, commentary, commentary_evidence_refs,
 key_observations, risk_summary, risk_evidence_refs.
 Each key_observations item must contain exactly text and evidence_refs.
-Return one to three key observations. Prefer uncertainty over unsupported specificity."""
+Return one to three key observations. Put uncertainty only in risk_summary.
+Express uncertainty only as may not, might not, or could not followed by
+represent, reflect, capture, cover, include, generalize to, or extend to."""
     evidence_json = canonical_evidence_json(bundle)
     escaped_evidence_json = evidence_json.replace("<", "\\u003c").replace(
         ">",
@@ -181,28 +220,50 @@ def _text_reference_pairs(
     return pairs
 
 
-def _normalized_numeric_values(values: Iterable[str]) -> set[Decimal]:
-    normalized: set[Decimal] = set()
-    for value in values:
-        stripped = value.strip()
-        if _NUMBER_VALUE.fullmatch(stripped):
-            try:
-                normalized.add(Decimal(stripped.removesuffix("%")))
-            except InvalidOperation:
-                continue
-    return normalized
-
-
 def _record_numeric_values(
     facts: dict[str, str | list[str] | None],
-) -> set[Decimal]:
-    values: list[str] = []
-    for fact in facts.values():
+) -> set[str]:
+    values: set[str] = set()
+    for key, fact in facts.items():
+        candidates: list[str] = []
         if isinstance(fact, str):
-            values.append(fact)
+            candidates.append(fact)
         elif isinstance(fact, list):
-            values.extend(fact)
-    return _normalized_numeric_values(values)
+            candidates.extend(fact)
+        for candidate in candidates:
+            stripped = candidate.strip()
+            if not _NUMBER_VALUE.fullmatch(stripped):
+                continue
+            values.add(stripped)
+            if key in _PERCENT_FACT_KEYS and not stripped.endswith("%"):
+                values.add(f"{stripped}%")
+    return values
+
+
+def _literal_spans(text: str, literals: Iterable[str]) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    for literal in sorted(set(literals), key=len, reverse=True):
+        if not literal:
+            continue
+        start = 0
+        while True:
+            position = text.find(literal, start)
+            if position < 0:
+                break
+            spans.append((position, position + len(literal)))
+            start = position + len(literal)
+    return spans
+
+
+def _overlaps(
+    start: int,
+    end: int,
+    spans: Iterable[tuple[int, int]],
+) -> bool:
+    return any(
+        start < span_end and end > span_start
+        for span_start, span_end in spans
+    )
 
 
 def _validate_references(
@@ -222,32 +283,60 @@ def _validate_numeric_tokens(
     bundle: DailyReportEvidenceBundle,
 ) -> None:
     records_by_id = {record.id: record for record in bundle.records}
-    report_context_values = _normalized_numeric_values(
-        [
-            bundle.report_id,
-            bundle.report_date.isoformat(),
-            bundle.market_sentiment,
-            bundle.confidence_label,
-        ]
-    )
+    report_context_literals = {
+        bundle.report_id,
+        bundle.report_date.isoformat(),
+    }
 
     for text, references in pairs:
-        if _AMBIGUOUS_NUMBER_FORMAT.search(text):
+        literal_spans = _literal_spans(text, report_context_literals)
+        masked_text = list(text)
+        covered_digits: set[int] = set()
+        for start, end in literal_spans:
+            for position in range(start, end):
+                masked_text[position] = " "
+                if text[position] in "0123456789":
+                    covered_digits.add(position)
+        masked_value = "".join(masked_text)
+        if (
+            _COMPOUND_NUMBER.search(masked_value)
+            or _ALTERED_NUMBER_UNIT.search(masked_value)
+        ):
             raise CommentaryValidationError("unsupported_number")
-        allowed = set(report_context_values)
+
+        allowed: set[str] = set()
         for reference in references:
             allowed.update(_record_numeric_values(records_by_id[reference].facts))
         for match in _NUMBER_TOKEN.finditer(text):
-            try:
-                token = Decimal(match.group(0).removesuffix("%"))
-            except InvalidOperation:
-                raise CommentaryValidationError("unsupported_number") from None
+            if _overlaps(match.start(), match.end(), literal_spans):
+                continue
+            token = match.group(0)
             if token not in allowed:
                 raise CommentaryValidationError("unsupported_number")
+            covered_digits.update(
+                position
+                for position in range(match.start(), match.end())
+                if text[position] in "0123456789"
+            )
+        if any(
+            character.isdigit() and position not in covered_digits
+            for position, character in enumerate(text)
+        ):
+            raise CommentaryValidationError("unsupported_number")
 
 
-def _validate_forbidden_content(texts: Iterable[str]) -> None:
-    values = list(texts)
+def _validate_forbidden_content(
+    commentary: ValidatedDailyReportCommentary,
+) -> None:
+    non_risk_values = [
+        commentary.headline,
+        commentary.commentary,
+        *[
+            observation.text
+            for observation in commentary.key_observations
+        ],
+    ]
+    values = [*non_risk_values, commentary.risk_summary]
     if any(
         "`" in text
         or _MARKDOWN_LINK.search(text)
@@ -257,7 +346,18 @@ def _validate_forbidden_content(texts: Iterable[str]) -> None:
         for text in values
     ):
         raise CommentaryValidationError("forbidden_markup")
-    if any(_RECOMMENDATION.search(text) for text in values):
+    if any(
+        _RECOMMENDATION.search(text) or _FORECAST.search(text)
+        for text in values
+    ):
+        raise CommentaryValidationError("forbidden_recommendation")
+    if any(_MODAL.search(text) for text in non_risk_values):
+        raise CommentaryValidationError("forbidden_recommendation")
+    risk_without_safe_uncertainty = _SAFE_RISK_UNCERTAINTY.sub(
+        "",
+        commentary.risk_summary,
+    )
+    if _MODAL.search(risk_without_safe_uncertainty):
         raise CommentaryValidationError("forbidden_recommendation")
     if any(_CAUSALITY.search(text) for text in values):
         raise CommentaryValidationError("unsupported_causality")
@@ -280,7 +380,7 @@ def parse_and_validate_commentary(
     pairs = _text_reference_pairs(commentary)
     _validate_references(pairs, bundle)
     _validate_numeric_tokens(pairs, bundle)
-    _validate_forbidden_content(text for text, _ in pairs)
+    _validate_forbidden_content(commentary)
     return commentary
 
 

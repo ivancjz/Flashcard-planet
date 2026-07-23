@@ -281,7 +281,16 @@ def canonical_evidence_json(bundle: DailyReportEvidenceBundle) -> str:
 
 
 def evidence_hash(bundle: DailyReportEvidenceBundle) -> str:
-    canonical = canonical_evidence_json(bundle)
+    payload = json.loads(canonical_evidence_json(bundle))
+    for record in payload["records"]:
+        if record["kind"] == "report_evidence":
+            record["source_record_id"] = record["label"]
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
