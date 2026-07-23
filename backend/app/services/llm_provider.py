@@ -9,6 +9,7 @@ Set LLM_PROVIDER=groq in .env to switch to Groq. Default is Anthropic.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import logging
 import os
@@ -53,6 +54,24 @@ def _log(event: str, level: int = logging.WARNING, **fields: object) -> None:
 class LLMProvider(Protocol):
     def generate_text(self, system: str, user: str, max_tokens: int) -> str | None:
         """Call the LLM and return the text response, or None on any failure."""
+        ...
+
+
+@dataclass(frozen=True)
+class LLMTextResult:
+    text: str
+    provider: str
+    model: str
+
+
+class MetadataLLMProvider(LLMProvider, Protocol):
+    def generate_text_result(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int,
+    ) -> LLMTextResult | None:
+        """Return generated text with the provider and model that produced it."""
         ...
 
 
@@ -124,6 +143,25 @@ class AnthropicProvider:
         )
         return None
 
+    def generate_text_result(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int,
+    ) -> LLMTextResult | None:
+        text = self.generate_text(system, user, max_tokens)
+        if text is None:
+            return None
+        return LLMTextResult(
+            text=text,
+            provider="anthropic",
+            model=_setting_value(
+                "ANTHROPIC_MODEL",
+                "anthropic_model",
+                "claude-sonnet-4-6",
+            ),
+        )
+
 
 class GroqProvider:
     """Wraps Groq's OpenAI-compatible chat completions API.
@@ -161,6 +199,25 @@ class GroqProvider:
         except Exception as exc:  # noqa: BLE001
             _log("groq_request_failed", error_type=type(exc).__name__, message=str(exc))
             return None
+
+    def generate_text_result(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int,
+    ) -> LLMTextResult | None:
+        text = self.generate_text(system, user, max_tokens)
+        if text is None:
+            return None
+        return LLMTextResult(
+            text=text,
+            provider="groq",
+            model=_setting_value(
+                "GROQ_MODEL",
+                "groq_model",
+                "llama-3.3-70b-versatile",
+            ),
+        )
 
 
 
@@ -200,11 +257,34 @@ class OpenAIProvider:
             _log("openai_request_failed", error_type=type(exc).__name__, message=str(exc))
             return None
 
+    def generate_text_result(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int,
+    ) -> LLMTextResult | None:
+        text = self.generate_text(system, user, max_tokens)
+        if text is None:
+            return None
+        return LLMTextResult(
+            text=text,
+            provider="openai",
+            model=_setting_value(
+                "OPENAI_MODEL",
+                "openai_model",
+                "gpt-4o-mini",
+            ),
+        )
+
 
 class FallbackLLMProvider:
     """Tries primary provider; if it returns None, tries fallback."""
 
-    def __init__(self, primary: LLMProvider, fallback: LLMProvider) -> None:
+    def __init__(
+        self,
+        primary: MetadataLLMProvider,
+        fallback: MetadataLLMProvider,
+    ) -> None:
         self._primary = primary
         self._fallback = fallback
 
@@ -216,6 +296,23 @@ class FallbackLLMProvider:
              primary=type(self._primary).__name__, fallback=type(self._fallback).__name__)
         return self._fallback.generate_text(system, user, max_tokens)
 
+    def generate_text_result(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int,
+    ) -> LLMTextResult | None:
+        result = self._primary.generate_text_result(system, user, max_tokens)
+        if result is not None:
+            return result
+        _log(
+            "llm_primary_returned_none_using_fallback",
+            level=logging.INFO,
+            primary=type(self._primary).__name__,
+            fallback=type(self._fallback).__name__,
+        )
+        return self._fallback.generate_text_result(system, user, max_tokens)
+
 
 # Task-type routing table (codified, not implicit)
 # primary → fallback for each task type
@@ -224,6 +321,7 @@ _TASK_ROUTING: dict[str, tuple[str, str]] = {
     "signal_explanation":    ("openai", "groq"),
     "mapping_disambiguation": ("groq",   "openai"),
     "structured_tagging":    ("openai",  "groq"),
+    "daily_report_commentary": ("groq", "openai"),
 }
 
 _PROVIDER_MAP: dict[str, type] = {
@@ -236,8 +334,9 @@ _PROVIDER_MAP: dict[str, type] = {
 def get_llm_provider_for_task(task_type: str) -> LLMProvider:
     """Return a provider (with fallback) for the given task type.
 
-    Task types: signal_explanation, mapping_disambiguation, structured_tagging.
-    Unknown task types fall back to Anthropic with a warning.
+    Task types: signal_explanation, mapping_disambiguation, structured_tagging,
+    daily_report_commentary. Unknown task types fall back to Anthropic with a
+    warning.
     """
     routing = _TASK_ROUTING.get(task_type)
     if routing is None:

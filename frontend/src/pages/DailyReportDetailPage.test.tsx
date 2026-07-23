@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import DailyReportDetailPage from './DailyReportDetailPage'
 import { fetchCatalyst, fetchCatalysts, fetchDailyMarketReportByDate } from '../api/api'
-import type { Catalyst, DailyMarketReport } from '../types/api'
+import type {
+  Catalyst,
+  DailyMarketReport,
+  DailyReportIntelligence,
+} from '../types/api'
 
 vi.mock('../api/api', () => ({
   fetchCatalyst: vi.fn(),
@@ -61,6 +65,19 @@ function makeReport(): DailyMarketReport {
     },
     catalysts: [],
     evidence: ['market_segment=raw', 'active price source: sample_seed'],
+    intelligence: {
+      status: 'unavailable',
+      headline: null,
+      headline_evidence_refs: [],
+      commentary: null,
+      commentary_evidence_refs: [],
+      risk_summary: null,
+      risk_evidence_refs: [],
+      key_observations: [],
+      evidence_refs: [],
+      evidence_catalog: [],
+      generated_at: null,
+    },
   }
 }
 
@@ -86,9 +103,98 @@ function makeCatalyst(overrides: Partial<Catalyst> = {}): Catalyst {
   }
 }
 
-function renderPage() {
+function makePublishedIntelligence(
+  overrides: Partial<DailyReportIntelligence> = {},
+): DailyReportIntelligence {
+  return {
+    status: 'published',
+    headline: 'Pokemon market breadth improved',
+    headline_evidence_refs: ['index:pokemon'],
+    commentary: 'The captured Pokemon index moved 4.25%.',
+    commentary_evidence_refs: ['index:pokemon'],
+    risk_summary: 'Coverage includes 4 observed assets.',
+    risk_evidence_refs: ['index:pokemon'],
+    key_observations: [
+      { text: 'Charizard moved 20%.', evidence_refs: ['mover:asset-charizard'] },
+    ],
+    evidence_refs: ['index:pokemon', 'mover:asset-charizard'],
+    evidence_catalog: [
+      {
+        id: 'index:pokemon',
+        kind: 'index',
+        label: 'Pokemon Market',
+        source_record_id: 'pokemon',
+        target_anchor: 'evidence-index000001',
+      },
+      {
+        id: 'mover:asset-charizard',
+        kind: 'mover',
+        label: 'Charizard',
+        source_record_id: 'asset-charizard',
+        target_anchor: 'evidence-mover000001',
+      },
+    ],
+    generated_at: '2026-07-22T01:00:00Z',
+    ...overrides,
+  }
+}
+
+function makeReportWithCatalogForEveryKind(): DailyMarketReport {
+  const report = makeReport()
+  const catalyst = makeCatalyst()
+  report.catalysts = [catalyst]
+  report.intelligence = makePublishedIntelligence({
+    evidence_refs: [
+      'index:pokemon',
+      'mover:asset-charizard',
+      'signal:breakout',
+      `catalyst:${catalyst.id}`,
+      'report:evidence:2',
+    ],
+    evidence_catalog: [
+      {
+        id: 'index:pokemon',
+        kind: 'index',
+        label: 'Pokemon Market',
+        source_record_id: 'pokemon',
+        target_anchor: 'evidence-index000001',
+      },
+      {
+        id: 'mover:asset-charizard',
+        kind: 'mover',
+        label: 'Charizard',
+        source_record_id: 'asset-charizard',
+        target_anchor: 'evidence-mover000001',
+      },
+      {
+        id: 'signal:breakout',
+        kind: 'signal',
+        label: 'BREAKOUT',
+        source_record_id: 'BREAKOUT',
+        target_anchor: 'evidence-signal00001',
+      },
+      {
+        id: `catalyst:${catalyst.id}`,
+        kind: 'catalyst',
+        label: catalyst.description,
+        source_record_id: catalyst.id,
+        target_anchor: 'evidence-catalyst001',
+      },
+      {
+        id: 'report:evidence:2',
+        kind: 'report_evidence',
+        label: 'market_segment=raw',
+        source_record_id: 'market_segment=raw',
+        target_anchor: 'evidence-report00001',
+      },
+    ],
+  })
+  return report
+}
+
+function renderPage(initialEntry = '/reports/2026-07-21') {
   return render(
-    <MemoryRouter initialEntries={['/reports/2026-07-21']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/reports/:reportDate" element={<DailyReportDetailPage />} />
       </Routes>
@@ -123,6 +229,140 @@ describe('DailyReportDetailPage', () => {
     expect(screen.getByRole('link', { name: 'All daily reports' }).getAttribute('href')).toBe('/reports')
     expect(fetchDailyMarketReportByDate).toHaveBeenCalledWith('2026-07-21')
     expect(fetchDailyMarketReportByDate).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders published AI commentary, observations, risk, and local citations', async () => {
+    const report = makeReport()
+    report.intelligence = makePublishedIntelligence()
+    vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(report)
+
+    renderPage()
+
+    const section = await screen.findByRole('region', { name: 'AI Market Commentary' })
+    expect(within(section).getByRole('heading', { name: report.intelligence.headline! })).toBeTruthy()
+    expect(within(section).getByText(report.intelligence.commentary!)).toBeTruthy()
+    expect(within(section).getByText(report.intelligence.key_observations[0].text)).toBeTruthy()
+    expect(within(section).getByText(report.intelligence.risk_summary!)).toBeTruthy()
+    expect(within(section).getAllByRole('link', { name: /Evidence \d:/ })).toHaveLength(4)
+  })
+
+  it('keeps headline, commentary, and risk citations scoped to their fields', async () => {
+    const report = makeReport()
+    report.intelligence = makePublishedIntelligence()
+    Object.assign(report.intelligence, {
+      headline_evidence_refs: ['index:pokemon'],
+      commentary_evidence_refs: ['index:pokemon'],
+      risk_evidence_refs: ['index:pokemon'],
+    })
+    vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(report)
+
+    const { container } = renderPage()
+
+    await screen.findByRole('region', { name: 'AI Market Commentary' })
+    const headlineBlock = container.querySelector<HTMLElement>('.daily-report-ai-headline-block')
+    const commentaryBlock = container.querySelector<HTMLElement>('.daily-report-ai-block')
+    const riskBlock = container.querySelector<HTMLElement>('.daily-report-ai-risk')
+    expect(headlineBlock).not.toBeNull()
+    expect(commentaryBlock).not.toBeNull()
+    expect(riskBlock).not.toBeNull()
+
+    for (const block of [headlineBlock!, commentaryBlock!, riskBlock!]) {
+      expect(within(block).getAllByRole('link')).toHaveLength(1)
+      expect(within(block).getByRole('link', { name: 'Evidence 1: Pokemon Market' })).toBeTruthy()
+      expect(within(block).queryByRole('link', { name: 'Evidence 2: Charizard' })).toBeNull()
+    }
+  })
+
+  it('shows exact neutral text for insufficient evidence', async () => {
+    const report = makeReport()
+    report.intelligence.status = 'insufficient_evidence'
+    report.intelligence.commentary = 'Insufficient evidence.'
+    vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(report)
+
+    renderPage()
+
+    const section = await screen.findByRole('region', { name: 'AI Market Commentary' })
+    expect(within(section).getByText('Insufficient evidence.')).toBeTruthy()
+  })
+
+  it('omits AI section when intelligence is unavailable', async () => {
+    vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(makeReport())
+
+    renderPage()
+
+    await screen.findByRole('heading', { name: 'Flashcard Planet Daily - 2026-07-21' })
+    expect(screen.queryByRole('region', { name: 'AI Market Commentary' })).toBeNull()
+  })
+
+  it('assigns server-provided anchors to every evidence target', async () => {
+    const report = makeReportWithCatalogForEveryKind()
+    vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(report)
+
+    const { container } = renderPage()
+
+    await screen.findByRole('region', { name: 'AI Market Commentary' })
+    for (const item of report.intelligence.evidence_catalog) {
+      const target = container.querySelector(`#${item.target_anchor}`)
+      expect(target).not.toBeNull()
+      expect(target?.getAttribute('tabindex')).toBe('-1')
+    }
+  })
+
+  it('matches Unicode rows through exact server source IDs without reconstructing evidence IDs', async () => {
+    const report = makeReportWithCatalogForEveryKind()
+    report.overview.indexes[0].game = 'Pokémon'
+    report.overview.indexes[0].label = 'Pokémon Market'
+    const catalogItem = report.intelligence.evidence_catalog.find(item => item.kind === 'index')!
+    catalogItem.id = 'index:pokemon'
+    catalogItem.label = 'Pokémon Market'
+    catalogItem.source_record_id = 'Pokémon'
+    vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(report)
+
+    const { container } = renderPage()
+
+    await screen.findByRole('region', { name: 'AI Market Commentary' })
+    const target = container.querySelector(`#${catalogItem.target_anchor}`)
+    expect(target?.textContent).toContain('Pokémon Market')
+  })
+
+  it('targets normalized report evidence through its exact server source key', async () => {
+    const report = makeReportWithCatalogForEveryKind()
+    report.evidence = ['  Beta   evidence ']
+    const catalogItem = report.intelligence.evidence_catalog.find(
+      item => item.kind === 'report_evidence',
+    )!
+    catalogItem.label = 'Beta evidence'
+    catalogItem.source_record_id = '  Beta   evidence '
+    vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(report)
+
+    const { container } = renderPage()
+
+    await screen.findByRole('region', { name: 'AI Market Commentary' })
+    const target = container.querySelector(`#${catalogItem.target_anchor}`)
+    expect(target?.textContent).toBe('  Beta   evidence ')
+  })
+
+  it('focuses the cited target when the report route has an evidence fragment', async () => {
+    const report = makeReportWithCatalogForEveryKind()
+    vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(report)
+    Element.prototype.scrollIntoView = vi.fn()
+
+    renderPage('/reports/2026-07-21#evidence-index000001')
+
+    await waitFor(() => expect(document.activeElement?.id).toBe('evidence-index000001'))
+  })
+
+  it('renders model-looking markup as plain text', async () => {
+    const report = makeReport()
+    report.intelligence = makePublishedIntelligence({
+      commentary: '<strong>Observed</strong> **market**',
+    })
+    vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(report)
+
+    const { container } = renderPage()
+
+    expect(await screen.findByText('<strong>Observed</strong> **market**')).toBeTruthy()
+    expect(container.querySelector('strong')?.textContent).not.toBe('Observed')
   })
 
   it('renders the empty persisted catalyst snapshot between evidence and indexes', async () => {

@@ -104,6 +104,45 @@ export interface MarketOverview {
   evidence: string[]
 }
 
+export type DailyReportIntelligenceStatus =
+  | 'published'
+  | 'insufficient_evidence'
+  | 'unavailable'
+
+export type DailyReportEvidenceKind =
+  | 'index'
+  | 'mover'
+  | 'signal'
+  | 'catalyst'
+  | 'report_evidence'
+
+export interface DailyReportIntelligenceObservation {
+  text: string
+  evidence_refs: string[]
+}
+
+export interface DailyReportEvidenceCatalogItem {
+  id: string
+  kind: DailyReportEvidenceKind
+  label: string
+  source_record_id: string | null
+  target_anchor: string
+}
+
+export interface DailyReportIntelligence {
+  status: DailyReportIntelligenceStatus
+  headline: string | null
+  headline_evidence_refs: string[]
+  commentary: string | null
+  commentary_evidence_refs: string[]
+  risk_summary: string | null
+  risk_evidence_refs: string[]
+  key_observations: DailyReportIntelligenceObservation[]
+  evidence_refs: string[]
+  evidence_catalog: DailyReportEvidenceCatalogItem[]
+  generated_at: string | null
+}
+
 export interface DailyMarketReport {
   id: string
   report_date: string
@@ -116,6 +155,7 @@ export interface DailyMarketReport {
   overview: MarketOverview
   catalysts: Catalyst[]
   evidence: string[]
+  intelligence: DailyReportIntelligence
 }
 
 export interface DailyMarketReportListResponse {

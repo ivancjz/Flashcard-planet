@@ -97,6 +97,8 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openai_base_url: str = "https://api.openai.com/v1"
     llm_provider: str = "anthropic"
+    daily_report_ai_enabled: bool = False
+    daily_report_ai_interval_minutes: int = Field(default=60, ge=15)
     secret_key: str = Field(default="change-me-in-production-use-a-long-random-string")
     jwt_expire_days: int = Field(default=30, ge=1)
     # Auth v2

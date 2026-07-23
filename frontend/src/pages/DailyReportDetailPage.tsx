@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import NavBar from '../components/NavBar'
+import DailyReportEvidenceLinks from '../components/DailyReportEvidenceLinks'
 import { fetchDailyMarketReportByDate } from '../api/api'
-import type { Catalyst, DailyMarketReport, MarketNumber } from '../types/api'
+import type {
+  Catalyst,
+  DailyMarketReport,
+  DailyReportEvidenceKind,
+  MarketNumber,
+} from '../types/api'
 
 function formatReportDate(value: string): string {
   const parsed = new Date(`${value}T00:00:00Z`)
@@ -151,11 +157,38 @@ export default function DailyReportDetailPage() {
 }
 
 function DailyReportContent({ report }: { report: DailyMarketReport }) {
+  const location = useLocation()
   const sentimentColor = report.market_sentiment === 'bullish'
     ? 'var(--up)'
     : report.market_sentiment === 'bearish'
       ? 'var(--down)'
       : 'var(--text-secondary)'
+  const evidenceCatalog = report.intelligence.evidence_catalog
+
+  const targetPropsForSource = (
+    kind: DailyReportEvidenceKind,
+    sourceRecordId: string,
+  ) => {
+    const item = evidenceCatalog.find(
+      candidate => candidate.kind === kind && candidate.source_record_id === sourceRecordId,
+    )
+    return item === undefined ? {} : { id: item.target_anchor, tabIndex: -1 }
+  }
+
+  useEffect(() => {
+    if (!location.hash) return undefined
+
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById(location.hash.slice(1))
+      if (target === null) return
+      target.focus({ preventScroll: true })
+      target.scrollIntoView({ block: 'center' })
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [location.hash, report.id])
+
+  const anchoredEvidenceLabels = new Set<string>()
 
   return (
     <article>
@@ -175,6 +208,70 @@ function DailyReportContent({ report }: { report: DailyMarketReport }) {
         <p className="daily-report-detail-summary">{report.summary}</p>
       </header>
 
+      {report.intelligence.status === 'unavailable' ? null : (
+        <section className="daily-report-ai-section" aria-label="AI Market Commentary">
+          <div className="daily-report-section-heading">
+            <h2>AI Market Commentary</h2>
+            <span>Evidence-linked analysis</span>
+          </div>
+
+          {report.intelligence.status === 'insufficient_evidence' ? (
+            <p className="daily-report-ai-copy">Insufficient evidence.</p>
+          ) : (
+            <>
+              {report.intelligence.headline === null ? null : (
+                <div className="daily-report-ai-headline-block">
+                  <h3 className="daily-report-ai-headline">{report.intelligence.headline}</h3>
+                  <DailyReportEvidenceLinks
+                    reportDate={report.report_date}
+                    refs={report.intelligence.headline_evidence_refs}
+                    catalog={evidenceCatalog}
+                  />
+                </div>
+              )}
+
+              {report.intelligence.commentary === null ? null : (
+                <div className="daily-report-ai-block">
+                  <p className="daily-report-ai-copy">{report.intelligence.commentary}</p>
+                  <DailyReportEvidenceLinks
+                    reportDate={report.report_date}
+                    refs={report.intelligence.commentary_evidence_refs}
+                    catalog={evidenceCatalog}
+                  />
+                </div>
+              )}
+
+              {report.intelligence.key_observations.length === 0 ? null : (
+                <ul className="daily-report-ai-observations">
+                  {report.intelligence.key_observations.map((observation, index) => (
+                    <li key={`${observation.text}-${index}`}>
+                      <p>{observation.text}</p>
+                      <DailyReportEvidenceLinks
+                        reportDate={report.report_date}
+                        refs={observation.evidence_refs}
+                        catalog={evidenceCatalog}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {report.intelligence.risk_summary === null ? null : (
+                <div className="daily-report-ai-risk">
+                  <h3>Risk Summary</h3>
+                  <p>{report.intelligence.risk_summary}</p>
+                  <DailyReportEvidenceLinks
+                    reportDate={report.report_date}
+                    refs={report.intelligence.risk_evidence_refs}
+                    catalog={evidenceCatalog}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
       <section className="daily-report-section daily-report-evidence" aria-labelledby="report-evidence-title">
         <div className="daily-report-section-heading">
           <h2 id="report-evidence-title">Evidence</h2>
@@ -182,7 +279,22 @@ function DailyReportContent({ report }: { report: DailyMarketReport }) {
         </div>
         {report.evidence.length > 0 ? (
           <ul>
-            {report.evidence.map(item => <li key={item}>{item}</li>)}
+            {report.evidence.map((item, index) => {
+              const targetProps = anchoredEvidenceLabels.has(item)
+                ? {}
+                : targetPropsForSource('report_evidence', item)
+              anchoredEvidenceLabels.add(item)
+
+              return (
+                <li
+                  className="daily-report-evidence-target"
+                  key={`${item}-${index}`}
+                  {...targetProps}
+                >
+                  {item}
+                </li>
+              )
+            })}
           </ul>
         ) : (
           <p className="daily-report-empty">No supporting evidence was captured.</p>
@@ -208,7 +320,11 @@ function DailyReportContent({ report }: { report: DailyMarketReport }) {
               const sourceUrl = getExternalSourceUrl(catalyst.source_url)
 
               return (
-                <article className="daily-report-catalyst-row" key={catalyst.id}>
+                <article
+                  className="daily-report-catalyst-row daily-report-evidence-target"
+                  key={catalyst.id}
+                  {...targetPropsForSource('catalyst', catalyst.id)}
+                >
                   <div className="daily-report-catalyst-identity">
                     <span className="daily-report-catalyst-status">{formatLabel(catalyst.status)}</span>
                     <span className="daily-report-catalyst-type">{eventType}</span>
@@ -271,7 +387,11 @@ function DailyReportContent({ report }: { report: DailyMarketReport }) {
               </thead>
               <tbody>
                 {report.overview.indexes.map(index => (
-                  <tr key={`${index.game}-${index.label}`}>
+                  <tr
+                    className="daily-report-evidence-target"
+                    key={`${index.game}-${index.label}`}
+                    {...targetPropsForSource('index', index.game)}
+                  >
                     <td>
                       <strong>{index.label}</strong>
                       <span>{formatLabel(index.game)}</span>
@@ -307,7 +427,11 @@ function DailyReportContent({ report }: { report: DailyMarketReport }) {
               </thead>
               <tbody>
                 {report.overview.top_movers.map(mover => (
-                  <tr key={mover.asset_id}>
+                  <tr
+                    className="daily-report-evidence-target"
+                    key={mover.asset_id}
+                    {...targetPropsForSource('mover', mover.asset_id)}
+                  >
                     <td>
                       <Link to={`/market/${mover.asset_id}`}>{mover.name}</Link>
                       <span>{mover.set_name ?? formatLabel(mover.game)}</span>
@@ -333,7 +457,11 @@ function DailyReportContent({ report }: { report: DailyMarketReport }) {
         ) : (
           <div className="daily-report-signal-list">
             {report.overview.signal_summary.map(signal => (
-              <div className="daily-report-signal-row" key={signal.label}>
+              <div
+                className="daily-report-signal-row daily-report-evidence-target"
+                key={signal.label}
+                {...targetPropsForSource('signal', signal.label)}
+              >
                 <strong>{formatLabel(signal.label)}</strong>
                 <span>{signal.count} signal{signal.count === 1 ? '' : 's'}</span>
                 <span>{formatConfidence(signal.average_confidence)}</span>

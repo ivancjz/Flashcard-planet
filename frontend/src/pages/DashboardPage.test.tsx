@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter } from 'react-router-dom'
 import DashboardPage from './DashboardPage'
 import { fetchCards, fetchCatalysts, fetchLatestDailyMarketReport, fetchMarketOverview, fetchStats, fetchTicker } from '../api/api'
-import type { Catalyst, CatalystListResponse } from '../types/api'
+import type { Catalyst, CatalystListResponse, DailyMarketReport } from '../types/api'
 
 const gameCommitProbe = vi.hoisted(() => vi.fn())
 
@@ -91,6 +91,44 @@ function renderDashboard() {
   )
 }
 
+function makeDailyReportFixture(): DailyMarketReport {
+  return {
+    id: '22222222-2222-2222-2222-222222222222',
+    report_date: '2026-07-21',
+    generated_at: '2026-07-21T10:00:00Z',
+    status: 'published',
+    title: 'Flashcard Planet Daily - 2026-07-21',
+    market_sentiment: 'bullish',
+    confidence_label: 'medium',
+    summary: 'High-end Pokemon cards led the raw market today.',
+    overview: {
+      generated_at: '2026-07-21T10:00:00Z',
+      market_sentiment: 'bullish',
+      confidence_label: 'medium',
+      indexes: [],
+      top_movers: [],
+      signal_summary: [],
+      commentary: 'High-end Pokemon cards led the raw market today.',
+      evidence: ['market_segment=raw'],
+    },
+    catalysts: [],
+    evidence: ['market_segment=raw', 'active price source: sample_seed'],
+    intelligence: {
+      status: 'unavailable',
+      headline: null,
+      headline_evidence_refs: [],
+      commentary: null,
+      commentary_evidence_refs: [],
+      risk_summary: null,
+      risk_evidence_refs: [],
+      key_observations: [],
+      evidence_refs: [],
+      evidence_catalog: [],
+      generated_at: null,
+    },
+  }
+}
+
 describe('DashboardPage market overview', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -110,28 +148,7 @@ describe('DashboardPage market overview', () => {
     vi.mocked(fetchTicker).mockResolvedValue([])
     vi.mocked(fetchCards).mockResolvedValue({ cards: [], total: 0, limit: 50, offset: 0 })
     vi.mocked(fetchCatalysts).mockResolvedValue(catalystPage([pokemonCatalyst]))
-    vi.mocked(fetchLatestDailyMarketReport).mockResolvedValue({
-      id: '22222222-2222-2222-2222-222222222222',
-      report_date: '2026-07-21',
-      generated_at: '2026-07-21T10:00:00Z',
-      status: 'published',
-      title: 'Flashcard Planet Daily - 2026-07-21',
-      market_sentiment: 'bullish',
-      confidence_label: 'medium',
-      summary: 'High-end Pokemon cards led the raw market today.',
-      overview: {
-        generated_at: '2026-07-21T10:00:00Z',
-        market_sentiment: 'bullish',
-        confidence_label: 'medium',
-        indexes: [],
-        top_movers: [],
-        signal_summary: [],
-        commentary: 'High-end Pokemon cards led the raw market today.',
-        evidence: ['market_segment=raw'],
-      },
-      catalysts: [],
-      evidence: ['market_segment=raw', 'active price source: sample_seed'],
-    })
+    vi.mocked(fetchLatestDailyMarketReport).mockResolvedValue(makeDailyReportFixture())
     vi.mocked(fetchMarketOverview).mockResolvedValue({
       generated_at: '2026-07-21T10:00:00Z',
       market_sentiment: 'bullish',
@@ -197,6 +214,99 @@ describe('DashboardPage market overview', () => {
     expect(within(report).getByRole('link', { name: 'Read full report' }).getAttribute('href')).toBe('/reports/2026-07-21')
     expect(fetchLatestDailyMarketReport).toHaveBeenCalledTimes(1)
   })
+
+  it('shows published AI commentary with up to three evidence links', async () => {
+    const report = makeDailyReportFixture()
+    report.intelligence = {
+      status: 'published',
+      headline: 'Pokemon market breadth improved',
+      headline_evidence_refs: ['index:pokemon'],
+      commentary: 'The captured Pokemon index moved higher.',
+      commentary_evidence_refs: [
+        'index:pokemon',
+        'mover:charizard',
+        'signal:breakout',
+      ],
+      risk_summary: 'Coverage remains limited.',
+      risk_evidence_refs: ['index:pokemon'],
+      key_observations: [],
+      evidence_refs: [
+        'index:pokemon',
+        'mover:charizard',
+        'signal:breakout',
+        'catalyst:event',
+      ],
+      evidence_catalog: [
+        {
+          id: 'index:pokemon',
+          kind: 'index',
+          label: 'Pokemon Market',
+          source_record_id: 'pokemon',
+          target_anchor: 'evidence-abc123abc123',
+        },
+        {
+          id: 'mover:charizard',
+          kind: 'mover',
+          label: 'Charizard',
+          source_record_id: 'charizard',
+          target_anchor: 'evidence-def456def456',
+        },
+        {
+          id: 'signal:breakout',
+          kind: 'signal',
+          label: 'BREAKOUT',
+          source_record_id: 'BREAKOUT',
+          target_anchor: 'evidence-ghi789ghi789',
+        },
+        {
+          id: 'catalyst:event',
+          kind: 'catalyst',
+          label: 'Captured event',
+          source_record_id: 'event',
+          target_anchor: 'evidence-jkl012jkl012',
+        },
+      ],
+      generated_at: '2026-07-22T01:00:00Z',
+    }
+    vi.mocked(fetchLatestDailyMarketReport).mockResolvedValueOnce(report)
+
+    renderDashboard()
+
+    const panel = await screen.findByRole('region', { name: 'Flashcard Planet Daily' })
+    expect(within(panel).getByText('Pokemon market breadth improved')).toBeTruthy()
+    expect(within(panel).getByText('The captured Pokemon index moved higher.')).toBeTruthy()
+    expect(within(panel).queryByText(report.summary)).toBeNull()
+    expect(within(panel).queryByText('market_segment=raw')).toBeNull()
+    expect(
+      within(panel)
+        .getByRole('link', { name: 'Evidence 1: Pokemon Market' })
+        .getAttribute('href'),
+    ).toBe('/reports/2026-07-21#evidence-abc123abc123')
+    expect(within(panel).getAllByRole('link', { name: /Evidence/ })).toHaveLength(3)
+    expect(
+      within(panel).queryByRole('link', { name: 'Evidence 4: Captured event' }),
+    ).toBeNull()
+  })
+
+  it.each(['insufficient_evidence', 'unavailable'] as const)(
+    'keeps the deterministic summary when intelligence is %s',
+    async status => {
+      const report = makeDailyReportFixture()
+      report.intelligence.status = status
+      report.intelligence.commentary = status === 'insufficient_evidence'
+        ? 'Insufficient evidence.'
+        : null
+      vi.mocked(fetchLatestDailyMarketReport).mockResolvedValueOnce(report)
+
+      renderDashboard()
+
+      const panel = await screen.findByRole('region', { name: 'Flashcard Planet Daily' })
+      expect(within(panel).getByText(report.summary)).toBeTruthy()
+      expect(within(panel).getByText('market_segment=raw')).toBeTruthy()
+      expect(within(panel).queryByText('Insufficient evidence.')).toBeNull()
+      expect(within(panel).queryByLabelText('Supporting evidence')).toBeNull()
+    },
+  )
 
   it('shows a neutral state when no daily report has been generated', async () => {
     vi.mocked(fetchLatestDailyMarketReport).mockResolvedValueOnce(null)

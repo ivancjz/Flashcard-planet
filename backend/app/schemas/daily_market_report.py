@@ -3,9 +3,12 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.app.schemas.catalyst import CatalystResponse
+from backend.app.schemas.daily_report_intelligence import (
+    DailyReportIntelligenceResponse,
+)
 from backend.app.schemas.market import MarketOverviewResponse
 
 
@@ -21,6 +24,9 @@ class DailyMarketReportResponse(BaseModel):
     overview: MarketOverviewResponse
     evidence: list[str]
     catalysts: list[CatalystResponse]
+    intelligence: DailyReportIntelligenceResponse = Field(
+        default_factory=DailyReportIntelligenceResponse
+    )
 
 
 class DailyMarketReportListResponse(BaseModel):

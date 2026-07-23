@@ -15,7 +15,91 @@ from __future__ import annotations
 
 import unittest
 from datetime import UTC, datetime, timedelta
+import logging
+from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
+
+
+def test_build_scheduler_skips_ai_job_when_disabled(mocker):
+    import backend.app.backstage.scheduler as scheduler_module
+
+    settings = scheduler_module.get_settings().model_copy(
+        update={"daily_report_ai_enabled": False}
+    )
+    mocker.patch.object(
+        scheduler_module,
+        "get_settings",
+        return_value=settings,
+    )
+    register = mocker.patch.object(
+        scheduler_module,
+        "_register_daily_report_intelligence_job",
+    )
+
+    scheduler_module.build_scheduler()
+
+    register.assert_not_called()
+
+
+def test_build_scheduler_registers_ai_job_when_enabled(mocker):
+    import backend.app.backstage.scheduler as scheduler_module
+
+    settings = scheduler_module.get_settings().model_copy(
+        update={
+            "daily_report_ai_enabled": True,
+            "daily_report_ai_interval_minutes": 45,
+        }
+    )
+    mocker.patch.object(
+        scheduler_module,
+        "get_settings",
+        return_value=settings,
+    )
+    register = mocker.patch.object(
+        scheduler_module,
+        "_register_daily_report_intelligence_job",
+    )
+
+    built = scheduler_module.build_scheduler()
+
+    register.assert_called_once_with(built, settings)
+
+
+def test_daily_report_intelligence_has_post_report_startup_delay():
+    from backend.app.backstage.scheduler import _STARTUP_DELAY
+    from backend.app.services.scheduler_run_log_service import (
+        JOB_DAILY_REPORT,
+        JOB_DAILY_REPORT_INTELLIGENCE,
+    )
+
+    assert _STARTUP_DELAY[JOB_DAILY_REPORT_INTELLIGENCE] == 1380
+    assert (
+        _STARTUP_DELAY[JOB_DAILY_REPORT_INTELLIGENCE]
+        > _STARTUP_DELAY[JOB_DAILY_REPORT]
+    )
+
+
+def test_disabled_ai_job_is_not_reported_as_missing_warning(mocker, caplog):
+    import backend.app.backstage.scheduler as scheduler_module
+
+    scheduler = MagicMock()
+    scheduler.get_job.return_value = None
+    mocker.patch.object(
+        scheduler_module,
+        "get_settings",
+        return_value=SimpleNamespace(daily_report_ai_enabled=False),
+    )
+    caplog.set_level(logging.WARNING, logger=scheduler_module.__name__)
+
+    scheduler_module.prepare_scheduler_for_startup(
+        scheduler,
+        now=datetime(2026, 4, 19, 12, 0, tzinfo=UTC),
+    )
+
+    assert not any(
+        "daily-report-intelligence" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 # ── a/b. prepare_scheduler_for_startup ───────────────────────────────────────
