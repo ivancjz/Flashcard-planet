@@ -101,6 +101,7 @@ Delivered:
 - Added strict plain-JSON commentary validation. Unknown citations, unsupported numbers or units, markup, URLs, advice, forecasts, guarantees, and unsupported causal claims are rejected before persistence or publication.
 - Added the v2 positive observational grammar and a unit-aware lexical scanner. The validator accepts only evidence-linked observations, confines uncertainty language to the risk field, and rejects altered number forms, unsupported units, forecast paraphrases, and explicit causal claims.
 - Added provider metadata without storing or logging raw model responses or complete prompts. Public responses omit provider, model, attempt, error, prompt, and source URL details.
+- Routed Daily Report commentary through Groq first with OpenAI as the availability fallback. The shared global provider default and all other task routes remain unchanged.
 - Implemented concurrency-safe claims with row locking, stale-claim recovery, a three-attempt limit, and claim ownership checks. The database session is closed before provider execution and a fresh session revalidates the evidence hash before publication.
 - Preserved field-scoped evidence references for headline, commentary, observations, and risk. Normalized report-evidence labels retain an exact server source key so citation anchors resolve to the original report row.
 - Added a default-off interval scheduler job. Insufficient evidence does not call a provider, and published cache keys are not generated twice.
