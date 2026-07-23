@@ -236,6 +236,8 @@ def test_number_supported_only_by_unreferenced_record_is_rejected(
         "Coverage includes 4 pct of observed assets.",
         "Coverage includes 4\u2030 of observed assets.",
         "The snapshot date was 2026-07-21% complete.",
+        "The snapshot date was $ 2026-07-21.",
+        "The snapshot date was 2026-07-21 % complete.",
     ],
 )
 def test_altered_numeric_expressions_are_rejected_as_unsupported(
@@ -311,6 +313,7 @@ def test_recommendation_and_forecast_variants_are_rejected(
         "Prices are headed higher.",
         "These cards belong in a collection.",
         "Prices are primed for a rise.",
+        "Future prices were observed.",
     ],
 )
 def test_recommendation_and_forecast_paraphrases_are_rejected(
@@ -358,6 +361,7 @@ def test_unsupported_causality_variants_are_rejected(
         "Collector demand underpinned the move.",
         "Collector demand explains the move.",
         "Collector demand lifted prices.",
+        "Collector interest increased prices.",
     ],
 )
 def test_unsupported_causality_paraphrases_are_rejected(

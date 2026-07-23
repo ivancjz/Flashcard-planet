@@ -98,8 +98,8 @@ Delivered:
 
 - Added migration `0043` and a cache-keyed Daily Report intelligence model. Rows are unique by report, evidence hash, and prompt version, with bounded attempts and explicit pending, published, insufficient-evidence, and failed states.
 - Built canonical evidence bundles for indexes, movers, signals, catalysts, and report evidence. Citation IDs and DOM target anchors are server-owned, deterministic, ASCII-safe, and carry exact public source record keys.
-- Added strict plain-JSON commentary validation. Unknown citations, unsupported numbers, markup, URLs, advice, forecasts, guarantees, and unsupported causal claims are rejected before persistence or publication.
-- Hardened numeric parsing against leading-decimal, scientific, comma, fraction, and alphanumeric variants, and expanded conservative rejection of recommendation, forecast, and unsupported causality paraphrases.
+- Added strict plain-JSON commentary validation. Unknown citations, unsupported numbers or units, markup, URLs, advice, forecasts, guarantees, and unsupported causal claims are rejected before persistence or publication.
+- Added the v2 positive observational grammar and a unit-aware lexical scanner. The validator accepts only evidence-linked observations, confines uncertainty language to the risk field, and rejects altered number forms, unsupported units, forecast paraphrases, and explicit causal claims.
 - Added provider metadata without storing or logging raw model responses or complete prompts. Public responses omit provider, model, attempt, error, prompt, and source URL details.
 - Implemented concurrency-safe claims with row locking, stale-claim recovery, a three-attempt limit, and claim ownership checks. The database session is closed before provider execution and a fresh session revalidates the evidence hash before publication.
 - Preserved field-scoped evidence references for headline, commentary, observations, and risk. Normalized report-evidence labels retain an exact server source key so citation anchors resolve to the original report row.
@@ -109,8 +109,8 @@ Delivered:
 
 Verification evidence:
 
-- 225 focused backend tests passed and one environment-gated PostgreSQL test skipped, covering persistence, evidence contracts, validation, repository state transitions, cross-session orchestration, API boundaries, scheduling, startup, and provider metadata. The skipped test passed separately against a migrated disposable PostgreSQL 16 plus pgvector database.
-- The complete backend suite produced 1519 passes, one environment-gated skip, and three existing eBay scheduler failures. All three failures were reproduced unchanged on the pre-Phase-5 merged baseline commit `adc262b`; no Daily Report AI test failed.
+- 261 focused backend tests passed and one environment-gated PostgreSQL test skipped, covering persistence, evidence contracts, validation, repository state transitions, cross-session orchestration, API boundaries, scheduling, startup, and provider metadata. The skipped test passed separately against a migrated disposable PostgreSQL 16 plus pgvector database.
+- The complete backend suite produced 1555 passes, one environment-gated skip, and three existing eBay scheduler failures. All three failures were reproduced unchanged on the pre-Phase-5 merged baseline commit `adc262b`; no Daily Report AI test failed.
 - 138 frontend tests across 16 files passed. Scoped ESLint passed for every changed Daily Report frontend file, and the TypeScript production build completed successfully.
 - Repository-wide ESLint still reports 18 existing errors in unrelated, unchanged frontend modules. These remain baseline debt and were not mixed into the Daily Report AI change.
 - A fresh disposable PostgreSQL 16 plus pgvector database completed `upgrade head`, `downgrade 0042`, and `upgrade head`; `alembic current` confirmed `0043 (head)`. Direct inspection confirmed the foreign key, cache-key unique constraint, both check constraints, and both business indexes. A real two-session contention test confirmed exactly one worker claims a new cache key.

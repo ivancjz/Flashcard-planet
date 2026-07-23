@@ -106,6 +106,8 @@ _CAUSALITY = re.compile(
     r"|accounted\s+for\s+by|produced\s+by|originated\s+from"
     r"|traceable\s+to|as\s+a\s+consequence\s+of|underpinn\w*"
     r"|lift\w*|boost\w*|power\w*|prompt\w*|induc\w*"
+    r"|(?:collector\s+(?:interest|demand)|demand|event|release|announcement|supply)"
+    r"\s+(?:increased|decreased|moved|raised|lowered|lifted|boosted|pressured)"
     r")\b"
 )
 _CLAUSE_SEPARATOR = re.compile(
@@ -170,7 +172,6 @@ _SAFE_OBSERVATION_WORDS = frozenset(
         "for",
         "from",
         "full",
-        "future",
         "game",
         "games",
         "high",
@@ -436,9 +437,14 @@ def _literal_has_attached_unit(
         return True
     if end < len(text) and text[end] in _NUMERIC_UNIT_SYMBOLS:
         return True
+    if re.search(
+        r"(?i)(?:[$€£¥]|usd|dollars?)\s*$",
+        text[:start],
+    ):
+        return True
     return re.match(
-        r"(?i)^\s+(?:pct|percent(?:age)?|per\s+cent|bps?|basis\s+points?|"
-        r"usd|dollars?)\b",
+        r"(?i)^(?:\s*[%‰€£¥$]|\s+(?:pct|percent(?:age)?|per\s+cent|"
+        r"bps?|basis\s+points?|usd|dollars?)\b)",
         text[end:],
     ) is not None
 
@@ -466,7 +472,10 @@ def _validate_observation_grammar(
     bundle: DailyReportEvidenceBundle,
 ) -> None:
     records_by_id = {record.id: record for record in bundle.records}
-    for text, references in pairs:
+    for pair_index, (text, references) in enumerate(pairs):
+        allowed_words = _SAFE_OBSERVATION_WORDS
+        if pair_index == len(pairs) - 1:
+            allowed_words = allowed_words | {"future"}
         phrases = _referenced_phrases(records_by_id, references)
         for clause in _CLAUSE_SEPARATOR.split(text):
             clause = clause.strip()
@@ -500,7 +509,7 @@ def _validate_observation_grammar(
                     re.UNICODE,
                 )
             }
-            if not remaining_words.issubset(_SAFE_OBSERVATION_WORDS):
+            if not remaining_words.issubset(allowed_words):
                 raise CommentaryValidationError("forbidden_recommendation")
 
 
