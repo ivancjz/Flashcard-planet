@@ -693,6 +693,75 @@ a { color: inherit; text-decoration: none; }
   outline-offset: 3px;
 }
 
+.daily-report-ai-section {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.daily-report-ai-section .daily-report-section-heading {
+  margin-bottom: 0;
+}
+
+.daily-report-ai-copy,
+.daily-report-ai-observations p,
+.daily-report-ai-risk p {
+  max-width: 880px;
+  margin: 12px 0 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.daily-report-ai-block {
+  margin-top: 18px;
+}
+
+.daily-report-ai-block .daily-report-ai-copy {
+  margin-top: 0;
+}
+
+.daily-report-ai-observations {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.daily-report-ai-observations li {
+  min-width: 0;
+  padding-left: 14px;
+  border-left: 2px solid var(--border-gold-soft);
+}
+
+.daily-report-ai-observations p {
+  margin-top: 0;
+}
+
+.daily-report-ai-risk {
+  max-width: 880px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.daily-report-ai-risk h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+}
+
+.daily-report-evidence-target {
+  scroll-margin-top: 88px;
+}
+
+.daily-report-evidence-target:focus {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
+}
+
 /* Daily report archive */
 .daily-reports-page {
   max-width: 1040px;
@@ -1236,6 +1305,21 @@ a { color: inherit; text-decoration: none; }
 }
 
 @media (max-width: 640px) {
+  .daily-report-ai-section {
+    min-width: 0;
+  }
+
+  .daily-report-ai-section,
+  .daily-report-ai-section * {
+    overflow-wrap: anywhere;
+  }
+
+  .daily-report-ai-citations {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
   .daily-report-detail-hero {
     padding: 20px 16px;
   }
