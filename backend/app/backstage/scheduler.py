@@ -13,6 +13,7 @@ from backend.app.services.scheduler_run_log_service import (
     JOB_BULK_REFRESH,
     JOB_CARDMARKET,
     JOB_DAILY_REPORT,
+    JOB_DAILY_REPORT_INTELLIGENCE,
     JOB_DIGEST,
     JOB_EBAY,
     JOB_EBAY_WEB_SOLD,
@@ -54,6 +55,10 @@ from backend.app.models.scheduler_run_log import SchedulerRunLog
 
 from backend.app.alerting.discord import send_discord_alert
 from backend.app.services.alert_service import process_alert_notifications
+from backend.app.services.daily_report_intelligence_service import (
+    DailyReportIntelligenceRunResult,
+    run_latest_daily_report_intelligence,
+)
 from backend.app.services.signal_service import sweep_signals
 
 logger = logging.getLogger(__name__)
@@ -127,6 +132,7 @@ _STARTUP_DELAY: dict[str, int] = {
     "explanation-sweep":      960,   # 16 min — after signal-sweep so new signals get explanations fast
     "market-digest-send":     1200,  # 20 min — after all other jobs have warmed up
     "daily-market-report":    1320,  # 22 min — after digest warmup, persists dashboard snapshot
+    JOB_DAILY_REPORT_INTELLIGENCE: 1380,  # 23 min, after deterministic report
     "signal-history-prune":           1500,  # 25 min — last; pure DB DELETE, no upstream dependency (TASK-105)
     "trial-expiry-sweep":             900,   # 15 min — subscription maintenance, no upstream dependency
     "subscription-data-cleanup":      1620,  # 27 min — daily grace-period cleanup, after history prune
@@ -1461,6 +1467,81 @@ def _register_daily_market_report_job(scheduler: BackgroundScheduler) -> None:
     )
 
 
+def _run_daily_report_intelligence() -> None:
+    """Generate and persist evidence-grounded commentary for the latest report."""
+    with SessionLocal() as start_session:
+        run_id = start_run(
+            start_session,
+            JOB_DAILY_REPORT_INTELLIGENCE,
+        )
+
+    try:
+        result = run_latest_daily_report_intelligence()
+        status = "error" if result.status == "failed" else "success"
+        errors = 1 if result.status == "failed" else 0
+        error_message = (
+            result.error_code if result.status == "failed" else None
+        )
+        meta = {
+            "report_id": result.report_id,
+            "report_date": result.report_date,
+            "evidence_hash": result.evidence_hash,
+            "prompt_version": result.prompt_version,
+            "intelligence_status": result.status,
+            "attempt_count": result.attempt_count,
+            "error_code": result.error_code,
+            "reason": result.reason,
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("daily-report-intelligence job failed")
+        status = "error"
+        errors = 1
+        error_message = str(exc)
+        meta = {"error_code": "internal_error"}
+        result = DailyReportIntelligenceRunResult(
+            status="failed",
+            records_written=0,
+            error_code="internal_error",
+        )
+
+    with SessionLocal() as log_session:
+        finish_run(
+            log_session,
+            run_id,
+            status=status,
+            records_written=result.records_written,
+            errors=errors,
+            error_message=error_message,
+            meta_json=meta,
+        )
+        prune_old_runs(
+            log_session,
+            JOB_DAILY_REPORT_INTELLIGENCE,
+        )
+
+
+def _register_daily_report_intelligence_job(
+    scheduler: BackgroundScheduler,
+    settings: object,
+) -> None:
+    scheduler.add_job(
+        _run_daily_report_intelligence,
+        "interval",
+        minutes=settings.daily_report_ai_interval_minutes,
+        id=JOB_DAILY_REPORT_INTELLIGENCE,
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=None,
+    )
+    logger.info(
+        "daily-report-intelligence registered. trigger=interval/%smin "
+        "first_run=startup+%ds",
+        settings.daily_report_ai_interval_minutes,
+        _STARTUP_DELAY.get(JOB_DAILY_REPORT_INTELLIGENCE, 1380),
+    )
+
+
 def build_scheduler() -> BackgroundScheduler:
     settings = get_settings()
     scheduler = BackgroundScheduler(timezone="UTC")
@@ -1652,6 +1733,13 @@ def build_scheduler() -> BackgroundScheduler:
     )
 
     _register_daily_market_report_job(scheduler)
+    if settings.daily_report_ai_enabled:
+        _register_daily_report_intelligence_job(scheduler, settings)
+    else:
+        logger.info(
+            "daily-report-intelligence disabled; "
+            "set DAILY_REPORT_AI_ENABLED=true after staging verification."
+        )
 
     scheduler.add_job(
         _run_signal_history_prune,
@@ -2317,10 +2405,24 @@ def prepare_scheduler_for_startup(
     when no bulk set IDs are configured) are skipped with a warning.
     """
     now = now or datetime.now(UTC)
+    daily_report_ai_enabled = getattr(
+        get_settings(),
+        "daily_report_ai_enabled",
+        False,
+    )
     resumed: list[str] = []
     for job_id, delay_seconds in _STARTUP_DELAY.items():
         job = scheduler.get_job(job_id)
         if job is None:
+            if (
+                job_id == JOB_DAILY_REPORT_INTELLIGENCE
+                and not daily_report_ai_enabled
+            ):
+                logger.info(
+                    "prepare_scheduler_for_startup: job %r disabled; skipping",
+                    job_id,
+                )
+                continue
             logger.warning("prepare_scheduler_for_startup: job %r not found — skipping", job_id)
             continue
         first_run = now + timedelta(seconds=delay_seconds)
