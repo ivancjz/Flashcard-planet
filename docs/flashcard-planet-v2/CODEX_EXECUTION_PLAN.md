@@ -110,8 +110,8 @@ Delivered:
 
 Verification evidence:
 
-- 261 focused backend tests passed and one environment-gated PostgreSQL test skipped, covering persistence, evidence contracts, validation, repository state transitions, cross-session orchestration, API boundaries, scheduling, startup, and provider metadata. The skipped test passed separately against a migrated disposable PostgreSQL 16 plus pgvector database.
-- The complete backend suite produced 1555 passes, one environment-gated skip, and three existing eBay scheduler failures. All three failures were reproduced unchanged on the pre-Phase-5 merged baseline commit `adc262b`; no Daily Report AI test failed.
+- 263 focused backend tests passed and one environment-gated PostgreSQL test skipped, covering persistence, evidence contracts, validation, repository state transitions, cross-session orchestration, API boundaries, scheduling, startup, Groq-first routing, fallback behavior, and provider metadata. The skipped test passed separately against a migrated disposable PostgreSQL 16 plus pgvector database.
+- The complete backend suite produced 1557 passes, one environment-gated skip, and three existing eBay scheduler failures. All three failures were reproduced unchanged on the pre-Phase-5 merged baseline commit `adc262b`; no Daily Report AI or provider-routing test failed.
 - 138 frontend tests across 16 files passed. Scoped ESLint passed for every changed Daily Report frontend file, and the TypeScript production build completed successfully.
 - Repository-wide ESLint still reports 18 existing errors in unrelated, unchanged frontend modules. These remain baseline debt and were not mixed into the Daily Report AI change.
 - A fresh disposable PostgreSQL 16 plus pgvector database completed `upgrade head`, `downgrade 0042`, and `upgrade head`; `alembic current` confirmed `0043 (head)`. Direct inspection confirmed the foreign key, cache-key unique constraint, both check constraints, and both business indexes. A real two-session contention test confirmed exactly one worker claims a new cache key.
