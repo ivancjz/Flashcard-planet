@@ -232,6 +232,10 @@ def test_number_supported_only_by_unreferenced_record_is_rejected(
         "Coverage includes 4 percent observed assets.",
         "Coverage includes 4 thousand observed assets.",
         "Coverage includes \u0664 observed assets.",
+        "Coverage includes $4 observed assets.",
+        "Coverage includes 4 pct of observed assets.",
+        "Coverage includes 4\u2030 of observed assets.",
+        "The snapshot date was 2026-07-21% complete.",
     ],
 )
 def test_altered_numeric_expressions_are_rejected_as_unsupported(
@@ -305,6 +309,8 @@ def test_recommendation_and_forecast_variants_are_rejected(
         "Collectors ought to own these cards.",
         "Prices seem ready to increase.",
         "Prices are headed higher.",
+        "These cards belong in a collection.",
+        "Prices are primed for a rise.",
     ],
 )
 def test_recommendation_and_forecast_paraphrases_are_rejected(
@@ -351,6 +357,7 @@ def test_unsupported_causality_variants_are_rejected(
         "The move was explained by collector demand.",
         "Collector demand underpinned the move.",
         "Collector demand explains the move.",
+        "Collector demand lifted prices.",
     ],
 )
 def test_unsupported_causality_paraphrases_are_rejected(
@@ -374,6 +381,40 @@ def test_risk_uncertainty_language_is_allowed(
     )
 
     assert parsed.risk_summary == "Coverage may not represent the full market."
+
+
+def test_risk_uncertainty_can_name_future_market_conditions(
+    bundle: DailyReportEvidenceBundle,
+) -> None:
+    parsed = parse_and_validate_commentary(
+        _raw(
+            risk_summary=(
+                "Coverage may not represent future market conditions."
+            ),
+        ),
+        bundle,
+    )
+
+    assert parsed.risk_summary == (
+        "Coverage may not represent future market conditions."
+    )
+
+
+def test_safe_risk_clause_cannot_hide_a_forecast(
+    bundle: DailyReportEvidenceBundle,
+) -> None:
+    with pytest.raises(CommentaryValidationError) as exc:
+        parse_and_validate_commentary(
+            _raw(
+                risk_summary=(
+                    "Coverage may not represent the full market, "
+                    "but prices are primed for a rise."
+                ),
+            ),
+            bundle,
+        )
+
+    assert exc.value.code == "forbidden_recommendation"
 
 
 def test_observational_coincidence_language_is_allowed(
