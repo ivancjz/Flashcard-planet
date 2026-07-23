@@ -36,6 +36,16 @@ function makeReport(reportDate: string, title: string): DailyMarketReport {
     },
     catalysts: [],
     evidence: ['market_segment=raw'],
+    intelligence: {
+      status: 'unavailable',
+      headline: null,
+      commentary: null,
+      risk_summary: null,
+      key_observations: [],
+      evidence_refs: [],
+      evidence_catalog: [],
+      generated_at: null,
+    },
   }
 }
 

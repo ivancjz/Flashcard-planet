@@ -131,6 +131,16 @@ describe('DashboardPage market overview', () => {
       },
       catalysts: [],
       evidence: ['market_segment=raw', 'active price source: sample_seed'],
+      intelligence: {
+        status: 'unavailable',
+        headline: null,
+        commentary: null,
+        risk_summary: null,
+        key_observations: [],
+        evidence_refs: [],
+        evidence_catalog: [],
+        generated_at: null,
+      },
     })
     vi.mocked(fetchMarketOverview).mockResolvedValue({
       generated_at: '2026-07-21T10:00:00Z',
