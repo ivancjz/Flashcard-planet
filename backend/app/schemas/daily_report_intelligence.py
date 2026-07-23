@@ -67,8 +67,11 @@ class DailyReportIntelligenceResponse(BaseModel):
 
     status: PublicIntelligenceStatus = "unavailable"
     headline: str | None = None
+    headline_evidence_refs: list[str] = Field(default_factory=list)
     commentary: str | None = None
+    commentary_evidence_refs: list[str] = Field(default_factory=list)
     risk_summary: str | None = None
+    risk_evidence_refs: list[str] = Field(default_factory=list)
     key_observations: list[DailyReportIntelligenceObservationResponse] = Field(
         default_factory=list
     )

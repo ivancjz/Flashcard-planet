@@ -267,6 +267,42 @@ def test_published_and_insufficient_rows_are_terminal(
     )
 
 
+def test_insufficient_transition_resets_prior_attempt_count(
+    repository_db: Session,
+    report_row: DailyMarketReport,
+) -> None:
+    decision = claim_generation_attempt(
+        repository_db,
+        report_row.id,
+        DIGEST,
+        PROMPT_VERSION,
+        now=NOW,
+    )
+    assert decision.claim is not None
+    assert record_generation_failure(
+        repository_db,
+        decision.claim,
+        "provider_unavailable",
+        now=NOW,
+    )
+
+    assert persist_insufficient_evidence(
+        repository_db,
+        report_row.id,
+        DIGEST,
+        PROMPT_VERSION,
+        now=NOW + timedelta(minutes=1),
+    )
+
+    row = repository_db.get(
+        DailyReportIntelligence,
+        decision.claim.intelligence_id,
+    )
+    assert row is not None
+    assert row.status == "insufficient_evidence"
+    assert row.attempt_count == 0
+
+
 def test_changed_hash_gets_independent_cache_row(
     repository_db: Session,
     report_row: DailyMarketReport,

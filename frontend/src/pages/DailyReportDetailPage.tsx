@@ -175,20 +175,6 @@ function DailyReportContent({ report }: { report: DailyMarketReport }) {
     return item === undefined ? {} : { id: item.target_anchor, tabIndex: -1 }
   }
 
-  const targetPropsForExactLabel = (
-    kind: DailyReportEvidenceKind,
-    label: string,
-  ) => {
-    const item = evidenceCatalog.find(
-      candidate => (
-        candidate.kind === kind
-        && candidate.source_record_id === null
-        && candidate.label === label
-      ),
-    )
-    return item === undefined ? {} : { id: item.target_anchor, tabIndex: -1 }
-  }
-
   useEffect(() => {
     if (!location.hash) return undefined
 
@@ -234,7 +220,14 @@ function DailyReportContent({ report }: { report: DailyMarketReport }) {
           ) : (
             <>
               {report.intelligence.headline === null ? null : (
-                <h3 className="daily-report-ai-headline">{report.intelligence.headline}</h3>
+                <div className="daily-report-ai-headline-block">
+                  <h3 className="daily-report-ai-headline">{report.intelligence.headline}</h3>
+                  <DailyReportEvidenceLinks
+                    reportDate={report.report_date}
+                    refs={report.intelligence.headline_evidence_refs}
+                    catalog={evidenceCatalog}
+                  />
+                </div>
               )}
 
               {report.intelligence.commentary === null ? null : (
@@ -242,7 +235,7 @@ function DailyReportContent({ report }: { report: DailyMarketReport }) {
                   <p className="daily-report-ai-copy">{report.intelligence.commentary}</p>
                   <DailyReportEvidenceLinks
                     reportDate={report.report_date}
-                    refs={report.intelligence.evidence_refs}
+                    refs={report.intelligence.commentary_evidence_refs}
                     catalog={evidenceCatalog}
                   />
                 </div>
@@ -269,7 +262,7 @@ function DailyReportContent({ report }: { report: DailyMarketReport }) {
                   <p>{report.intelligence.risk_summary}</p>
                   <DailyReportEvidenceLinks
                     reportDate={report.report_date}
-                    refs={report.intelligence.evidence_refs}
+                    refs={report.intelligence.risk_evidence_refs}
                     catalog={evidenceCatalog}
                   />
                 </div>
@@ -289,7 +282,7 @@ function DailyReportContent({ report }: { report: DailyMarketReport }) {
             {report.evidence.map((item, index) => {
               const targetProps = anchoredEvidenceLabels.has(item)
                 ? {}
-                : targetPropsForExactLabel('report_evidence', item)
+                : targetPropsForSource('report_evidence', item)
               anchoredEvidenceLabels.add(item)
 
               return (

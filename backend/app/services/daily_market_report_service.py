@@ -155,8 +155,11 @@ def _public_intelligence(
     return DailyReportIntelligenceResponse(
         status="published",
         headline=validated.headline,
+        headline_evidence_refs=list(validated.headline_evidence_refs),
         commentary=validated.commentary,
+        commentary_evidence_refs=list(validated.commentary_evidence_refs),
         risk_summary=validated.risk_summary,
+        risk_evidence_refs=list(validated.risk_evidence_refs),
         key_observations=[
             DailyReportIntelligenceObservationResponse(
                 text=observation.text,

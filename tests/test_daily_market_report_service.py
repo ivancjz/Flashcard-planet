@@ -552,6 +552,9 @@ def test_matching_published_intelligence_is_public(sqlite_db):
     assert report is not None
     assert report.intelligence.status == "published"
     assert report.intelligence.headline == "Pokemon market breadth improved"
+    assert report.intelligence.headline_evidence_refs == ["index:pokemon"]
+    assert report.intelligence.commentary_evidence_refs == ["index:pokemon"]
+    assert report.intelligence.risk_evidence_refs == ["index:pokemon"]
     assert report.intelligence.key_observations[0].text == "Charizard moved 20%."
     assert report.intelligence.evidence_refs == [
         "index:pokemon",

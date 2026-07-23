@@ -15,6 +15,10 @@ from backend.app.schemas.daily_market_report import (
     DailyMarketReportListResponse,
     DailyMarketReportResponse,
 )
+from backend.app.schemas.daily_report_intelligence import (
+    DailyReportEvidenceCatalogItemResponse,
+    DailyReportIntelligenceResponse,
+)
 from backend.app.schemas.market import MarketOverviewResponse
 
 
@@ -80,6 +84,79 @@ def test_latest_daily_market_report_route(mocker):
     assert response.json()["catalysts"] == []
     assert response.json()["intelligence"]["status"] == "unavailable"
     service.assert_called_once_with(db)
+    app.dependency_overrides.clear()
+
+
+def test_latest_route_preserves_field_scoped_citations_without_private_metadata(
+    mocker,
+):
+    app, client, db = _client()
+    intelligence = DailyReportIntelligenceResponse(
+        status="published",
+        headline="Pokemon market breadth improved.",
+        headline_evidence_refs=["index:pokemon"],
+        commentary="Charizard was the leading observed mover.",
+        commentary_evidence_refs=[
+            "mover:11111111-1111-1111-1111-111111111111"
+        ],
+        risk_summary="Coverage remains limited to the captured snapshot.",
+        risk_evidence_refs=["report:evidence:1"],
+        evidence_refs=[
+            "index:pokemon",
+            "mover:11111111-1111-1111-1111-111111111111",
+            "report:evidence:1",
+        ],
+        evidence_catalog=[
+            DailyReportEvidenceCatalogItemResponse(
+                id="index:pokemon",
+                kind="index",
+                label="Pokemon Market",
+                source_record_id="pokemon",
+                target_anchor="market-indexes",
+            ),
+            DailyReportEvidenceCatalogItemResponse(
+                id="mover:11111111-1111-1111-1111-111111111111",
+                kind="mover",
+                label="Charizard",
+                source_record_id="11111111-1111-1111-1111-111111111111",
+                target_anchor="top-movers",
+            ),
+            DailyReportEvidenceCatalogItemResponse(
+                id="report:evidence:1",
+                kind="report_evidence",
+                label="Market segment raw",
+                source_record_id="market_segment=raw",
+                target_anchor="report-evidence",
+            ),
+        ],
+        generated_at=datetime(2026, 7, 21, 10, 15, tzinfo=UTC),
+    )
+    report = _report_response().model_copy(
+        update={"intelligence": intelligence}
+    )
+    mocker.patch(
+        "backend.app.api.routes.market.get_latest_daily_market_report",
+        return_value=report,
+    )
+
+    response = client.get("/api/v1/market/daily-report/latest")
+
+    assert response.status_code == 200
+    payload = response.json()["intelligence"]
+    assert payload["headline_evidence_refs"] == ["index:pokemon"]
+    assert payload["commentary_evidence_refs"] == [
+        "mover:11111111-1111-1111-1111-111111111111"
+    ]
+    assert payload["risk_evidence_refs"] == ["report:evidence:1"]
+    assert payload["evidence_catalog"][2]["source_record_id"] == (
+        "market_segment=raw"
+    )
+    assert {
+        "provider",
+        "model",
+        "prompt_version",
+        "error_code",
+    }.isdisjoint(payload)
     app.dependency_overrides.clear()
 
 

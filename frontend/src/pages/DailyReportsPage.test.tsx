@@ -39,8 +39,11 @@ function makeReport(reportDate: string, title: string): DailyMarketReport {
     intelligence: {
       status: 'unavailable',
       headline: null,
+      headline_evidence_refs: [],
       commentary: null,
+      commentary_evidence_refs: [],
       risk_summary: null,
+      risk_evidence_refs: [],
       key_observations: [],
       evidence_refs: [],
       evidence_catalog: [],

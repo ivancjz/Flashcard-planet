@@ -186,8 +186,8 @@ def test_build_bundle_has_exact_stable_id_order_across_all_kinds():
         str(ASSET_A),
         "BREAKOUT",
         str(CATALYST_A),
-        None,
-        None,
+        "Alpha evidence",
+        "Zulu evidence",
     ]
 
 
@@ -384,9 +384,22 @@ def test_report_evidence_is_sorted_and_deduplicated_by_normalized_text():
     )
     evidence_records = [record for record in bundle.records if record.kind == "report_evidence"]
 
-    assert [(record.id, record.label, record.facts) for record in evidence_records] == [
-        ("report:evidence:1", "Alpha evidence", {"text": "Alpha evidence"}),
-        ("report:evidence:2", "Beta evidence", {"text": "Beta evidence"}),
+    assert [
+        (record.id, record.label, record.source_record_id, record.facts)
+        for record in evidence_records
+    ] == [
+        (
+            "report:evidence:1",
+            "Alpha evidence",
+            "Alpha   evidence",
+            {"text": "Alpha evidence"},
+        ),
+        (
+            "report:evidence:2",
+            "Beta evidence",
+            "  Beta   evidence ",
+            {"text": "Beta evidence"},
+        ),
     ]
 
 

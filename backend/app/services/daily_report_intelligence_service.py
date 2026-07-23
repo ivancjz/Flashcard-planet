@@ -169,7 +169,7 @@ def run_latest_daily_report_intelligence(
                 )
             return DailyReportIntelligenceRunResult(
                 status="failed",
-                records_written=1,
+                records_written=0,
                 report_id=report_id_text,
                 report_date=report_date_text,
                 evidence_hash=digest,
@@ -197,7 +197,7 @@ def run_latest_daily_report_intelligence(
                 )
             return DailyReportIntelligenceRunResult(
                 status="failed",
-                records_written=1,
+                records_written=0,
                 report_id=report_id_text,
                 report_date=report_date_text,
                 evidence_hash=digest,
@@ -225,7 +225,7 @@ def run_latest_daily_report_intelligence(
                 )
             return DailyReportIntelligenceRunResult(
                 status="failed",
-                records_written=1,
+                records_written=0,
                 report_id=report_id_text,
                 report_date=report_date_text,
                 evidence_hash=digest,

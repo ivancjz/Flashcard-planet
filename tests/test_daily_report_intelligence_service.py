@@ -261,7 +261,7 @@ def test_changed_report_during_call_records_stale_evidence(
 
     assert outcome.status == "failed"
     assert outcome.error_code == "stale_evidence"
-    assert outcome.records_written == 1
+    assert outcome.records_written == 0
     row = _intelligence_rows(session_factory)[0]
     assert row.status == "failed"
     assert row.error_code == "stale_evidence"
@@ -302,7 +302,7 @@ def test_provider_unavailable_is_recorded_as_failure(
 
     assert outcome.status == "failed"
     assert outcome.error_code == "provider_unavailable"
-    assert outcome.records_written == 1
+    assert outcome.records_written == 0
     assert _intelligence_rows(session_factory)[0].provider is None
 
 
@@ -324,6 +324,7 @@ def test_validation_failure_is_recorded_without_raw_output(
 
     assert outcome.status == "failed"
     assert outcome.error_code == "invalid_json"
+    assert outcome.records_written == 0
     row = _intelligence_rows(session_factory)[0]
     assert row.error_code == "invalid_json"
     assert "raw secret response" not in repr(row.__dict__)
@@ -342,7 +343,7 @@ def test_provider_factory_exception_is_recorded_as_internal_error(
 
     assert outcome.status == "failed"
     assert outcome.error_code == "internal_error"
-    assert outcome.records_written == 1
+    assert outcome.records_written == 0
     row = _intelligence_rows(session_factory)[0]
     assert row.error_code == "internal_error"
     assert "secret provider error" not in repr(row.__dict__)

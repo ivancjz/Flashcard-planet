@@ -116,8 +116,11 @@ function makeDailyReportFixture(): DailyMarketReport {
     intelligence: {
       status: 'unavailable',
       headline: null,
+      headline_evidence_refs: [],
       commentary: null,
+      commentary_evidence_refs: [],
       risk_summary: null,
+      risk_evidence_refs: [],
       key_observations: [],
       evidence_refs: [],
       evidence_catalog: [],
@@ -217,8 +220,15 @@ describe('DashboardPage market overview', () => {
     report.intelligence = {
       status: 'published',
       headline: 'Pokemon market breadth improved',
+      headline_evidence_refs: ['index:pokemon'],
       commentary: 'The captured Pokemon index moved higher.',
+      commentary_evidence_refs: [
+        'index:pokemon',
+        'mover:charizard',
+        'signal:breakout',
+      ],
       risk_summary: 'Coverage remains limited.',
+      risk_evidence_refs: ['index:pokemon'],
       key_observations: [],
       evidence_refs: [
         'index:pokemon',

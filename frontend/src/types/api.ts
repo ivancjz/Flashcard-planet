@@ -132,8 +132,11 @@ export interface DailyReportEvidenceCatalogItem {
 export interface DailyReportIntelligence {
   status: DailyReportIntelligenceStatus
   headline: string | null
+  headline_evidence_refs: string[]
   commentary: string | null
+  commentary_evidence_refs: string[]
   risk_summary: string | null
+  risk_evidence_refs: string[]
   key_observations: DailyReportIntelligenceObservation[]
   evidence_refs: string[]
   evidence_catalog: DailyReportEvidenceCatalogItem[]

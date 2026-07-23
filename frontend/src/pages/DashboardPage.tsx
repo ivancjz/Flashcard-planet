@@ -486,7 +486,10 @@ function DailyMarketReportPanel({
       {hasPublishedIntelligence && (
         <DailyReportEvidenceLinks
           reportDate={report.report_date}
-          refs={report.intelligence.evidence_refs}
+          refs={Array.from(new Set([
+            ...report.intelligence.headline_evidence_refs,
+            ...report.intelligence.commentary_evidence_refs,
+          ]))}
           catalog={report.intelligence.evidence_catalog}
           limit={3}
         />

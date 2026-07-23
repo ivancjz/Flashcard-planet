@@ -161,6 +161,7 @@ def persist_insufficient_evidence(
     row.evidence_refs_json = {}
     row.provider = None
     row.model = None
+    row.attempt_count = 0
     row.error_code = None
     row.generated_at = None
 

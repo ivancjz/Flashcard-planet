@@ -217,6 +217,28 @@ def test_number_supported_only_by_unreferenced_record_is_rejected(
 @pytest.mark.parametrize(
     "text",
     [
+        "Coverage includes .4 observed assets.",
+        "Coverage includes 4e6 observed assets.",
+        "Coverage includes 4e+6 observed assets.",
+        "Coverage includes 4,12 observed assets.",
+        "Coverage includes 4, 12 observed assets.",
+        "Coverage includes 4/12 observed assets.",
+        "Coverage includes PSA4 assets.",
+    ],
+)
+def test_altered_numeric_expressions_are_rejected_as_unsupported(
+    bundle: DailyReportEvidenceBundle,
+    text: str,
+) -> None:
+    with pytest.raises(CommentaryValidationError) as exc:
+        parse_and_validate_commentary(_raw(commentary=text), bundle)
+
+    assert exc.value.code == "unsupported_number"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
         "[Read this](https://example.com)",
         "Visit https://example.com for details.",
         "Use `market data`.",
@@ -262,6 +284,29 @@ def test_recommendation_and_forecast_variants_are_rejected(
 @pytest.mark.parametrize(
     "text",
     [
+        "Collectors should purchase these cards.",
+        "The market is likely to climb next week.",
+        "A rebound is forecast.",
+        "The set is projected to outperform.",
+        "Collectors may want to accumulate copies.",
+        "The market is expected to climb.",
+        "The set is poised for a rebound.",
+        "Collectors could consider adding copies.",
+    ],
+)
+def test_recommendation_and_forecast_paraphrases_are_rejected(
+    bundle: DailyReportEvidenceBundle,
+    text: str,
+) -> None:
+    with pytest.raises(CommentaryValidationError) as exc:
+        parse_and_validate_commentary(_raw(commentary=text), bundle)
+
+    assert exc.value.code == "forbidden_recommendation"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
         "The market moved because demand changed.",
         "The move was caused by an event.",
         "The move was due to an event.",
@@ -271,6 +316,28 @@ def test_recommendation_and_forecast_variants_are_rejected(
     ],
 )
 def test_unsupported_causality_variants_are_rejected(
+    bundle: DailyReportEvidenceBundle,
+    text: str,
+) -> None:
+    with pytest.raises(CommentaryValidationError) as exc:
+        parse_and_validate_commentary(_raw(commentary=text), bundle)
+
+    assert exc.value.code == "unsupported_causality"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The move stemmed from market demand.",
+        "The move was attributed to collector interest.",
+        "The move was sparked by the event.",
+        "The move occurred in response to demand.",
+        "Collector interest contributed to the move.",
+        "The move arose from market demand.",
+        "The move improved thanks to collector interest.",
+    ],
+)
+def test_unsupported_causality_paraphrases_are_rejected(
     bundle: DailyReportEvidenceBundle,
     text: str,
 ) -> None:

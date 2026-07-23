@@ -68,8 +68,11 @@ function makeReport(): DailyMarketReport {
     intelligence: {
       status: 'unavailable',
       headline: null,
+      headline_evidence_refs: [],
       commentary: null,
+      commentary_evidence_refs: [],
       risk_summary: null,
+      risk_evidence_refs: [],
       key_observations: [],
       evidence_refs: [],
       evidence_catalog: [],
@@ -106,8 +109,11 @@ function makePublishedIntelligence(
   return {
     status: 'published',
     headline: 'Pokemon market breadth improved',
+    headline_evidence_refs: ['index:pokemon'],
     commentary: 'The captured Pokemon index moved 4.25%.',
+    commentary_evidence_refs: ['index:pokemon'],
     risk_summary: 'Coverage includes 4 observed assets.',
+    risk_evidence_refs: ['index:pokemon'],
     key_observations: [
       { text: 'Charizard moved 20%.', evidence_refs: ['mover:asset-charizard'] },
     ],
@@ -178,7 +184,7 @@ function makeReportWithCatalogForEveryKind(): DailyMarketReport {
         id: 'report:evidence:2',
         kind: 'report_evidence',
         label: 'market_segment=raw',
-        source_record_id: null,
+        source_record_id: 'market_segment=raw',
         target_anchor: 'evidence-report00001',
       },
     ],
@@ -237,7 +243,34 @@ describe('DailyReportDetailPage', () => {
     expect(within(section).getByText(report.intelligence.commentary!)).toBeTruthy()
     expect(within(section).getByText(report.intelligence.key_observations[0].text)).toBeTruthy()
     expect(within(section).getByText(report.intelligence.risk_summary!)).toBeTruthy()
-    expect(within(section).getAllByRole('link', { name: /Evidence \d:/ })).toHaveLength(5)
+    expect(within(section).getAllByRole('link', { name: /Evidence \d:/ })).toHaveLength(4)
+  })
+
+  it('keeps headline, commentary, and risk citations scoped to their fields', async () => {
+    const report = makeReport()
+    report.intelligence = makePublishedIntelligence()
+    Object.assign(report.intelligence, {
+      headline_evidence_refs: ['index:pokemon'],
+      commentary_evidence_refs: ['index:pokemon'],
+      risk_evidence_refs: ['index:pokemon'],
+    })
+    vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(report)
+
+    const { container } = renderPage()
+
+    await screen.findByRole('region', { name: 'AI Market Commentary' })
+    const headlineBlock = container.querySelector<HTMLElement>('.daily-report-ai-headline-block')
+    const commentaryBlock = container.querySelector<HTMLElement>('.daily-report-ai-block')
+    const riskBlock = container.querySelector<HTMLElement>('.daily-report-ai-risk')
+    expect(headlineBlock).not.toBeNull()
+    expect(commentaryBlock).not.toBeNull()
+    expect(riskBlock).not.toBeNull()
+
+    for (const block of [headlineBlock!, commentaryBlock!, riskBlock!]) {
+      expect(within(block).getAllByRole('link')).toHaveLength(1)
+      expect(within(block).getByRole('link', { name: 'Evidence 1: Pokemon Market' })).toBeTruthy()
+      expect(within(block).queryByRole('link', { name: 'Evidence 2: Charizard' })).toBeNull()
+    }
   })
 
   it('shows exact neutral text for insufficient evidence', async () => {
@@ -290,6 +323,23 @@ describe('DailyReportDetailPage', () => {
     await screen.findByRole('region', { name: 'AI Market Commentary' })
     const target = container.querySelector(`#${catalogItem.target_anchor}`)
     expect(target?.textContent).toContain('Pokémon Market')
+  })
+
+  it('targets normalized report evidence through its exact server source key', async () => {
+    const report = makeReportWithCatalogForEveryKind()
+    report.evidence = ['  Beta   evidence ']
+    const catalogItem = report.intelligence.evidence_catalog.find(
+      item => item.kind === 'report_evidence',
+    )!
+    catalogItem.label = 'Beta evidence'
+    catalogItem.source_record_id = '  Beta   evidence '
+    vi.mocked(fetchDailyMarketReportByDate).mockResolvedValue(report)
+
+    const { container } = renderPage()
+
+    await screen.findByRole('region', { name: 'AI Market Commentary' })
+    const target = container.querySelector(`#${catalogItem.target_anchor}`)
+    expect(target?.textContent).toBe('  Beta   evidence ')
   })
 
   it('focuses the cited target when the report route has an evidence fragment', async () => {

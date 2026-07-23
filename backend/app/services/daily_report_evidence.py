@@ -113,13 +113,19 @@ def _record(
     )
 
 
-def _normalized_report_evidence(values: list[Any] | None) -> list[str]:
-    normalized = {
-        " ".join(str(value).split())
-        for value in (values or [])
-        if " ".join(str(value).split())
-    }
-    return sorted(normalized)
+def _normalized_report_evidence(
+    values: list[Any] | None,
+) -> list[tuple[str, str]]:
+    raw_values_by_label: dict[str, set[str]] = {}
+    for value in values or []:
+        raw_value = str(value)
+        label = " ".join(raw_value.split())
+        if label:
+            raw_values_by_label.setdefault(label, set()).add(raw_value)
+    return [
+        (label, min(raw_values))
+        for label, raw_values in sorted(raw_values_by_label.items())
+    ]
 
 
 def build_daily_report_evidence_bundle(
@@ -236,7 +242,7 @@ def build_daily_report_evidence_bundle(
             )
         )
 
-    for position, text in enumerate(
+    for position, (text, source_record_id) in enumerate(
         _normalized_report_evidence(report.evidence_json),
         start=1,
     ):
@@ -246,7 +252,7 @@ def build_daily_report_evidence_bundle(
                 evidence_id=evidence_id,
                 kind="report_evidence",
                 label=text,
-                source_record_id=None,
+                source_record_id=source_record_id,
                 facts={"text": text},
             )
         )

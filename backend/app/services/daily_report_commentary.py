@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 import json
 import re
 from typing import Iterable
@@ -15,8 +16,17 @@ from backend.app.services.llm_provider import MetadataLLMProvider
 PROMPT_VERSION = "daily-report-commentary-v1"
 MAX_COMMENTARY_TOKENS = 900
 
-_NUMBER_TOKEN = re.compile(r"(?<![A-Za-z])[-+]?\d+(?:\.\d+)?%?")
+_NUMBER_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9_.])[-+]?(?:\d+(?:\.\d+)?|\.\d+)%?"
+    r"(?![A-Za-z0-9_.])"
+)
 _NUMBER_VALUE = re.compile(r"[-+]?\d+(?:\.\d+)?%?\Z")
+_AMBIGUOUS_NUMBER_FORMAT = re.compile(
+    r"(?i)(?:"
+    r"\d\s*,\s*\d|\d\s*/\s*\d|\d(?:\.\d+)?e[+-]?\d+|"
+    r"[A-Za-z]\d|\d[A-Za-z]"
+    r")"
+)
 _MARKDOWN_LINK = re.compile(r"\[[^\]\r\n]*\]\([^\)\r\n]+\)")
 _MARKDOWN_HEADING = re.compile(r"(?m)^\s*#{1,6}(?:\s|$)")
 _HTML_TAG = re.compile(r"</?[A-Za-z][^>]*>")
@@ -25,13 +35,22 @@ _URL_SCHEME = re.compile(
 )
 _RECOMMENDATION = re.compile(
     r"(?i)\b(?:"
-    r"strong\s+buy|strong\s+sell|buy|sell|hold|avoid|price\s+target|"
-    r"will\s+rise|will\s+fall|guaranteed\s+return|guaranteed|expected\s+return"
+    r"strong\s+buy|strong\s+sell|buy|sell|hold|avoid|purchase|acquire|"
+    r"accumulate|dispose|recommend\w*|advis\w*|price\s+target|"
+    r"guaranteed\s+return|guaranteed|expected\s+return|"
+    r"expect\w*|forecast\w*|predict\w*|project\w*|"
+    r"outperform\w*|underperform\w*|poised|"
+    r"upside|downside|likely|probably|possibly|may|might|could|should|"
+    r"would|will|future|next\s+(?:day|week|month|quarter|year)"
     r")\b"
 )
 _CAUSALITY = re.compile(
     r"(?i)\b(?:"
     r"because|caused\s+by|due\s+to|driven\s+by|resulted\s+from|led\s+to"
+    r"|stemm?ed\s+from|attributed\s+to|owing\s+to|on\s+account\s+of"
+    r"|as\s+a\s+result\s+of|sparked\s+by|triggered\s+by"
+    r"|in\s+response\s+to|contributed\s+to|propelled\s+by|fueled\s+by"
+    r"|responsible\s+for|arose\s+from|thanks\s+to"
     r")\b"
 )
 
@@ -162,16 +181,21 @@ def _text_reference_pairs(
     return pairs
 
 
-def _normalized_numeric_values(values: Iterable[str]) -> set[str]:
-    normalized: set[str] = set()
+def _normalized_numeric_values(values: Iterable[str]) -> set[Decimal]:
+    normalized: set[Decimal] = set()
     for value in values:
         stripped = value.strip()
         if _NUMBER_VALUE.fullmatch(stripped):
-            normalized.add(stripped.removesuffix("%"))
+            try:
+                normalized.add(Decimal(stripped.removesuffix("%")))
+            except InvalidOperation:
+                continue
     return normalized
 
 
-def _record_numeric_values(facts: dict[str, str | list[str] | None]) -> set[str]:
+def _record_numeric_values(
+    facts: dict[str, str | list[str] | None],
+) -> set[Decimal]:
     values: list[str] = []
     for fact in facts.values():
         if isinstance(fact, str):
@@ -208,11 +232,16 @@ def _validate_numeric_tokens(
     )
 
     for text, references in pairs:
+        if _AMBIGUOUS_NUMBER_FORMAT.search(text):
+            raise CommentaryValidationError("unsupported_number")
         allowed = set(report_context_values)
         for reference in references:
             allowed.update(_record_numeric_values(records_by_id[reference].facts))
         for match in _NUMBER_TOKEN.finditer(text):
-            token = match.group(0).removesuffix("%")
+            try:
+                token = Decimal(match.group(0).removesuffix("%"))
+            except InvalidOperation:
+                raise CommentaryValidationError("unsupported_number") from None
             if token not in allowed:
                 raise CommentaryValidationError("unsupported_number")
 
