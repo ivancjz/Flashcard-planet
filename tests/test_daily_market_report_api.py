@@ -78,6 +78,7 @@ def test_latest_daily_market_report_route(mocker):
     assert response.status_code == 200
     assert response.json()["report_date"] == "2026-07-21"
     assert response.json()["catalysts"] == []
+    assert response.json()["intelligence"]["status"] == "unavailable"
     service.assert_called_once_with(db)
     app.dependency_overrides.clear()
 
@@ -101,6 +102,10 @@ def test_daily_market_report_history_route(mocker):
     assert response.json()["total"] == 1
     assert response.json()["reports"][0]["report_date"] == "2026-07-21"
     assert response.json()["reports"][0]["catalysts"] == []
+    assert (
+        response.json()["reports"][0]["intelligence"]["status"]
+        == "unavailable"
+    )
     service.assert_called_once_with(db, limit=20, offset=10)
     app.dependency_overrides.clear()
 

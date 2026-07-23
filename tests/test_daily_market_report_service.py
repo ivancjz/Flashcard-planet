@@ -16,8 +16,12 @@ import backend.app.services.catalyst_service as catalyst_service
 import backend.app.services.daily_market_report_service as daily_market_report_service
 from backend.app.db.base import Base
 from backend.app.models.daily_market_report import DailyMarketReport
+from backend.app.models.daily_report_intelligence import DailyReportIntelligence
 from backend.app.models.predictions import MarketEvent
 from backend.app.schemas.catalyst import CatalystResponse
+from backend.app.schemas.daily_report_intelligence import (
+    DailyReportIntelligenceResponse,
+)
 from backend.app.schemas.market import (
     MarketIndexResponse,
     MarketOverviewResponse,
@@ -29,6 +33,11 @@ from backend.app.services.daily_market_report_service import (
     get_daily_market_report_by_date,
     get_latest_daily_market_report,
     list_daily_market_reports,
+)
+from backend.app.services.daily_report_commentary import PROMPT_VERSION
+from backend.app.services.daily_report_evidence import (
+    build_daily_report_evidence_bundle,
+    evidence_hash,
 )
 
 
@@ -448,3 +457,194 @@ def test_list_daily_market_reports_returns_descending_paginated_page(sqlite_db, 
         date(2026, 7, 21),
         date(2026, 7, 20),
     ]
+
+
+def _persist_report_row(
+    sqlite_db,
+    *,
+    report_date: date = date(2026, 7, 21),
+) -> DailyMarketReport:
+    row = DailyMarketReport(
+        id=_uuid(report_date.day + 100),
+        report_date=report_date,
+        generated_at=AS_OF,
+        status="published",
+        title=f"Flashcard Planet Daily - {report_date.isoformat()}",
+        market_sentiment="bullish",
+        confidence_label="medium",
+        summary="Market is bullish.",
+        overview_json=_overview().model_dump(mode="json"),
+        evidence_json=["market_segment=raw"],
+        catalysts_json=[],
+        created_at=AS_OF,
+        updated_at=AS_OF,
+    )
+    sqlite_db.add(row)
+    sqlite_db.commit()
+    return row
+
+
+def _persist_intelligence(
+    sqlite_db,
+    report: DailyMarketReport,
+    *,
+    status: str = "published",
+    digest: str | None = None,
+) -> DailyReportIntelligence:
+    current_digest = evidence_hash(build_daily_report_evidence_bundle(report))
+    row = DailyReportIntelligence(
+        id=_uuid(report.report_date.day + 200),
+        report_id=report.id,
+        evidence_hash=digest or current_digest,
+        prompt_version=PROMPT_VERSION,
+        status=status,
+        headline=(
+            "Pokemon market breadth improved"
+            if status == "published"
+            else None
+        ),
+        commentary=(
+            "Pokemon Market moved 12.34% in the captured snapshot."
+            if status == "published"
+            else "Insufficient evidence."
+            if status == "insufficient_evidence"
+            else None
+        ),
+        risk_summary=(
+            "Coverage includes 4 observed assets."
+            if status == "published"
+            else None
+        ),
+        key_observations_json=(
+            ["Charizard moved 20%."] if status == "published" else []
+        ),
+        evidence_refs_json=(
+            {
+                "headline": ["index:pokemon"],
+                "commentary": ["index:pokemon"],
+                "key_observations": [
+                    ["mover:11111111-1111-1111-1111-111111111111"]
+                ],
+                "risk_summary": ["index:pokemon"],
+            }
+            if status == "published"
+            else {}
+        ),
+        provider="openai" if status == "published" else None,
+        model="internal-model" if status == "published" else None,
+        attempt_count=1 if status == "published" else 0,
+        error_code="internal-only-error" if status == "failed" else None,
+        generated_at=AS_OF if status == "published" else None,
+        created_at=AS_OF,
+        updated_at=AS_OF,
+    )
+    sqlite_db.add(row)
+    sqlite_db.commit()
+    return row
+
+
+def test_matching_published_intelligence_is_public(sqlite_db):
+    report_row = _persist_report_row(sqlite_db)
+    _persist_intelligence(sqlite_db, report_row)
+
+    report = get_latest_daily_market_report(sqlite_db)
+
+    assert report is not None
+    assert report.intelligence.status == "published"
+    assert report.intelligence.headline == "Pokemon market breadth improved"
+    assert report.intelligence.key_observations[0].text == "Charizard moved 20%."
+    assert report.intelligence.evidence_refs == [
+        "index:pokemon",
+        "mover:11111111-1111-1111-1111-111111111111",
+    ]
+    assert [
+        item.source_record_id
+        for item in report.intelligence.evidence_catalog
+    ] == ["pokemon", "11111111-1111-1111-1111-111111111111"]
+    assert all(
+        item.target_anchor.startswith("evidence-")
+        for item in report.intelligence.evidence_catalog
+    )
+    payload = report.intelligence.model_dump()
+    assert not (
+        {
+            "provider",
+            "model",
+            "attempt_count",
+            "error_code",
+            "evidence_hash",
+            "prompt_version",
+        }
+        & payload.keys()
+    )
+    assert all(
+        not ({"facts", "source_url"} & item.keys())
+        for item in report.intelligence.model_dump()["evidence_catalog"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "digest"),
+    [
+        ("published", "f" * 64),
+        ("failed", None),
+        ("pending", None),
+    ],
+)
+def test_stale_pending_or_failed_intelligence_is_publicly_unavailable(
+    sqlite_db,
+    status,
+    digest,
+):
+    report_row = _persist_report_row(sqlite_db)
+    _persist_intelligence(
+        sqlite_db,
+        report_row,
+        status=status,
+        digest=digest,
+    )
+
+    report = get_latest_daily_market_report(sqlite_db)
+
+    assert report is not None
+    assert (
+        report.intelligence.model_dump()
+        == DailyReportIntelligenceResponse().model_dump()
+    )
+
+
+def test_insufficient_intelligence_has_exact_public_message(sqlite_db):
+    report_row = _persist_report_row(sqlite_db)
+    _persist_intelligence(
+        sqlite_db,
+        report_row,
+        status="insufficient_evidence",
+    )
+
+    report = get_latest_daily_market_report(sqlite_db)
+
+    assert report is not None
+    assert report.intelligence.status == "insufficient_evidence"
+    assert report.intelligence.commentary == "Insufficient evidence."
+    assert report.intelligence.evidence_refs == []
+    assert report.intelligence.evidence_catalog == []
+
+
+def test_history_bulk_loads_intelligence_once(sqlite_db, mocker):
+    reports = [
+        _persist_report_row(
+            sqlite_db,
+            report_date=date(2026, 7, report_day),
+        )
+        for report_day in (19, 20, 21)
+    ]
+    loader = mocker.spy(
+        daily_market_report_service,
+        "load_intelligence_candidates",
+    )
+
+    page = list_daily_market_reports(sqlite_db, limit=3, offset=0)
+
+    assert len(page.reports) == 3
+    loader.assert_called_once()
+    assert set(loader.call_args.args[1]) == {report.id for report in reports}
