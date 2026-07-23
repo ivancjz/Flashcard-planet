@@ -7,6 +7,7 @@ import FilterDrawer from '../components/FilterDrawer'
 import CardGrid from '../components/CardGrid'
 import ProGate from '../components/ProGate'
 import MarketCatalystsPanel from '../components/MarketCatalystsPanel'
+import DailyReportEvidenceLinks from '../components/DailyReportEvidenceLinks'
 import type { FilterState } from '../components/FilterDrawer'
 import { fetchStats, fetchCards, fetchTicker, fetchSetOptions, fetchMarketOverview, fetchLatestDailyMarketReport, fetchCatalysts } from '../api/api'
 import type { Signal, CardSummary, MarketStats, TickerItem, MarketOverview, MarketNumber, DailyMarketReport, Catalyst } from '../types/api'
@@ -438,6 +439,12 @@ function DailyMarketReportPanel({
     : report.market_sentiment === 'bearish'
       ? 'var(--down)'
       : 'var(--text-secondary)'
+  const hasPublishedIntelligence = report.intelligence.status === 'published'
+    && report.intelligence.headline !== null
+    && report.intelligence.commentary !== null
+  const summary = hasPublishedIntelligence
+    ? report.intelligence.commentary
+    : report.summary
 
   return (
     <section
@@ -467,11 +474,24 @@ function DailyMarketReportPanel({
         <span style={{ color: 'var(--text-muted)' }}>{confidence}</span>
       </div>
 
+      {hasPublishedIntelligence && (
+        <h3 className="daily-report-ai-headline">
+          {report.intelligence.headline}
+        </h3>
+      )}
       <p style={{ margin: '16px 0 0', maxWidth: 880, color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.65 }}>
-        {report.summary}
+        {summary}
       </p>
 
-      {report.evidence.length > 0 && (
+      {hasPublishedIntelligence && (
+        <DailyReportEvidenceLinks
+          reportDate={report.report_date}
+          refs={report.intelligence.evidence_refs}
+          catalog={report.intelligence.evidence_catalog}
+          limit={3}
+        />
+      )}
+      {!hasPublishedIntelligence && report.evidence.length > 0 && (
         <ul style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: '8px 20px', margin: '16px 0 0', padding: '14px 0 0 18px', borderTop: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.5 }}>
           {report.evidence.slice(0, 3).map(item => (
             <li key={item} style={{ paddingLeft: 2, overflowWrap: 'anywhere' }}>{item}</li>
