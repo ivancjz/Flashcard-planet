@@ -85,6 +85,7 @@ class TestFeatureEnum:
             "alerts_unlimited",
             "watchlist_extended",
             "watchlist_unlimited",
+            "portfolio_unlimited",
             "movers_detail",
             "liquidity_score",
             "source_comparison",
