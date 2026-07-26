@@ -57,6 +57,9 @@ class Asset(Base):
     watchlists: Mapped[list["Watchlist"]] = relationship(
         back_populates="asset", cascade="all, delete-orphan"
     )
+    portfolio_lots: Mapped[list["PortfolioLot"]] = relationship(
+        back_populates="asset", passive_deletes="all"
+    )
     alerts: Mapped[list["Alert"]] = relationship(
         back_populates="asset", cascade="all, delete-orphan"
     )

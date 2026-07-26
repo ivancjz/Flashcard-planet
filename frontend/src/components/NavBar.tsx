@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { getReadAlertIds } from '../lib/utils'
 import { tierBadge } from '../lib/tierBadge'
 import { fetchAlerts } from '../api/api'
@@ -67,16 +67,20 @@ export default function NavBar() {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [menuOpen])
 
-  const link = (path: string, label: string, extra?: React.ReactNode) => (
-    <span
-      className={`nav-link${pathname === path || pathname.startsWith(path + '/') ? ' active' : ''}`}
-      {...activate(() => nav(path))}
-      style={{ position: 'relative' }}
-    >
-      {label}
-      {extra}
-    </span>
-  )
+  const link = (path: string, label: string, extra?: React.ReactNode) => {
+    const active = pathname === path || pathname.startsWith(path + '/')
+    return (
+      <Link
+        to={path}
+        className={`nav-link${active ? ' active' : ''}`}
+        aria-current={active ? 'page' : undefined}
+        style={{ position: 'relative' }}
+      >
+        {label}
+        {extra}
+      </Link>
+    )
+  }
 
   return (
     <nav className="nav">
@@ -107,6 +111,7 @@ export default function NavBar() {
             </span>
           )
         )}
+        {link('/portfolio', 'Portfolio')}
         {link('/alerts', 'Alerts',
           unreadCount > 0 && (
             <span
@@ -220,13 +225,13 @@ export default function NavBar() {
               </div>
             </>
           ) : (
-            <span
+            <a
               className="nav-link"
-              {...activate(() => { window.location.href = '/login' })}
+              href="/login"
               style={{ fontSize: 13 }}
             >
               Sign in
-            </span>
+            </a>
           )
         )}
       </div>

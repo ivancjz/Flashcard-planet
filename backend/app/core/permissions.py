@@ -41,6 +41,9 @@ class Feature(str, Enum):
     WATCHLIST_EXTENDED = "watchlist_extended"
     WATCHLIST_UNLIMITED = "watchlist_unlimited"
 
+    # Portfolio
+    PORTFOLIO_UNLIMITED = "portfolio_unlimited"
+
     # ── Top Movers / Dashboard ───────────────────────────────────────────
     MOVERS_DETAIL = "movers_detail"
     LIQUIDITY_SCORE = "liquidity_score"
@@ -71,6 +74,7 @@ FEATURE_TIER_REQUIREMENTS: dict[Feature, Tier] = {
     Feature.ALERTS_UNLIMITED:        Tier.PLUS,
     Feature.WATCHLIST_EXTENDED:      Tier.PLUS,
     Feature.WATCHLIST_UNLIMITED:     Tier.PLUS,
+    Feature.PORTFOLIO_UNLIMITED:     Tier.PLUS,
     Feature.MOVERS_DETAIL:           Tier.PLUS,
     Feature.SOURCE_COMPARISON:       Tier.PLUS,
     Feature.EXPORT_CSV:              Tier.PLUS,
@@ -90,6 +94,8 @@ PRO_ALERT_LIMIT: int | None = None           # None = unlimited
 
 FREE_WATCHLIST_LIMIT: int = 10
 PRO_WATCHLIST_LIMIT: int | None = None       # None = unlimited
+
+FREE_PORTFOLIO_POSITION_LIMIT: int = 10
 
 FREE_SIGNALS_LIMIT: int = 5
 
@@ -170,6 +176,13 @@ def alert_limit(access_tier: str) -> int | None:
 def watchlist_limit(access_tier: str) -> int | None:
     """Return watchlist cap for tier. None = unlimited."""
     return PRO_WATCHLIST_LIMIT if can(access_tier, Feature.WATCHLIST_EXTENDED) else FREE_WATCHLIST_LIMIT
+
+
+def portfolio_position_limit(access_tier: str) -> int | None:
+    """Return portfolio position cap for tier. None = unlimited."""
+    if can(access_tier, Feature.PORTFOLIO_UNLIMITED):
+        return None
+    return FREE_PORTFOLIO_POSITION_LIMIT
 
 
 def signals_limit(access_tier: str) -> int | None:
