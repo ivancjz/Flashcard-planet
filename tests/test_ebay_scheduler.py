@@ -214,15 +214,21 @@ def test_register_ebay_job_valid_registers() -> None:
 
 def test_run_ebay_ingestion_skipped_when_disabled() -> None:
     """_run_ebay_ingestion returns 'skipped' summary when feature is disabled."""
-    settings_patch = patch(
-        "backend.app.backstage.scheduler.get_settings",
-        return_value=MagicMock(
-            ebay_scheduled_ingest_enabled=False,
-            ebay_app_id="app-id",
-            ebay_cert_id="cert-id",
-        ),
+    settings = MagicMock(
+        ebay_scheduled_ingest_enabled=False,
+        ebay_app_id="app-id",
+        ebay_cert_id="cert-id",
     )
-    with settings_patch:
+    with (
+        patch("backend.app.backstage.scheduler.get_settings", return_value=settings),
+        patch(
+            "backend.app.backstage.scheduler.SessionLocal",
+            return_value=_make_session_ctx(MagicMock()),
+        ),
+        patch("backend.app.backstage.scheduler.start_run", return_value="run-id"),
+        patch("backend.app.backstage.scheduler.finish_run"),
+        patch("backend.app.backstage.scheduler.prune_old_runs"),
+    ):
         summary = _run_ebay_ingestion()
 
     assert isinstance(summary, EbayScheduledRunSummary)
@@ -231,15 +237,21 @@ def test_run_ebay_ingestion_skipped_when_disabled() -> None:
 
 
 def test_run_ebay_ingestion_skipped_missing_credentials() -> None:
-    settings_patch = patch(
-        "backend.app.backstage.scheduler.get_settings",
-        return_value=MagicMock(
-            ebay_scheduled_ingest_enabled=True,
-            ebay_app_id="",
-            ebay_cert_id="",
-        ),
+    settings = MagicMock(
+        ebay_scheduled_ingest_enabled=True,
+        ebay_app_id="",
+        ebay_cert_id="",
     )
-    with settings_patch:
+    with (
+        patch("backend.app.backstage.scheduler.get_settings", return_value=settings),
+        patch(
+            "backend.app.backstage.scheduler.SessionLocal",
+            return_value=_make_session_ctx(MagicMock()),
+        ),
+        patch("backend.app.backstage.scheduler.start_run", return_value="run-id"),
+        patch("backend.app.backstage.scheduler.finish_run"),
+        patch("backend.app.backstage.scheduler.prune_old_runs"),
+    ):
         summary = _run_ebay_ingestion()
 
     assert summary.run_status == "skipped"

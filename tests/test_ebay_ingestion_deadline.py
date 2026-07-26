@@ -173,6 +173,7 @@ class DeadlineTriggerTests(unittest.TestCase):
             patch("backend.app.backstage.scheduler.finish_run") as mock_finish_run,
             patch("backend.app.backstage.scheduler.prune_old_runs"),
             patch("backend.app.backstage.scheduler.get_tracked_pokemon_pools", return_value=[]),
+            _patch_settings(),
             patch("backend.app.ingestion.ebay_sold._fetch_finding_completed", return_value=[]),
             patch("backend.app.ingestion.ebay_sold.httpx.Client", return_value=_make_http_client_stub()),
         ):
