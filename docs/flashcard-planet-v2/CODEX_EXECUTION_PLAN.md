@@ -120,6 +120,34 @@ Verification evidence:
 
 Provider note: no production or staging provider call was made during this verification. The published browser fixture was locally persisted only after passing the same production validator.
 
+## Phase 6: Portfolio Foundation - Complete 2026-07-26
+
+Delivered:
+
+- Added authenticated portfolio purchase lots with quantity, unit cost in USD, and purchase date. Lot reads, updates, and deletes are scoped to the current user, and API responses do not expose account identifiers.
+- Added migration `0044`, the `portfolio_lots` model, user and asset relationships, positive-quantity and non-negative-cost constraints, and indexes for grouped positions and purchase-date ordering. User deletion cascades to private lots; asset deletion remains blocked while a lot references the asset.
+- Enforced the Free plan limit at 10 distinct card positions. Additional lots for an existing position remain allowed, while Plus and Pro accounts have unlimited positions. The limit is checked while holding a locked, freshly refreshed user row so concurrent requests and subscription changes cannot bypass or incorrectly retain the limit.
+- Added deterministic raw-card valuation using the latest active-source, USD, `market_segment=raw` observation. Missing prices remain explicitly unpriced and never become zero-valued observations.
+- Added grouped positions, cost basis, weighted average unit cost, priced-only market value and unrealized P&L, valuation coverage, and game allocation. Allocation ordering is stable and displayed percentages reconcile to exactly 100.00%.
+- Added versioned authenticated `GET /api/v1/portfolio`, `POST /api/v1/portfolio/lots`, `PATCH /api/v1/portfolio/lots/{lot_id}`, and `DELETE /api/v1/portfolio/lots/{lot_id}` routes with transaction ownership, rollback boundaries, neutral ownership-safe 404s, and a structured Free-limit 403 response.
+- Added the Portfolio workspace to the primary navigation. The frontend includes authenticated, loading, empty, error, and retry states; summary metrics; game allocation; grouped position and lot tables; and add, edit, and delete dialogs.
+- Added debounced card search with stale-response protection, client and server validation, mutation refresh handling, focus trapping, focus restoration, scroll locking, keyboard dismissal, and an upgrade path for the structured Free-limit response.
+- Added explicit `Gain`, `Loss`, `Flat`, and `Unpriced` labels so valuation state is not communicated by color alone. Small screens keep the page within the viewport and place the wide position table in its own horizontal scroll region.
+- Isolated three existing eBay scheduler tests from ambient settings and database state discovered during the complete-suite run. This changes test setup only and restores deterministic full-suite execution.
+
+Verification evidence:
+
+- The complete backend suite passed: 1651 passed, one environment-gated test skipped, and 23 warnings.
+- The complete frontend suite passed: 178 tests across 20 files.
+- The TypeScript production build passed with 1845 modules transformed.
+- Scoped ESLint passed for all 15 changed Portfolio frontend source and test files. Repository-wide ESLint still reports 17 existing errors in unrelated, unchanged modules; none are in the Portfolio change set.
+- A disposable PostgreSQL database stamped at the verified `0043` boundary completed `upgrade head`, `downgrade 0043`, and `upgrade head` for migration `0044`. Direct inspection confirmed two check constraints, two business indexes, and foreign keys to `users` and `assets`; the temporary database was dropped afterward. The local PostgreSQL installation cannot execute the complete historical chain from an empty database because it does not have the earlier `pgvector` extension installed.
+- Browser QA passed at 1440x900, 768x1024, 390x844, and 320x700. There was no page-level horizontal overflow; the tablet and mobile position tables exposed intentional internal horizontal scrolling; controls and headings did not overlap; and visible text did not overflow its controls.
+- Browser interaction checks confirmed initial card-search focus, dialog containment inside the mobile viewport, body scroll locking, forward and reverse focus looping, Escape dismissal, and focus restoration to Add lot.
+- Browser data checks confirmed the active Portfolio navigation state, visible text labels alongside positive P&L color, and an unpriced position rendered as `Unpriced` without `$0.00`.
+- Existing routes for the landing page, Market, Daily Reports, Sealed, Watchlist, and Pricing continued to mount without page-level horizontal overflow during the local acceptance run.
+- Security scans confirmed every portfolio route requires authentication, lot mutations include current-user ownership predicates, portfolio response contracts omit user identity fields, and no portfolio data was added to public Market or web routes.
+
 ## Engineering Guardrails
 
 - Follow `AGENTS.md`.
