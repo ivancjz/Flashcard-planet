@@ -60,6 +60,9 @@ class User(Base):
     watchlists: Mapped[list["Watchlist"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    portfolio_lots: Mapped[list["PortfolioLot"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
     alerts: Mapped[list["Alert"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
     def __init__(self, **kwargs):

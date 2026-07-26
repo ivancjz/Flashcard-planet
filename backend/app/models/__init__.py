@@ -9,6 +9,7 @@ from backend.app.models.graded_observation_audit import GradedObservationAudit
 from backend.app.models.listing_snapshot import ListingSnapshot
 from backend.app.models.scheduler_run_log import SchedulerRunLog
 from backend.app.models.observation_match_log import ObservationMatchLog
+from backend.app.models.portfolio_lot import PortfolioLot
 from backend.app.models.price_history import PriceHistory
 from backend.app.models.pro_waitlist import ProWaitlist
 from backend.app.models.subscription_event import SubscriptionEvent
@@ -19,4 +20,4 @@ from backend.app.models.predictions import MarketEvent, Prediction, PredictionAu
 from backend.app.models.tweet_keyword import TweetKeyword
 from backend.app.models.tweet_summary import TweetSummary
 
-__all__ = ["Alert", "AlertHistory", "Asset", "AssetSignal", "DailyMarketReport", "DailyReportIntelligence", "FailedBackfillQueue", "GradedObservationAudit", "ListingSnapshot", "MarketEvent", "ObservationMatchLog", "Prediction", "PredictionAudit", "PriceHistory", "ProWaitlist", "SchedulerRunLog", "SubscriptionEvent", "TweetKeyword", "TweetSummary", "UpgradeRequest", "User", "Watchlist"]
+__all__ = ["Alert", "AlertHistory", "Asset", "AssetSignal", "DailyMarketReport", "DailyReportIntelligence", "FailedBackfillQueue", "GradedObservationAudit", "ListingSnapshot", "MarketEvent", "ObservationMatchLog", "PortfolioLot", "Prediction", "PredictionAudit", "PriceHistory", "ProWaitlist", "SchedulerRunLog", "SubscriptionEvent", "TweetKeyword", "TweetSummary", "UpgradeRequest", "User", "Watchlist"]
