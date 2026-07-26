@@ -133,7 +133,7 @@ describe('NavBar nav-links overflow (Option C mobile scroll)', () => {
     // to the correct element — the CSS rule is locked by this structural assertion.
     expect(navLinks.className).toContain('nav-links')
     // nav items are direct children of nav-links and present in the DOM
-    const navItems = navLinks.querySelectorAll('[role="link"]')
+    const navItems = navLinks.querySelectorAll('a.nav-link')
     expect(navItems.length).toBeGreaterThanOrEqual(4) // Market, Sealed, Watchlist, Alerts
   })
 
@@ -142,5 +142,20 @@ describe('NavBar nav-links overflow (Option C mobile scroll)', () => {
 
     const dailyLink = screen.getByRole('link', { name: 'Daily' })
     expect(dailyLink).toBeTruthy()
+  })
+})
+
+describe('NavBar Portfolio navigation', () => {
+  it('links to Portfolio and marks it active on the Portfolio route', () => {
+    render(
+      <MemoryRouter initialEntries={['/portfolio']}>
+        <NavBar />
+      </MemoryRouter>,
+    )
+
+    const portfolioLink = screen.getByRole('link', { name: 'Portfolio' })
+    expect(portfolioLink.getAttribute('href')).toBe('/portfolio')
+    expect(portfolioLink.className).toContain('active')
+    expect(portfolioLink.getAttribute('aria-current')).toBe('page')
   })
 })

@@ -25,6 +25,7 @@ type PortfolioLotDialogProps =
       positionLimit: number | null
       busy: boolean
       error: string | null
+      upgradeUrl?: string | null
       onClose: () => void
       onSubmit: (input: PortfolioLotInput) => Promise<void>
     }
@@ -35,6 +36,7 @@ type PortfolioLotDialogProps =
       lot: PortfolioLot
       busy: boolean
       error: string | null
+      upgradeUrl?: string | null
       onClose: () => void
       onSubmit: (input: PortfolioLotPatch) => Promise<void>
     }
@@ -66,6 +68,7 @@ function PortfolioLotDialogContent(props: PortfolioLotDialogProps) {
     mode,
     busy,
     error,
+    upgradeUrl,
     onClose,
   } = props
   const editLot = mode === 'edit' ? props.lot : null
@@ -382,7 +385,10 @@ function PortfolioLotDialogContent(props: PortfolioLotDialogProps) {
                 </div>
 
                 <div className="portfolio-dialog-error" aria-live="polite">
-                  {error}
+                  {error && <span>{error}</span>}
+                  {upgradeUrl && (
+                    <a href={upgradeUrl}>View upgrade options</a>
+                  )}
                 </div>
                 <footer className="portfolio-dialog-actions">
                   <button
