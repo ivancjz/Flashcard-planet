@@ -3,12 +3,17 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import uuid
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock, call
 
+import pytest
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 
 TABLE_NAME = "portfolio_lots"
@@ -149,16 +154,93 @@ def test_model_defines_exact_types_defaults_and_nullability():
     assert all(not column.nullable for column in columns)
 
 
-def test_model_defines_bidirectional_relationships_with_parent_cascades():
+def test_model_defines_bidirectional_relationships_with_parent_delete_policies():
     model = _load_model()
     models_package = importlib.import_module("backend.app.models")
 
+    asset_lots = models_package.Asset.portfolio_lots.property
     assert model.user.property.back_populates == "portfolio_lots"
     assert model.asset.property.back_populates == "portfolio_lots"
     assert models_package.User.portfolio_lots.property.back_populates == "user"
-    assert models_package.Asset.portfolio_lots.property.back_populates == "asset"
+    assert asset_lots.back_populates == "asset"
     assert "delete-orphan" in models_package.User.portfolio_lots.property.cascade
-    assert "delete-orphan" in models_package.Asset.portfolio_lots.property.cascade
+    assert "delete" not in asset_lots.cascade
+    assert "delete-orphan" not in asset_lots.cascade
+    assert asset_lots.passive_deletes == "all"
+
+
+def test_deleting_asset_does_not_delete_portfolio_lots():
+    models_package = importlib.import_module("backend.app.models")
+    from backend.app.db.base import Base
+
+    original_jsonb_types = [
+        (column, column.type)
+        for table in Base.metadata.tables.values()
+        for column in table.columns
+        if isinstance(column.type, JSONB)
+    ]
+    for column, _original_type in original_jsonb_types:
+        column.type = sa.JSON()
+
+    engine = sa.create_engine("sqlite:///:memory:")
+
+    @sa.event.listens_for(engine, "connect")
+    def _enable_foreign_keys(dbapi_connection, _connection_record):
+        dbapi_connection.execute("PRAGMA foreign_keys=ON")
+
+    statements: list[str] = []
+
+    @sa.event.listens_for(engine, "before_cursor_execute")
+    def _capture_sql(
+        _connection,
+        _cursor,
+        statement,
+        _parameters,
+        _context,
+        _executemany,
+    ):
+        statements.append(statement)
+
+    try:
+        Base.metadata.create_all(engine)
+
+        with Session(engine) as session:
+            lot = models_package.PortfolioLot(
+                user=models_package.User(email="portfolio-owner@example.com"),
+                asset=models_package.Asset(
+                    name="Protected portfolio asset",
+                    external_id="protected-portfolio-asset",
+                ),
+                quantity=1,
+                unit_cost_usd=Decimal("10.00"),
+                purchased_on=date(2026, 7, 26),
+            )
+            session.add(lot)
+            session.commit()
+            lot_id = lot.id
+            asset = lot.asset
+            statements.clear()
+
+            session.delete(asset)
+            with pytest.raises(IntegrityError):
+                session.commit()
+
+            delete_statements = [
+                statement.casefold()
+                for statement in statements
+                if statement.lstrip().upper().startswith("DELETE")
+            ]
+            assert any("assets" in statement for statement in delete_statements)
+            assert all(
+                "portfolio_lots" not in statement for statement in delete_statements
+            )
+
+            session.rollback()
+            assert session.get(models_package.PortfolioLot, lot_id) is not None
+    finally:
+        engine.dispose()
+        for column, original_type in original_jsonb_types:
+            column.type = original_type
 
 
 def test_migration_has_expected_revision_metadata():
