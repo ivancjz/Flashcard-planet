@@ -13,6 +13,7 @@ from backend.app.api.routes.cards import router as cards_router
 from backend.app.api.routes.watchlists import router as watchlists_router
 from backend.app.api.routes.waitlist import router as waitlist_router
 from backend.app.api.routes.account import router as account_router
+from backend.app.api.routes.portfolio import router as portfolio_router
 from backend.app.api.routes.web import router as web_router
 from backend.app.api.routes.webhooks import router as webhooks_router
 from backend.app.api.routes.trial import router as trial_router
@@ -36,6 +37,7 @@ api_router.include_router(cards_router, prefix=settings.api_prefix)
 api_router.include_router(review_router, prefix=settings.api_prefix)
 api_router.include_router(waitlist_router, prefix=settings.api_prefix)
 api_router.include_router(account_router, prefix=settings.api_prefix)
+api_router.include_router(portfolio_router, prefix=settings.api_prefix)
 api_router.include_router(webhooks_router, prefix=settings.api_prefix)
 api_router.include_router(trial_router, prefix=settings.api_prefix)
 api_router.include_router(sealed_router)  # prefix already in router definition
