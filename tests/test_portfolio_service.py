@@ -5,7 +5,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.compiler import compiles
@@ -272,6 +272,68 @@ def test_current_plus_subscription_overrides_legacy_free(
     )
     seed_distinct_positions(sqlite_db, user)
     eleventh_asset = make_asset(sqlite_db, 11)
+
+    lot = create_portfolio_lot(sqlite_db, user, make_request(eleventh_asset))
+
+    assert lot.asset_id == eleventh_asset.id
+    assert distinct_position_count(sqlite_db, user) == 11
+
+
+def test_stale_plus_user_uses_refreshed_free_tier_for_position_limit(sqlite_db):
+    user = make_user(
+        sqlite_db,
+        tier="free",
+        subscription_tier="plus",
+        subscription_status="active",
+    )
+    seed_distinct_positions(sqlite_db, user)
+    eleventh_asset = make_asset(sqlite_db, 11)
+
+    sqlite_db.execute(
+        update(User)
+        .where(User.id == user.id)
+        .values(subscription_tier="free", subscription_status="inactive")
+        .execution_options(synchronize_session=False)
+    )
+
+    database_tier = sqlite_db.execute(
+        select(User.subscription_tier, User.subscription_status).where(
+            User.id == user.id
+        )
+    ).one()
+    assert database_tier == ("free", "inactive")
+    assert (user.subscription_tier, user.subscription_status) == ("plus", "active")
+
+    with pytest.raises(PortfolioPositionLimitError):
+        create_portfolio_lot(sqlite_db, user, make_request(eleventh_asset))
+
+    assert distinct_position_count(sqlite_db, user) == 10
+
+
+def test_stale_free_user_uses_refreshed_plus_tier_for_position_limit(sqlite_db):
+    user = make_user(
+        sqlite_db,
+        tier="free",
+        subscription_tier="free",
+        subscription_status="inactive",
+    )
+    seed_distinct_positions(sqlite_db, user)
+    eleventh_asset = make_asset(sqlite_db, 11)
+
+    sqlite_db.execute(
+        update(User)
+        .where(User.id == user.id)
+        .values(subscription_tier="plus", subscription_status="active")
+        .execution_options(synchronize_session=False)
+    )
+
+    database_tier = sqlite_db.execute(
+        select(User.subscription_tier, User.subscription_status).where(
+            User.id == user.id
+        )
+    ).one()
+    assert database_tier == ("plus", "active")
+    assert (user.subscription_tier, user.subscription_status) == ("free", "inactive")
 
     lot = create_portfolio_lot(sqlite_db, user, make_request(eleventh_asset))
 

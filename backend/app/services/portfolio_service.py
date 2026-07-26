@@ -66,7 +66,10 @@ def create_portfolio_lot(
         )
 
     locked_user = db.scalar(
-        select(User).where(User.id == current_user.id).with_for_update()
+        select(User)
+        .where(User.id == current_user.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if locked_user is None:
         raise PortfolioLotNotFoundError("Portfolio owner was not found.")
